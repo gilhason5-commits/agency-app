@@ -30,9 +30,19 @@ function parseDate(v) {
   if (!isNaN(dIso) && s.includes("T")) return dIso;
 
   const sl = s.split("/");
-  if (sl.length === 3) { const d = new Date(+sl[2], +sl[1] - 1, +sl[0]); return isNaN(d) ? null : d; }
+  if (sl.length === 3) {
+    let yr = +sl[2];
+    if (yr < 100) yr += 2000; // 26 → 2026
+    const d = new Date(yr, +sl[1] - 1, +sl[0]);
+    return isNaN(d) ? null : d;
+  }
   const ds = s.split("-");
-  if (ds.length === 3 && ds[0].length === 4) { const d = new Date(+ds[0], +ds[1] - 1, parseInt(ds[2], 10)); return isNaN(d) ? null : d; }
+  if (ds.length === 3) {
+    let yr = +ds[0];
+    if (yr < 100) yr += 2000;
+    const d = new Date(yr, +ds[1] - 1, parseInt(ds[2], 10));
+    return isNaN(d) ? null : d;
+  }
   return null;
 }
 function fmtD(d) { if (!d) return ""; return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`; }
@@ -138,14 +148,20 @@ function mapInc(row, i) {
   const typeRaw = row[7] || "";
   const incomeType = (typeRaw instanceof Date || (typeof typeRaw === "number" && typeRaw < 2)) ? "" : typeRaw;
 
+  const rawILS = +row[6] || 0;
+  const rawUSD = +row[5] || 0;
+  const rate = +row[4] || 0;
+  // If ILS is missing but USD exists, compute ILS from USD × rate
+  const computedILS = rawILS > 0 ? rawILS : (rawUSD > 0 && rate > 0 ? Math.round(rawUSD * rate) : 0);
+
   return {
     id: `I-${i}-${Date.now()}`,
     _rowIndex: i + 2,
     chatterName: row[1] || "", modelName: row[2] || "", clientName: row[3] || "",
-    usdRate: +row[4] || 0,
-    amountUSD: cancelled ? 0 : (+row[5] || 0),
-    amountILS: cancelled ? 0 : (+row[6] || 0),
-    originalAmount: +row[6] || 0,
+    usdRate: rate,
+    amountUSD: cancelled ? 0 : rawUSD,
+    amountILS: cancelled ? 0 : computedILS,
+    originalAmount: computedILS,
     incomeType, platform: row[8] || "",
     date: parseDate(row[9]), hour,
     notes: row[11] || "", verified: row[12] || "", shiftLocation: row[13] || "",
@@ -192,8 +208,8 @@ function mapHistory(row, i) {
 const IncSvc = {
   async fetchAll() {
     const rows = await API.read("sales_report");
-    // Only return rows that have an actual recorded ILS value, whether cancelled or not.
-    return rows.slice(1).map((r, i) => mapInc(r, i)).filter(r => r.originalAmount > 0);
+    // Include rows with ILS or USD amounts
+    return rows.slice(1).map((r, i) => mapInc(r, i)).filter(r => r.originalAmount > 0 || r.amountUSD > 0);
   },
   async togglePaidToClient(incRow) {
     const newVal = incRow.paidToClient ? "" : "V";
