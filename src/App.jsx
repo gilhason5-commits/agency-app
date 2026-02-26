@@ -133,6 +133,11 @@ const API = {
 // Columns: A=Timestamp(0), B=chatter(1), C=model(2), D=client(3), E=rate(4), F=usd(5), G=ils(6), H=type(7), I=platform(8), J=date(9), K=hour(10), L=notes(11), M=verified(12), N=location(13), O=paidToClient(14), P=cancelled(15)
 function mapInc(row, i) {
   const cancelled = String(row[15]).trim() === "V" || false;
+  const hourRaw = row[10] || "";
+  const hour = (typeof hourRaw === "string" && hourRaw.includes("T")) ? hourRaw.split("T")[1].slice(0, 5) : hourRaw;
+  const typeRaw = row[7] || "";
+  const incomeType = (typeRaw instanceof Date || (typeof typeRaw === "number" && typeRaw < 2)) ? "" : typeRaw;
+
   return {
     id: `I-${i}-${Date.now()}`,
     _rowIndex: i + 2,
@@ -141,10 +146,10 @@ function mapInc(row, i) {
     amountUSD: cancelled ? 0 : (+row[5] || 0),
     amountILS: cancelled ? 0 : (+row[6] || 0),
     originalAmount: +row[6] || 0,
-    incomeType: row[7] || "", platform: row[8] || "",
-    date: parseDate(row[9]), hour: row[10] || "",
+    incomeType, platform: row[8] || "",
+    date: parseDate(row[9]), hour,
     notes: row[11] || "", verified: row[12] || "", shiftLocation: row[13] || "",
-    paidToClient: String(row[14]).trim() === "V", // The new V toggle marker
+    paidToClient: String(row[14]).trim() === "V",
     cancelled
   };
 }
@@ -402,7 +407,7 @@ function Prov({ children }) {
   const [genParams, setGenParams] = useState(DEFAULT_PARAMS);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [connected, setConnected] = useState(false);
+  const [connected, setConnected] = useState(() => localStorage.getItem("AGENCY_CONNECTED") === "true");
   const [demo, setDemo] = useState(false);
   const [rv, setRv] = useState(0);
   const [loadStep, setLoadStep] = useState("");
@@ -418,13 +423,21 @@ function Prov({ children }) {
       setLoadStep(`נטענו ${inc.length} שורות הכנסה`);
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
       setConnected(true);
-      setLoadStep("");
+      localStorage.setItem("AGENCY_CONNECTED", "true");
+      setTimeout(() => setLoadStep(""), 3000);
     } catch (e) {
       setError(e.message);
       setLoadStep("");
     }
     setLoading(false);
   }, [year]);
+
+  useEffect(() => {
+    if (demo) loadDemo();
+    else if (connected || !import.meta.env.VITE_USE_AUTH || localStorage.getItem("AGENCY_USER")) {
+      load();
+    }
+  }, [demo, load]);
 
   useEffect(() => {
     // Load local DBs automatically
