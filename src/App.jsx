@@ -450,7 +450,15 @@ function Prov({ children }) {
   };
   const logout = () => { setUser(null); localStorage.removeItem("AGENCY_USER"); };
 
-  return <Ctx.Provider value={{ year, month, setYear, setMonth, view, setView, page, setPage, income, setIncome, expenses, setExpenses, models, setModels, history, setHistory, demo, setDemo, genParams, setGenParams, connected, user, login, logout }}>{children}</Ctx.Provider>;
+  const val = useMemo(() => ({
+    year, setYear, month, setMonth, view, setView, page, setPage,
+    income, setIncome, expenses, setExpenses, models, setModels,
+    history, setHistory, genParams, setGenParams, loading, error,
+    connected, setConnected, demo, setDemo, load, loadDemo, rv, updRate,
+    loadStep, user, login, logout
+  }), [year, month, view, page, income, expenses, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user]);
+
+  return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
 
 // ═══════════════════════════════════════════════════════
