@@ -267,7 +267,7 @@ const ExpSvc = {
   },
 };
 
-const GROQ_API_KEY = ""; // USER: Please enter your Groq API key here
+const GROQ_API_KEY = import.meta.env.VITE_GROK_API_KEY || "";
 
 const GroqSvc = {
   async pdfToImage(file) {
@@ -298,13 +298,13 @@ const GroqSvc = {
   },
 
   async scanReceipt(base64Image) {
-    if (!GROQ_API_KEY) throw new Error("מפתח API של Groq חסר. אנא הגדר אותו בקוד.");
+    if (!GROQ_API_KEY) throw new Error("מפתח API חסר. אנא הגדר VITE_GROK_API_KEY ב-.env או ב-Vercel.");
 
     // Remove data:image/...;base64, prefix if present
     const cleanBase64 = base64Image.split(",")[1] || base64Image;
 
     const body = {
-      model: "llama-3.2-11b-vision-preview",
+      model: "grok-2-vision-latest",
       messages: [
         {
           role: "user",
@@ -325,7 +325,7 @@ const GroqSvc = {
       response_format: { type: "json_object" }
     };
 
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const res = await fetch("https://api.x.ai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${GROQ_API_KEY}`,
@@ -336,7 +336,7 @@ const GroqSvc = {
 
     if (!res.ok) {
       const err = await res.json();
-      throw new Error(err.error?.message || "שגיאת תקשורת עם Groq");
+      throw new Error(err.error?.message || "שגיאת תקשורת עם xAI");
     }
 
     const data = await res.json();
@@ -345,6 +345,7 @@ const GroqSvc = {
     } catch (e) {
       throw new Error("לא ניתן היה לפענח את תוצאות הסריקה");
     }
+
   }
 };
 const ModelSvc = {
