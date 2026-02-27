@@ -1992,16 +1992,7 @@ function ApprovalsPage() {
   const approveAll = async () => {
     if (!confirm(`לאשר את כל ${pendingAll.length} העסקאות הממתינות?`)) return;
     const ids = new Set(pendingAll.map(p => p.id));
-    // Update API for rows with valid indices
-    for (const row of pendingAll) {
-      if (!demo && row._rowIndex > 0) {
-        try {
-          const rowData = Array(16).fill(null);
-          rowData[12] = "V";
-          await API.update("sales_report", row._rowIndex, rowData);
-        } catch (e) { console.error("Approve error for", row.id, e); }
-      }
-    }
+    // Update local state immediately
     setIncome(prev => prev.map(r => ids.has(r.id) ? { ...r, verified: "V" } : r));
   };
 
