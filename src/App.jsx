@@ -1275,7 +1275,9 @@ function RecordExpensePage({ editMode, onDone }) {
     const exp = { ...form, amount: +form.amount, source: "ידני", receiptImage: null };
     if (editMode) { const updated = { ...editMode, ...exp, date: new Date(form.date) }; if (!demo) try { await ExpSvc.edit(updated); } catch (e) { setErr(e.message); setSaving(false); return; } setExpenses(expenses.map(x => x.id === editMode.id ? updated : x)); setSaving(false); if (onDone) onDone(); return; }
     if (!demo) try { await ExpSvc.add(exp); } catch (e) { setErr(e.message); setSaving(false); return; }
-    const d = new Date(form.date); setExpenses([...expenses, { id: `E${Date.now()}`, ...exp, date: d, year: d.getFullYear(), month: d.getMonth() + 1, _rowIndex: 0 }]); setSaving(false); setSaved(true);
+    const d = new Date(form.date);
+    setExpenses(prev => [...prev, { id: `E${Date.now()}`, ...exp, date: d, year: d.getFullYear(), month: d.getMonth() + 1, classification: "", docType: "הזנה ידנית", _rowIndex: 0 }]);
+    setSaving(false); setSaved(true);
   };
 
   if (editMode && saved) { if (onDone) onDone(); return null; }
@@ -1286,7 +1288,7 @@ function RecordExpensePage({ editMode, onDone }) {
   const handleDeleteManual = async (e) => {
     if (!confirm("למחוק הוצאה זו?")) return;
     if (!demo) try { await ExpSvc.remove(e); } catch (err) { alert(err.message); return; }
-    setExpenses(expenses.filter(x => x.id !== e.id));
+    setExpenses(prev => prev.filter(x => x.id !== e.id));
   };
 
   if (!mode && !editMode) return <div style={{ direction: "rtl", maxWidth: 700, margin: "0 auto", padding: w < 768 ? "0 8px" : 0 }}>
