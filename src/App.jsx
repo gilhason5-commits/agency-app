@@ -1721,6 +1721,32 @@ function ChatterPortal() {
   const totalApproved = approved.reduce((s, r) => s + r.amountILS, 0);
   const totalPending = pending.reduce((s, r) => s + r.amountILS, 0);
 
+  // Last month income for this chatter
+  const prevMonth = month === 0 ? 11 : month - 1;
+  const prevYear = month === 0 ? year - 1 : year;
+  const lastMonthIncome = useMemo(() =>
+    income.filter(r => r.chatterName === chatterName && r.date && r.date.getFullYear() === prevYear && r.date.getMonth() === prevMonth),
+    [income, chatterName, prevYear, prevMonth]);
+  const lastMonthTotal = lastMonthIncome.reduce((s, r) => s + r.amountILS, 0);
+  const daysInLastMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
+  const lastMonthDailyAvg = daysInLastMonth > 0 ? Math.round(lastMonthTotal / daysInLastMonth) : 0;
+
+  // Current month progress
+  const currentMonthTotal = myIncome.reduce((s, r) => s + r.amountILS, 0);
+  const daysInCurrentMonth = new Date(year, month + 1, 0).getDate();
+  const daysSoFar = Math.min(new Date().getDate(), daysInCurrentMonth);
+
+  // Target goals based on last month 
+  const targets = [
+    { label: "יעד 10%", pct: 10, color: "#22c55e" },
+    { label: "יעד 20%", pct: 20, color: "#f59e0b" },
+    { label: "יעד 30%", pct: 30, color: "#ef4444" },
+  ].map(t => {
+    const goal = Math.round(lastMonthTotal * (1 + t.pct / 100));
+    const progress = goal > 0 ? Math.min(Math.round((currentMonthTotal / goal) * 100), 100) : 0;
+    return { ...t, goal, progress };
+  });
+
   // Unique client names from all income
   const clientNames = useMemo(() => [...new Set(income.map(r => r.modelName).filter(Boolean))].sort(), [income]);
 
@@ -1778,11 +1804,57 @@ function ChatterPortal() {
 
     <div style={{ maxWidth: 700, margin: "0 auto", padding: w < 768 ? "16px 10px" : "24px" }}>
       {/* Summary Cards */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <Stat icon="✅" title="מאושרות" value={fmtC(totalApproved)} sub={`${approved.length} עסקאות`} color={C.grn} />
         <Stat icon="⏳" title="ממתינות" value={fmtC(totalPending)} sub={`${pending.length} עסקאות`} color={C.ylw} />
-        <Stat icon="💰" title="סה״כ" value={fmtC(totalApproved + totalPending)} sub={`${myIncome.length} עסקאות`} color={C.pri} />
+        <Stat icon="💰" title="סה״כ החודש" value={fmtC(currentMonthTotal)} sub={`${myIncome.length} עסקאות`} color={C.pri} />
       </div>
+
+      {/* Last Month Context + Targets */}
+      <Card style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, margin: 0 }}>🎯 יעדים לחודש הנוכחי</h3>
+          <div style={{ display: "flex", gap: 16, fontSize: 12, color: C.dim }}>
+            <span>📊 ממוצע יומי חודש קודם: <strong style={{ color: C.pri }}>{fmtC(lastMonthDailyAvg)}</strong></span>
+            <span>📅 סה"כ חודש קודם: <strong style={{ color: C.priL }}>{fmtC(lastMonthTotal)}</strong></span>
+          </div>
+        </div>
+
+        {lastMonthTotal === 0 ? (
+          <div style={{ color: C.mut, fontSize: 13, textAlign: "center", padding: 16 }}>אין נתונים מחודש קודם לחישוב יעדים</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {targets.map((t, i) => (
+              <div key={i}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: t.color }}>{t.label}</span>
+                    <span style={{ fontSize: 11, color: C.dim }}>+{t.pct}% מחודש קודם</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: C.txt }}>{fmtC(currentMonthTotal)}</span>
+                    <span style={{ fontSize: 11, color: C.dim }}>/</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: t.color }}>{fmtC(t.goal)}</span>
+                  </div>
+                </div>
+                <div style={{ background: C.bg, borderRadius: 8, height: 28, overflow: "hidden", position: "relative", border: `1px solid ${C.bdr}` }}>
+                  <div style={{
+                    height: "100%", borderRadius: 8, background: `linear-gradient(90deg, ${t.color}44, ${t.color})`,
+                    width: `${t.progress}%`, transition: "width 0.5s ease-in-out", minWidth: t.progress > 0 ? 20 : 0
+                  }} />
+                  <div style={{
+                    position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 13, fontWeight: 700, color: t.progress >= 50 ? "#fff" : C.txt
+                  }}>
+                    {t.progress}%
+                    {t.progress >= 100 && " 🎉"}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       {/* Income Entry Form */}
       <Card style={{ marginBottom: 20 }}>
