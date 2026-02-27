@@ -573,7 +573,7 @@ const TT = ({ active, payload, label }) => { if (!active || !payload?.length) re
 // ═══════════════════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════════════════
-const NAV = [{ key: "dashboard", label: "דאשבורד", icon: "📊" }, { key: "income", label: "הכנסות", icon: "💰" }, { key: "expenses", label: "הוצאות", icon: "💳" }, { key: "chatters", label: "צ'אטרים", icon: "👥" }, { key: "clients", label: "לקוחות", icon: "👩" }, { key: "targets", label: "יעדים", icon: "🎯" }, { key: "record", label: "תיעוד", icon: "📱" }, { key: "generator", label: "מחולל תכנים", icon: "✨" }];
+const NAV = [{ key: "dashboard", label: "דאשבורד", icon: "📊" }, { key: "income", label: "הכנסות", icon: "💰" }, { key: "expenses", label: "הוצאות", icon: "💳" }, { key: "chatters", label: "צ'אטרים", icon: "👥" }, { key: "clients", label: "לקוחות", icon: "👩" }, { key: "targets", label: "יעדים", icon: "🎯" }, { key: "record", label: "תיעוד הוצאות", icon: "📱" }, { key: "generator", label: "מחולל תכנים", icon: "✨" }];
 
 function Sidebar({ current, onNav }) {
   const { logout } = useApp();
