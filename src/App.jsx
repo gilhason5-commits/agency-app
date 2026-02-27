@@ -1767,7 +1767,7 @@ function ChatterPortal() {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <select value={month} onChange={e => setMonth(+e.target.value)} style={{ background: C.card, color: C.txt, border: `1px solid ${C.bdr}`, borderRadius: 6, padding: "4px 8px", fontSize: 12 }}>
-          {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+          {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
         </select>
         <select value={year} onChange={e => setYear(+e.target.value)} style={{ background: C.card, color: C.txt, border: `1px solid ${C.bdr}`, borderRadius: 6, padding: "4px 8px", fontSize: 12 }}>
           {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
