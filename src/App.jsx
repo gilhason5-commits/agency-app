@@ -270,6 +270,33 @@ const ExpSvc = {
 const GROQ_API_KEY = ""; // USER: Please enter your Groq API key here
 
 const GroqSvc = {
+  async pdfToImage(file) {
+    // Dynamically load PDF.js from CDN if not already loaded
+    if (!window.pdfjsLib) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+        script.onload = () => {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+          resolve();
+        };
+        script.onerror = () => reject(new Error("Failed to load PDF.js"));
+        document.head.appendChild(script);
+      });
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const page = await pdf.getPage(1);
+    const scale = 2; // Higher resolution for better OCR
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext("2d");
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    return canvas.toDataURL("image/jpeg", 0.9);
+  },
+
   async scanReceipt(base64Image) {
     if (!GROQ_API_KEY) throw new Error("מפתח API של Groq חסר. אנא הגדר אותו בקוד.");
 
@@ -1019,24 +1046,33 @@ function RecordExpensePage({ editMode, onDone }) {
     const file = e.target.files[0];
     if (!file) return;
     setScaning(true); setErr("");
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const res = await GroqSvc.scanReceipt(evt.target.result);
-        if (res) {
-          setForm(f => ({
-            ...f,
-            name: res.Provider || f.name,
-            amount: String(res.Amount || f.amount),
-            category: EXPENSE_CATEGORIES.find(c => c === res.Category) || f.category,
-            date: res.Date ? res.Date.split("/").reverse().join("-") : f.date
-          }));
-          setMode("manual");
-        }
-      } catch (e) { setErr("סריקה נכשלה: " + e.message); }
-      finally { setScaning(false); }
-    };
-    reader.readAsDataURL(file);
+    try {
+      let base64;
+      if (file.type === "application/pdf") {
+        // Convert PDF first page to image
+        base64 = await GroqSvc.pdfToImage(file);
+      } else {
+        // Read image as data URL
+        base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (evt) => resolve(evt.target.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+      const res = await GroqSvc.scanReceipt(base64);
+      if (res) {
+        setForm(f => ({
+          ...f,
+          name: res.Provider || f.name,
+          amount: String(res.Amount || f.amount),
+          category: EXPENSE_CATEGORIES.find(c => c === res.Category) || f.category,
+          date: res.Date ? res.Date.split("/").reverse().join("-") : f.date
+        }));
+        setMode("manual");
+      }
+    } catch (e) { setErr("סריקה נכשלה: " + e.message); }
+    finally { setScaning(false); }
     e.target.value = "";
   };
 
@@ -1059,7 +1095,8 @@ function RecordExpensePage({ editMode, onDone }) {
       <Card onClick={() => scanRef.current?.click()} style={{ textAlign: "center", padding: 28, position: "relative" }}>
         {scaning && <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, color: "#fff", fontWeight: 700 }}>⏳ סורק...</div>}
         <div style={{ fontSize: 44, marginBottom: 8 }}>📸</div><div style={{ fontSize: 15, fontWeight: 600, color: C.txt }}>סרוק קבלה (Groq OCR)</div>
-        <input type="file" accept="image/*" capture="environment" ref={scanRef} onChange={handleScan} style={{ display: "none" }} />
+        <div style={{ fontSize: 11, color: C.mut, marginTop: 4 }}>תמונה או PDF</div>
+        <input type="file" accept="image/*,.pdf,application/pdf" capture="environment" ref={scanRef} onChange={handleScan} style={{ display: "none" }} />
       </Card>
     </div>
   </div>;
