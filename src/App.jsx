@@ -1148,11 +1148,31 @@ function RecordExpensePage({ editMode, onDone }) {
 // TABS: CLIENTS (MODELS) & PARAMETERS
 // ═══════════════════════════════════════════════════════
 function GenClientsTab() {
-  const { models, setModels, demo, genParams } = useApp();
+  const { models, setModels, demo, genParams, income } = useApp();
   const [editMod, setEditMod] = useState(null);
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const [syncing, setSyncing] = useState(false);
+
+  const syncFromIncome = async () => {
+    const existingNames = new Set(models.map(m => m.name.trim().toLowerCase()));
+    const clientNames = [...new Set(income.map(r => r.modelName).filter(Boolean))];
+    const newNames = clientNames.filter(n => !existingNames.has(n.trim().toLowerCase()));
+    if (newNames.length === 0) { alert("כל הלקוחות כבר קיימים במחולל."); return; }
+    if (!confirm(`להוסיף ${newNames.length} לקוחות חדשים מנתוני ההכנסות?\n\n${newNames.join(", ")}`)) return;
+    setSyncing(true);
+    const added = [];
+    for (const name of newNames) {
+      try {
+        const m = await ModelSvc.add({ name, specialties: "", restrictions: "", notes: "" });
+        added.push(m);
+      } catch (e) { console.error("Failed to add:", name, e); }
+    }
+    setModels([...models, ...added]);
+    setSyncing(false);
+    alert(`נוספו ${added.length} לקוחות חדשים!`);
+  };
 
   const startEdit = (m) => {
     setEditMod(m);
@@ -1189,12 +1209,15 @@ function GenClientsTab() {
   const labelStyle = { color: C.dim, fontSize: 12, display: "block", marginBottom: 4 };
 
   return <div style={{ direction: "rtl" }}>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
       <h3 style={{ color: C.txt, fontSize: 18, fontWeight: 700, margin: 0 }}>👩 ניהול לקוחות במחולל</h3>
-      <Btn onClick={() => startEdit(null)} variant="success">➕ לקוח חדש</Btn>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn onClick={syncFromIncome} variant="ghost" disabled={syncing}>{syncing ? "⏳ מייבא..." : "🔄 ייבוא מהכנסות"}</Btn>
+        <Btn onClick={() => startEdit(null)} variant="success">➕ לקוח חדש</Btn>
+      </div>
     </div>
 
-    {models.length === 0 ? <div style={{ color: C.mut, padding: 20, textAlign: "center", border: `1px dashed ${C.bdr}`, borderRadius: 8 }}>אין לקוחות עדיין במחולל.</div> :
+    {models.length === 0 ? <div style={{ color: C.mut, padding: 20, textAlign: "center", border: `1px dashed ${C.bdr}`, borderRadius: 8 }}>אין לקוחות עדיין במחולל. לחץ "ייבוא מהכנסות" לייבא אוטומטית.</div> :
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {models.map(m => <Card key={m.id} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
