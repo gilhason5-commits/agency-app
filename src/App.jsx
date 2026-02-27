@@ -1088,17 +1088,36 @@ function RecordExpensePage({ editMode, onDone }) {
   if (editMode && saved) { if (onDone) onDone(); return null; }
   if (saved) return <div style={{ direction: "rtl", textAlign: "center", padding: 40 }}><div style={{ fontSize: 56, marginBottom: 12 }}>✅</div><h2 style={{ color: C.grn, marginBottom: 16, fontSize: 18 }}>נשמר!</h2><div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}><Btn onClick={() => { setSaved(false); setMode(null); setForm({ category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true }); }}>➕ עוד</Btn><Btn variant="ghost" onClick={() => setPage("dashboard")}>🏠</Btn><Btn variant="ghost" onClick={() => setPage("expenses")}>💳</Btn></div></div>;
 
-  if (!mode && !editMode) return <div style={{ direction: "rtl", maxWidth: 400, margin: "0 auto", padding: w < 768 ? "0 8px" : 0 }}>
+  const manualExpenses = useMemo(() => expenses.filter(e => e.source === "ידני").sort((a, b) => (b.date || 0) - (a.date || 0)), [expenses]);
+  const manualTotal = manualExpenses.reduce((s, e) => s + e.amount, 0);
+  const handleDeleteManual = async (e) => {
+    if (!confirm("למחוק הוצאה זו?")) return;
+    if (!demo) try { await ExpSvc.remove(e); } catch (err) { alert(err.message); return; }
+    setExpenses(expenses.filter(x => x.id !== e.id));
+  };
+
+  if (!mode && !editMode) return <div style={{ direction: "rtl", maxWidth: 700, margin: "0 auto", padding: w < 768 ? "0 8px" : 0 }}>
     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}><Btn variant="ghost" size="sm" onClick={() => setPage("expenses")}>→</Btn><h2 style={{ color: C.txt, fontSize: 18, fontWeight: 700, margin: 0 }}>📱 תיעוד הוצאה</h2></div>
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <Card onClick={() => setMode("manual")} style={{ textAlign: "center", padding: 28 }}><div style={{ fontSize: 44, marginBottom: 8 }}>✍️</div><div style={{ fontSize: 15, fontWeight: 600, color: C.txt }}>הזנה ידנית</div></Card>
-      <Card onClick={() => scanRef.current?.click()} style={{ textAlign: "center", padding: 28, position: "relative" }}>
+    <div style={{ display: "flex", gap: 14, marginBottom: 24, flexWrap: "wrap" }}>
+      <Card onClick={() => setMode("manual")} style={{ textAlign: "center", padding: 28, flex: 1, minWidth: 160 }}><div style={{ fontSize: 44, marginBottom: 8 }}>✍️</div><div style={{ fontSize: 15, fontWeight: 600, color: C.txt }}>הזנה ידנית</div></Card>
+      <Card onClick={() => scanRef.current?.click()} style={{ textAlign: "center", padding: 28, flex: 1, minWidth: 160, position: "relative" }}>
         {scaning && <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, color: "#fff", fontWeight: 700 }}>⏳ סורק...</div>}
         <div style={{ fontSize: 44, marginBottom: 8 }}>📸</div><div style={{ fontSize: 15, fontWeight: 600, color: C.txt }}>סרוק קבלה (Groq OCR)</div>
         <div style={{ fontSize: 11, color: C.mut, marginTop: 4 }}>תמונה או PDF</div>
         <input type="file" accept="image/*,.pdf,application/pdf" capture="environment" ref={scanRef} onChange={handleScan} style={{ display: "none" }} />
       </Card>
     </div>
+    {err && <div style={{ marginBottom: 12, padding: 10, borderRadius: 8, background: `${C.red}22`, color: C.red, fontSize: 12 }}>{err}</div>}
+    <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 12 }}>📋 הוצאות שהוזנו ידנית ({manualExpenses.length})</h3>
+    {manualExpenses.length === 0 ? <Card style={{ textAlign: "center", padding: 24 }}><div style={{ color: C.mut, fontSize: 13 }}>עדיין לא הוזנו הוצאות ידניות</div></Card> :
+      <DT textSm columns={[
+        { label: "תאריך", render: r => fmtD(r.date) },
+        { label: "שם", key: "name" },
+        { label: "קטגוריה", key: "category" },
+        { label: "סכום", render: r => <span style={{ color: C.red }}>{fmtC(r.amount)}</span> },
+        { label: "שילם", key: "paidBy" },
+        { label: "", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => { setMode("manual"); setForm({ category: r.category, name: r.name, amount: String(r.amount), date: r.date ? `${r.date.getFullYear()}-${String(r.date.getMonth() + 1).padStart(2, "0")}-${String(r.date.getDate()).padStart(2, "0")}` : "", hour: r.hour || "12:00", paidBy: r.paidBy, vatRecognized: r.vatRecognized, taxRecognized: r.taxRecognized }); }}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => handleDeleteManual(r)} style={{ color: C.red }}>🗑️</Btn></div> }
+      ]} rows={manualExpenses} footer={["סה״כ", "", "", fmtC(manualTotal), "", ""]} />}
   </div>;
 
   const inputStyle = { width: "100%", padding: w < 768 ? "14px 12px" : "10px 12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 10, color: C.txt, fontSize: w < 768 ? 16 : 14, outline: "none", boxSizing: "border-box" };
