@@ -247,6 +247,21 @@ const IncSvc = {
     await API.update("sales_report", incRow._rowIndex, rowData);
     // To retain the history and calculate 0 correctly in zero out amountILS, we also alter the client-side state
     return { ...incRow, cancelled: true, amountILS: 0, amountUSD: 0 };
+  },
+  async uncancelTransaction(incRow) {
+    if (!incRow._rowIndex) return { ...incRow, cancelled: false, amountILS: incRow.originalAmount, amountUSD: incRow.originalAmount };
+    const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
+    const rowData = [
+      "", incRow.chatterName, incRow.modelName, incRow.clientName,
+      incRow.usdRate, incRow.amountUSD || incRow.originalAmount, incRow.originalAmount,
+      incRow.incomeType, incRow.platform,
+      fmtD(d), incRow.hour,
+      incRow.notes, incRow.verified, incRow.shiftLocation,
+      incRow.paidToClient ? "V" : "",
+      "" // 15: cancelled = empty (un-cancel)
+    ];
+    await API.update("sales_report", incRow._rowIndex, rowData);
+    return { ...incRow, cancelled: false, amountILS: incRow.originalAmount };
   }
 };
 const ExpSvc = {
@@ -846,11 +861,19 @@ function IncPage() {
     } catch (e) { alert("שגיאה: " + e.message); }
   };
   const cancelTx = async (r) => {
-    if (!confirm("לבטל עסקה זו?")) return;
+    const isCancelled = r.cancelled;
+    if (!isCancelled && !confirm("לבטל עסקה זו?")) return;
+    if (isCancelled && !confirm("לשחזר עסקה זו?")) return;
     try {
-      const nr = await IncSvc.cancelTransaction(r);
-      setIncome(prev => prev.map(x => x.id === r.id ? nr : x));
-    } catch (e) { alert("שגיאה במחיקה: " + e.message); }
+      if (isCancelled) {
+        // Un-cancel: restore
+        const nr = await IncSvc.uncancelTransaction(r);
+        setIncome(prev => prev.map(x => x.id === r.id ? nr : x));
+      } else {
+        const nr = await IncSvc.cancelTransaction(r);
+        setIncome(prev => prev.map(x => x.id === r.id ? nr : x));
+      }
+    } catch (e) { alert("שגיאה: " + e.message); }
   };
   const chartData = useMemo(() => {
     if (view === "yearly") return MONTHS_HE.map((m, i) => ({ name: MONTHS_SHORT[i], value: data.filter(r => r.date && r.date.getMonth() === i).reduce((s, r) => s + r.amountILS, 0) }));
@@ -867,7 +890,7 @@ function IncPage() {
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✔️" : "❌"}</Btn> }, { label: "סכום", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }, { label: "ביטול", render: r => r.cancelled ? <span style={{ color: C.dim, fontSize: 11 }}>בוטל</span> : <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: C.red }}>❌</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", fmtC(total), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(total)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✔️" : "—"}</Btn> }, { label: "סכום", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.dim }}>{r.cancelled ? "↩️ שחזר" : "—"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", fmtC(total), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(total)]} />}
   </div>;
 }
 
