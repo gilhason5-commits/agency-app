@@ -1105,7 +1105,7 @@ function RecordExpensePage({ editMode, onDone }) {
         {scaning && <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10, color: "#fff", fontWeight: 700 }}>⏳ סורק...</div>}
         <div style={{ fontSize: 44, marginBottom: 8 }}>📸</div><div style={{ fontSize: 15, fontWeight: 600, color: C.txt }}>סרוק קבלה (Groq OCR)</div>
         <div style={{ fontSize: 11, color: C.mut, marginTop: 4 }}>תמונה או PDF</div>
-        <input type="file" accept="image/*,.pdf,application/pdf" capture="environment" ref={scanRef} onChange={handleScan} style={{ display: "none" }} />
+        <input type="file" accept="image/*,.pdf,application/pdf" ref={scanRef} onChange={handleScan} style={{ display: "none" }} />
       </Card>
     </div>
     {err && <div style={{ marginBottom: 12, padding: 10, borderRadius: 8, background: `${C.red}22`, color: C.red, fontSize: 12 }}>{err}</div>}
