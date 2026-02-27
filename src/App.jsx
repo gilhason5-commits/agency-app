@@ -499,10 +499,42 @@ function Prov({ children }) {
     setIncome(di); setExpenses(de); setConnected(true); setRv(v => v + 1);
   }, [year]);
 
-  const [user, setUser] = useState(() => localStorage.getItem("AGENCY_USER") || null);
-  const login = (pass) => {
+  // Parse chatters from env var: "name1:pass1,name2:pass2"
+  const CHATTERS_MAP = useMemo(() => {
+    const raw = import.meta.env.VITE_CHATTERS || "";
+    const map = {};
+    raw.split(",").filter(Boolean).forEach(pair => {
+      const [name, pass] = pair.split(":");
+      if (name && pass) map[name.trim()] = pass.trim();
+    });
+    return map;
+  }, []);
+
+  const [user, setUser] = useState(() => {
+    const saved = localStorage.getItem("AGENCY_USER");
+    if (saved) try { return JSON.parse(saved); } catch { return null; }
+    return null;
+  });
+  const login = (pass, chatterName) => {
+    if (chatterName) {
+      // Chatter login
+      const chatters = {};
+      (import.meta.env.VITE_CHATTERS || "").split(",").filter(Boolean).forEach(pair => {
+        const [n, p] = pair.split(":");
+        if (n && p) chatters[n.trim()] = p.trim();
+      });
+      if (chatters[chatterName] && chatters[chatterName] === pass) {
+        const u = { role: "chatter", name: chatterName };
+        setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return true;
+      }
+      return false;
+    }
+    // Admin login
     const correct = import.meta.env.VITE_APP_PASSWORD || "1234";
-    if (pass === correct) { setUser("admin"); localStorage.setItem("AGENCY_USER", "admin"); return true; }
+    if (pass === correct) {
+      const u = { role: "admin", name: "admin" };
+      setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return true;
+    }
     return false;
   };
   const logout = () => { setUser(null); localStorage.removeItem("AGENCY_USER"); };
@@ -523,23 +555,58 @@ function Prov({ children }) {
 // ═══════════════════════════════════════════════════════
 function LoginPage() {
   const { login } = useApp();
+  const [tab, setTab] = useState("admin");
   const [pass, setPass] = useState("");
+  const [chatterName, setChatterName] = useState("");
+  const [chatterPass, setChatterPass] = useState("");
   const [err, setErr] = useState("");
-  const handle = (e) => {
+
+  const handleAdmin = (e) => {
     e.preventDefault();
     if (login(pass)) setErr("");
     else setErr("סיסמה שגויה");
   };
+  const handleChatter = (e) => {
+    e.preventDefault();
+    if (!chatterName.trim()) { setErr("אנא הזן שם משתמש"); return; }
+    if (login(chatterPass, chatterName.trim())) setErr("");
+    else setErr("שם משתמש או סיסמה שגויים");
+  };
+
+  const tabBtn = (key, label, icon) => (
+    <button onClick={() => { setTab(key); setErr(""); }} style={{
+      flex: 1, padding: "12px 8px", background: tab === key ? C.pri : "transparent",
+      color: tab === key ? "#fff" : C.dim, border: `1px solid ${tab === key ? C.pri : C.bdr}`,
+      borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13, transition: "all .2s"
+    }}>{icon} {label}</button>
+  );
+
+  const inputStyle = { width: "100%", padding: "14px 16px", background: C.bg, border: `2px solid ${C.bdr}`, borderRadius: 10, color: C.txt, fontSize: 16, outline: "none", marginBottom: 12, textAlign: "center", boxSizing: "border-box" };
+
   return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-    <Card style={{ width: "100%", maxWidth: 360, padding: 32, textAlign: "center" }}>
+    <Card style={{ width: "100%", maxWidth: 380, padding: 32, textAlign: "center" }}>
       <div style={{ fontSize: 48, marginBottom: 16 }}>🏢</div>
-      <h1 style={{ color: C.txt, fontSize: 24, fontWeight: 800, marginBottom: 8 }}>ניהול סוכנות</h1>
-      <p style={{ color: C.dim, fontSize: 14, marginBottom: 24 }}>אנא הזן סיסמה כדי להיכנס</p>
-      <form onSubmit={handle}>
-        <input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="סיסמה" autoFocus style={{ width: "100%", padding: "14px 16px", background: C.bg, border: `2px solid ${C.bdr}`, borderRadius: 10, color: C.txt, fontSize: 16, outline: "none", marginBottom: 12, textAlign: "center" }} />
-        {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 12 }}>{err}</div>}
-        <Btn size="lg" style={{ width: "100%" }}>התחברות</Btn>
-      </form>
+      <h1 style={{ color: C.txt, fontSize: 24, fontWeight: 800, marginBottom: 20 }}>ניהול סוכנות</h1>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        {tabBtn("admin", "מנהל", "🔐")}
+        {tabBtn("chatter", "צ'אטר", "👤")}
+      </div>
+      {tab === "admin" ? (
+        <form onSubmit={handleAdmin}>
+          <p style={{ color: C.dim, fontSize: 13, marginBottom: 14 }}>הזן סיסמת מנהל</p>
+          <input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="סיסמה" autoFocus style={inputStyle} />
+          {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 12 }}>{err}</div>}
+          <Btn size="lg" style={{ width: "100%" }}>התחברות</Btn>
+        </form>
+      ) : (
+        <form onSubmit={handleChatter}>
+          <p style={{ color: C.dim, fontSize: 13, marginBottom: 14 }}>הזן שם משתמש וסיסמה</p>
+          <input type="text" value={chatterName} onChange={e => setChatterName(e.target.value)} placeholder="שם משתמש" autoFocus style={inputStyle} />
+          <input type="password" value={chatterPass} onChange={e => setChatterPass(e.target.value)} placeholder="סיסמה" style={inputStyle} />
+          {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 12 }}>{err}</div>}
+          <Btn size="lg" style={{ width: "100%" }}>כניסה</Btn>
+        </form>
+      )}
     </Card>
   </div>;
 }
@@ -573,7 +640,7 @@ const TT = ({ active, payload, label }) => { if (!active || !payload?.length) re
 // ═══════════════════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════════════════
-const NAV = [{ key: "dashboard", label: "דאשבורד", icon: "📊" }, { key: "income", label: "הכנסות", icon: "💰" }, { key: "expenses", label: "הוצאות", icon: "💳" }, { key: "chatters", label: "צ'אטרים", icon: "👥" }, { key: "clients", label: "לקוחות", icon: "👩" }, { key: "targets", label: "יעדים", icon: "🎯" }, { key: "record", label: "תיעוד הוצאות", icon: "📱" }, { key: "generator", label: "מחולל תכנים", icon: "✨" }];
+const NAV = [{ key: "dashboard", label: "דאשבורד", icon: "📊" }, { key: "income", label: "הכנסות", icon: "💰" }, { key: "approvals", label: "אישורים", icon: "✅" }, { key: "expenses", label: "הוצאות", icon: "💳" }, { key: "chatters", label: "צ'אטרים", icon: "👥" }, { key: "clients", label: "לקוחות", icon: "👩" }, { key: "targets", label: "יעדים", icon: "🎯" }, { key: "record", label: "תיעוד הוצאות", icon: "📱" }, { key: "generator", label: "מחולל תכנים", icon: "✨" }];
 
 function Sidebar({ current, onNav }) {
   const { logout } = useApp();
@@ -1622,13 +1689,278 @@ ${overridesText || "אין"}
 }
 
 // ═══════════════════════════════════════════════════════
+// CHATTER PORTAL
+// ═══════════════════════════════════════════════════════
+function ChatterPortal() {
+  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth } = useApp();
+  const w = useWin();
+  const chatterName = user?.name || "";
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState("");
+  const [form, setForm] = useState({
+    modelName: "", platform: "", amountILS: "", amountUSD: "", usdRate: "3.6",
+    date: new Date().toISOString().split("T")[0],
+    hour: new Date().toTimeString().substring(0, 5),
+    shiftLocation: "משרד", notes: ""
+  });
+
+  // Auto-load data if not connected
+  useEffect(() => { if (!connected) load(); }, [connected, load]);
+
+  const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // Income filtered to this chatter
+  const myIncome = useMemo(() =>
+    income.filter(r => r.chatterName === chatterName && r.date && r.date.getFullYear() === year && r.date.getMonth() === month)
+      .sort((a, b) => (b.date || 0) - (a.date || 0)),
+    [income, chatterName, year, month]);
+
+  const approved = myIncome.filter(r => r.verified === "V");
+  const pending = myIncome.filter(r => r.verified !== "V");
+  const totalApproved = approved.reduce((s, r) => s + r.amountILS, 0);
+  const totalPending = pending.reduce((s, r) => s + r.amountILS, 0);
+
+  // Unique client names from all income
+  const clientNames = useMemo(() => [...new Set(income.map(r => r.modelName).filter(Boolean))].sort(), [income]);
+
+  const save = async () => {
+    if (!form.modelName || (!form.amountILS && !form.amountUSD)) { setErr("נא למלא לקוחה וסכום"); return; }
+    setSaving(true); setErr("");
+    const rate = +form.usdRate || 3.6;
+    const ils = +form.amountILS || Math.round((+form.amountUSD || 0) * rate);
+    const row = [
+      "", chatterName, form.modelName, "", String(rate),
+      String(+form.amountUSD || 0), String(ils), "",
+      form.platform, form.date.split("-").reverse().join("/"),
+      form.hour, form.notes, "", form.shiftLocation, "", ""
+    ];
+    try {
+      await API.append("sales_report", [row]);
+      // Add to local state
+      const newInc = {
+        id: `I-chatter-${Date.now()}`, chatterName, modelName: form.modelName,
+        clientName: "", usdRate: rate, amountUSD: +form.amountUSD || 0,
+        amountILS: ils, originalAmount: ils, incomeType: "",
+        platform: form.platform, date: new Date(form.date), hour: form.hour,
+        notes: form.notes, verified: "", shiftLocation: form.shiftLocation,
+        paidToClient: false, cancelled: false, _rowIndex: 0
+      };
+      setIncome(prev => [...prev, newInc]);
+      setSaving(false); setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+      setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "" }));
+    } catch (e) { setErr(e.message); setSaving(false); }
+  };
+
+  const inputStyle = { width: "100%", padding: w < 768 ? "14px 12px" : "10px 12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 10, color: C.txt, fontSize: w < 768 ? 16 : 14, outline: "none", boxSizing: "border-box" };
+
+  return <div style={{ minHeight: "100vh", background: C.bg, direction: "rtl" }}>
+    {/* Header */}
+    <div style={{ background: C.card, borderBottom: `1px solid ${C.bdr}`, padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 100 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontSize: 20 }}>👤</span>
+        <div>
+          <div style={{ color: C.txt, fontWeight: 700, fontSize: 15 }}>{chatterName}</div>
+          <div style={{ color: C.dim, fontSize: 11 }}>פורטל צ'אטר</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <select value={month} onChange={e => setMonth(+e.target.value)} style={{ background: C.card, color: C.txt, border: `1px solid ${C.bdr}`, borderRadius: 6, padding: "4px 8px", fontSize: 12 }}>
+          {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+        </select>
+        <select value={year} onChange={e => setYear(+e.target.value)} style={{ background: C.card, color: C.txt, border: `1px solid ${C.bdr}`, borderRadius: 6, padding: "4px 8px", fontSize: 12 }}>
+          {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <Btn variant="ghost" size="sm" onClick={logout}>🚪 יציאה</Btn>
+      </div>
+    </div>
+
+    <div style={{ maxWidth: 700, margin: "0 auto", padding: w < 768 ? "16px 10px" : "24px" }}>
+      {/* Summary Cards */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+        <Stat icon="✅" title="מאושרות" value={fmtC(totalApproved)} sub={`${approved.length} עסקאות`} color={C.grn} />
+        <Stat icon="⏳" title="ממתינות" value={fmtC(totalPending)} sub={`${pending.length} עסקאות`} color={C.ylw} />
+        <Stat icon="💰" title="סה״כ" value={fmtC(totalApproved + totalPending)} sub={`${myIncome.length} עסקאות`} color={C.pri} />
+      </div>
+
+      {/* Income Entry Form */}
+      <Card style={{ marginBottom: 20 }}>
+        <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 14 }}>📝 תיעוד הכנסה חדשה</h3>
+        {saved && <div style={{ background: `${C.grn}22`, color: C.grn, padding: 10, borderRadius: 8, fontSize: 13, marginBottom: 12, textAlign: "center" }}>✅ נשמר בהצלחה! ממתין לאישור מנהל.</div>}
+        <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr" : "1fr 1fr", gap: 12 }}>
+          <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>לקוחה *</label>
+            <select value={form.modelName} onChange={e => upd("modelName", e.target.value)} style={inputStyle}>
+              <option value="">בחר לקוחה...</option>
+              {clientNames.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>פלטפורמה</label>
+            <select value={form.platform} onChange={e => upd("platform", e.target.value)} style={inputStyle}>
+              <option value="">בחר...</option>
+              {["OnlyFans", "Fansly", "Instagram", "TikTok", "טלגרם", "אחר"].map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סכום (₪)</label>
+            <input type="number" value={form.amountILS} onChange={e => upd("amountILS", e.target.value)} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
+          </div>
+          <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סכום ($)</label>
+            <input type="number" value={form.amountUSD} onChange={e => upd("amountUSD", e.target.value)} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
+          </div>
+          <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
+            <input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
+            <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>מיקום</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {["משרד", "חוץ"].map(loc => (
+                <button key={loc} onClick={() => upd("shiftLocation", loc)} style={{
+                  flex: 1, padding: "10px", borderRadius: 8, fontSize: 14, fontWeight: 600,
+                  cursor: "pointer", background: form.shiftLocation === loc ? C.pri : C.card,
+                  color: form.shiftLocation === loc ? "#fff" : C.dim,
+                  border: `2px solid ${form.shiftLocation === loc ? C.pri : C.bdr}`, transition: "all .15s"
+                }}>{loc}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>הערות</label>
+            <input value={form.notes} onChange={e => upd("notes", e.target.value)} placeholder="אופציונלי" style={inputStyle} />
+          </div>
+        </div>
+        {err && <div style={{ color: C.red, fontSize: 12, marginTop: 8 }}>{err}</div>}
+        <Btn onClick={save} variant="success" size="lg" style={{ width: "100%", marginTop: 14 }} disabled={saving}>
+          {saving ? "⏳ שומר..." : "💾 שמור הכנסה"}
+        </Btn>
+      </Card>
+
+      {/* Pending Transactions */}
+      {pending.length > 0 && <>
+        <h3 style={{ color: C.ylw, fontSize: 15, fontWeight: 700, marginBottom: 10 }}>⏳ ממתינות לאישור ({pending.length})</h3>
+        <div style={{ marginBottom: 20 }}>
+          <DT textSm columns={[
+            { label: "תאריך", render: r => fmtD(r.date) },
+            { label: "לקוחה", key: "modelName" },
+            { label: "פלטפורמה", key: "platform" },
+            { label: "סכום", render: r => <span style={{ color: C.ylw }}>{fmtC(r.amountILS)}</span> },
+            { label: "סטטוס", render: () => <span style={{ color: C.ylw }}>⏳ ממתין</span> }
+          ]} rows={pending} />
+        </div>
+      </>}
+
+      {/* Approved Transactions */}
+      <h3 style={{ color: C.grn, fontSize: 15, fontWeight: 700, marginBottom: 10 }}>✅ מאושרות ({approved.length})</h3>
+      {approved.length === 0 ? <Card style={{ textAlign: "center", padding: 20 }}><div style={{ color: C.mut, fontSize: 13 }}>אין עסקאות מאושרות עדיין</div></Card> :
+        <DT textSm columns={[
+          { label: "תאריך", render: r => fmtD(r.date) },
+          { label: "לקוחה", key: "modelName" },
+          { label: "פלטפורמה", key: "platform" },
+          { label: "סכום", render: r => <span style={{ color: C.grn }}>{fmtC(r.amountILS)}</span> },
+          { label: "סטטוס", render: () => <span style={{ color: C.grn }}>✅ מאושר</span> }
+        ]} rows={approved} footer={["סה״כ", "", "", fmtC(totalApproved), ""]} />
+      }
+    </div>
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════
+// APPROVALS PAGE (ADMIN)
+// ═══════════════════════════════════════════════════════
+function ApprovalsPage() {
+  const { income, setIncome, demo } = useApp();
+  const [approving, setApproving] = useState(null);
+
+  const pendingAll = useMemo(() =>
+    income.filter(r => r.verified !== "V" && r.chatterName).sort((a, b) => (b.date || 0) - (a.date || 0)),
+    [income]);
+
+  const approve = async (row) => {
+    setApproving(row.id);
+    try {
+      if (!demo && row._rowIndex) {
+        await API.update("sales_report", row._rowIndex, { 12: "V" }); // Column M (index 12) = verified
+      }
+      setIncome(income.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
+    } catch (e) { alert("שגיאה באישור: " + e.message); }
+    setApproving(null);
+  };
+
+  const reject = async (row) => {
+    if (!confirm(`לדחות עסקה של ${row.chatterName}?\n${row.modelName} — ${fmtC(row.amountILS)}`)) return;
+    setApproving(row.id);
+    try {
+      if (!demo && row._rowIndex) {
+        await API.deleteRow("sales_report", row._rowIndex);
+      }
+      setIncome(income.filter(r => r.id !== row.id));
+    } catch (e) { alert("שגיאה במחיקה: " + e.message); }
+    setApproving(null);
+  };
+
+  const approveAll = async () => {
+    if (!confirm(`לאשר את כל ${pendingAll.length} העסקאות הממתינות?`)) return;
+    for (const row of pendingAll) {
+      try {
+        if (!demo && row._rowIndex) {
+          await API.update("sales_report", row._rowIndex, { 12: "V" });
+        }
+      } catch (e) { console.error(e); }
+    }
+    setIncome(income.map(r => pendingAll.find(p => p.id === r.id) ? { ...r, verified: "V" } : r));
+  };
+
+  return <div style={{ direction: "rtl" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
+      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 800, margin: 0 }}>✅ אישור עסקאות</h2>
+      {pendingAll.length > 0 && <Btn variant="success" onClick={approveAll}>✅ אשר הכל ({pendingAll.length})</Btn>}
+    </div>
+
+    {pendingAll.length === 0 ? (
+      <Card style={{ textAlign: "center", padding: 40 }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+        <div style={{ color: C.grn, fontSize: 16, fontWeight: 700 }}>אין עסקאות ממתינות לאישור</div>
+      </Card>
+    ) : (
+      <DT columns={[
+        { label: "תאריך", render: r => fmtD(r.date) },
+        { label: "צ'אטר", key: "chatterName" },
+        { label: "לקוחה", key: "modelName" },
+        { label: "פלטפורמה", key: "platform" },
+        { label: "סכום", render: r => <span style={{ fontWeight: 700, color: C.pri }}>{fmtC(r.amountILS)}</span> },
+        { label: "מיקום", key: "shiftLocation" },
+        {
+          label: "פעולות", render: r => (
+            <div style={{ display: "flex", gap: 6 }}>
+              <Btn size="sm" variant="success" onClick={() => approve(r)} disabled={approving === r.id}>
+                {approving === r.id ? "⏳" : "✅ אשר"}
+              </Btn>
+              <Btn size="sm" variant="danger" onClick={() => reject(r)} disabled={approving === r.id}>❌</Btn>
+            </div>
+          )
+        }
+      ]} rows={pendingAll} footer={["סה״כ", "", "", "", fmtC(pendingAll.reduce((s, r) => s + r.amountILS, 0)), "", ""]} />
+    )}
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════
-const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterPage, clients: ClientPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage };
+const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterPage, clients: ClientPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage, approvals: ApprovalsPage };
 function Content() {
-  const { page, setPage, connected, user } = useApp();
+  const { page, setPage, connected, user, load } = useApp();
   const w = useWin();
   if (import.meta.env.VITE_USE_AUTH === "true" && !user) return <LoginPage />;
+  if (user?.role === "chatter") return <ChatterPortal />;
   if (!connected) return <SetupPage />;
   const P = PAGES[page] || DashPage;
   return <div style={{ display: "flex", minHeight: "100vh", background: C.bg }}><Sidebar current={page} onNav={setPage} /><div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}><TopBar /><div style={{ flex: 1, padding: w < 768 ? "14px 10px 80px" : "24px", overflowY: "auto" }}><P /></div></div><MobileNav current={page} onNav={setPage} /></div>;
