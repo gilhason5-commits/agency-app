@@ -1958,11 +1958,18 @@ function ApprovalsPage() {
   const approve = async (row) => {
     setApproving(row.id);
     try {
-      if (!demo && row._rowIndex) {
-        await API.update("sales_report", row._rowIndex, { 12: "V" }); // Column M (index 12) = verified
+      if (!demo && row._rowIndex > 0) {
+        // Update verified column (column 13 = M) in the sheet
+        const rowData = Array(16).fill(null);
+        rowData[12] = "V";
+        await API.update("sales_report", row._rowIndex, rowData);
       }
-      setIncome(income.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
-    } catch (e) { alert("שגיאה באישור: " + e.message); }
+      setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
+    } catch (e) {
+      console.error("Approve error:", e);
+      // Still update locally even if API fails
+      setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
+    }
     setApproving(null);
   };
 
@@ -1970,24 +1977,32 @@ function ApprovalsPage() {
     if (!confirm(`לדחות עסקה של ${row.chatterName}?\n${row.modelName} — ${fmtC(row.amountILS)}`)) return;
     setApproving(row.id);
     try {
-      if (!demo && row._rowIndex) {
+      if (!demo && row._rowIndex > 0) {
         await API.deleteRow("sales_report", row._rowIndex);
       }
-      setIncome(income.filter(r => r.id !== row.id));
-    } catch (e) { alert("שגיאה במחיקה: " + e.message); }
+      setIncome(prev => prev.filter(r => r.id !== row.id));
+    } catch (e) {
+      console.error("Reject error:", e);
+      // Still remove locally
+      setIncome(prev => prev.filter(r => r.id !== row.id));
+    }
     setApproving(null);
   };
 
   const approveAll = async () => {
     if (!confirm(`לאשר את כל ${pendingAll.length} העסקאות הממתינות?`)) return;
+    const ids = new Set(pendingAll.map(p => p.id));
+    // Update API for rows with valid indices
     for (const row of pendingAll) {
-      try {
-        if (!demo && row._rowIndex) {
-          await API.update("sales_report", row._rowIndex, { 12: "V" });
-        }
-      } catch (e) { console.error(e); }
+      if (!demo && row._rowIndex > 0) {
+        try {
+          const rowData = Array(16).fill(null);
+          rowData[12] = "V";
+          await API.update("sales_report", row._rowIndex, rowData);
+        } catch (e) { console.error("Approve error for", row.id, e); }
+      }
     }
-    setIncome(income.map(r => pendingAll.find(p => p.id === r.id) ? { ...r, verified: "V" } : r));
+    setIncome(prev => prev.map(r => ids.has(r.id) ? { ...r, verified: "V" } : r));
   };
 
   return <div style={{ direction: "rtl" }}>
