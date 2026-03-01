@@ -1302,17 +1302,16 @@ function TgtPage() {
       })}
     </div>
 
-    {/* Drill-down for selected month */}
-    {selMonth !== null && <Card style={{ marginBottom: 24, border: `2px solid ${C.pri}` }}>
-      <h3 style={{ color: C.pri, fontSize: 16, fontWeight: 700, marginBottom: 16 }}>
-        📊 פירוט יעדים — {MONTHS_HE[selMonth]}
-      </h3>
-      {renderMiniCards("יעדים לפי צ'אטר", "👤", entityTargets.chatters)}
-      {renderMiniCards("יעדים לפי לקוחה", "👑", entityTargets.clients)}
-      {entityTargets.chatters.length === 0 && entityTargets.clients.length === 0 && (
-        <div style={{ color: C.mut, textAlign: "center", padding: 20 }}>אין נתונים לחודש זה</div>
-      )}
-    </Card>}
+    {/* Drill-down Modal */}
+    <Modal open={selMonth !== null} onClose={() => setSelMonth(null)} title={`📊 פירוט יעדים — ${selMonth !== null ? MONTHS_HE[selMonth] : ""}`} width={700}>
+      {selMonth !== null && <>
+        {renderMiniCards("יעדים לפי צ'אטר", "👤", entityTargets.chatters)}
+        {renderMiniCards("יעדים לפי לקוחה", "👑", entityTargets.clients)}
+        {entityTargets.chatters.length === 0 && entityTargets.clients.length === 0 && (
+          <div style={{ color: C.mut, textAlign: "center", padding: 20 }}>אין נתונים לחודש זה</div>
+        )}
+      </>}
+    </Modal>
   </div>;
 }
 
