@@ -1272,12 +1272,24 @@ function RecordExpensePage({ editMode, onDone }) {
   const save = async () => {
     if (!form.category || !form.name || !form.amount || !form.paidBy) { setErr("נא למלא שדות חובה"); return; }
     setSaving(true); setErr("");
-    const exp = { ...form, amount: +form.amount, source: "ידני", receiptImage: null };
-    if (editMode) { const updated = { ...editMode, ...exp, date: new Date(form.date) }; if (!demo) try { await ExpSvc.edit(updated); } catch (e) { setErr(e.message); setSaving(false); return; } setExpenses(expenses.map(x => x.id === editMode.id ? updated : x)); setSaving(false); if (onDone) onDone(); return; }
-    if (!demo) try { await ExpSvc.add(exp); } catch (e) { setErr(e.message); setSaving(false); return; }
-    const d = new Date(form.date);
-    setExpenses(prev => [...prev, { id: `E${Date.now()}`, ...exp, date: d, year: d.getFullYear(), month: d.getMonth() + 1, classification: "", docType: "הזנה ידנית", _rowIndex: 0 }]);
-    setSaving(false); setSaved(true);
+    try {
+      const exp = { ...form, amount: +form.amount, source: "ידני", receiptImage: null };
+      if (editMode) {
+        const updated = { ...editMode, ...exp, date: new Date(form.date) };
+        if (!demo) await ExpSvc.edit(updated);
+        setExpenses(prev => prev.map(x => x.id === editMode.id ? updated : x));
+        setSaving(false); if (onDone) onDone(); return;
+      }
+      if (!demo) await ExpSvc.add(exp);
+      const d = new Date(form.date);
+      const newExp = { id: `E${Date.now()}`, ...exp, date: d, year: d.getFullYear(), month: d.getMonth() + 1, classification: "", docType: "הזנה ידנית", _rowIndex: 0 };
+      setExpenses(prev => [...prev, newExp]);
+      setSaving(false); setSaved(true);
+    } catch (e) {
+      console.error("Save expense error:", e);
+      setErr("שגיאה בשמירה: " + (e.message || "נסה שוב"));
+      setSaving(false);
+    }
   };
 
   if (editMode && saved) { if (onDone) onDone(); return null; }
