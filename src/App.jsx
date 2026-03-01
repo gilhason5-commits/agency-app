@@ -1155,7 +1155,8 @@ function ClientPage() {
 // ═══════════════════════════════════════════════════════
 function TgtPage() {
   const { year, month } = useApp();
-  const { iY, eY } = useFD();
+  const { iY } = useFD();
+  const [selMonth, setSelMonth] = useState(null);
 
   const mbd = useMemo(() => {
     let lastDays = 31, lastInc = 0;
@@ -1169,6 +1170,79 @@ function TgtPage() {
     });
   }, [iY, year]);
 
+  // Per-entity targets for selected month
+  const entityTargets = useMemo(() => {
+    if (selMonth === null) return { chatters: [], clients: [] };
+    const prevIdx = selMonth - 1;
+    const curDays = new Date(year, selMonth + 1, 0).getDate();
+    const prevDays = selMonth > 0 ? new Date(year, selMonth, 0).getDate() : 31;
+
+    const buildEntityTargets = (keyFn) => {
+      const prevMap = {}, curMap = {};
+      iY.forEach(r => {
+        const key = keyFn(r);
+        if (!key) return;
+        const mi = r.date.getMonth();
+        if (mi === prevIdx && prevIdx >= 0) prevMap[key] = (prevMap[key] || 0) + r.amountILS;
+        if (mi === selMonth) curMap[key] = (curMap[key] || 0) + r.amountILS;
+      });
+      const allKeys = [...new Set([...Object.keys(prevMap), ...Object.keys(curMap)])].sort();
+      return allKeys.map(name => {
+        const prevInc = prevMap[name] || 0;
+        const curInc = curMap[name] || 0;
+        const t = Calc.targets(prevInc, prevDays, curDays);
+        const isCurrent = selMonth === month;
+        const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : curDays;
+        const daily = curInc / daysPassed;
+        return { name, prevInc, curInc, daily, daysPassed, ...t, days: curDays };
+      }).sort((a, b) => b.curInc - a.curInc);
+    };
+
+    return {
+      chatters: buildEntityTargets(r => r.chatterName),
+      clients: buildEntityTargets(r => r.modelName)
+    };
+  }, [iY, selMonth, year, month]);
+
+  const renderMiniCards = (title, icon, entities) => {
+    if (!entities.length) return null;
+    return <div style={{ marginBottom: 20 }}>
+      <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{icon} {title}</h4>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
+        {entities.map(e => {
+          const hit1 = e.curInc >= e.t1, hit2 = e.curInc >= e.t2, hit3 = e.curInc >= e.t3;
+          const color = hit3 ? C.grn : hit2 ? C.ylw : hit1 ? C.pri : C.red;
+          return <div key={e.name} style={{
+            background: C.card, borderRadius: 10, padding: "10px 12px",
+            border: `1px solid ${color}44`
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.txt }}>{e.name}</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color }}>{fmtC(e.daily)} /יום</span>
+            </div>
+            <div style={{ fontSize: 11, color: C.dim, marginBottom: 6 }}>
+              בפועל: <strong style={{ color: C.txt }}>{fmtC(e.curInc)}</strong>
+              {e.prevInc > 0 && <> | חודש קודם: <strong>{fmtC(e.prevInc)}</strong></>}
+            </div>
+            <div style={{ display: "flex", gap: 4 }}>
+              {[{ label: "+5%", val: e.t1, hit: hit1 }, { label: "+10%", val: e.t2, hit: hit2 }, { label: "+15%", val: e.t3, hit: hit3 }].map(t => (
+                <div key={t.label} style={{
+                  flex: 1, textAlign: "center", padding: "4px 2px", borderRadius: 6, fontSize: 10,
+                  background: t.hit ? `${C.grn}22` : `${C.bg}`,
+                  color: t.hit ? C.grn : C.dim,
+                  border: `1px solid ${t.hit ? `${C.grn}44` : C.bdr}`
+                }}>
+                  <div style={{ fontWeight: 700 }}>{t.label}</div>
+                  <div style={{ fontSize: 9 }}>{fmtC(t.val)}</div>
+                </div>
+              ))}
+            </div>
+          </div>;
+        })}
+      </div>
+    </div>;
+  };
+
   return <div style={{ direction: "rtl", maxWidth: 800 }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>🎯 תחזית יעדים — {year}</h2>
 
@@ -1178,14 +1252,19 @@ function TgtPage() {
         const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
         const currentDaily = d.inc / daysPassed;
         const isFuture = d.idx > month;
+        const isSelected = selMonth === d.idx;
 
-        return <Card key={d.idx} style={{
-          border: isCurrent ? `2px solid ${C.pri}` : `1px solid ${C.bdr}`,
-          background: isCurrent ? `${C.pri}08` : C.card,
-          opacity: isFuture ? 0.6 : 1
+        return <Card key={d.idx} onClick={() => !isFuture && setSelMonth(isSelected ? null : d.idx)} style={{
+          border: isSelected ? `2px solid ${C.pri}` : isCurrent ? `2px solid ${C.pri}55` : `1px solid ${C.bdr}`,
+          background: isSelected ? `${C.pri}15` : isCurrent ? `${C.pri}08` : C.card,
+          opacity: isFuture ? 0.6 : 1,
+          cursor: isFuture ? "default" : "pointer",
+          transition: "all .15s"
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <span style={{ fontSize: 16, fontWeight: 700, color: isCurrent ? C.pri : C.txt }}>{d.month} {isCurrent ? "(נוכחי)" : ""}</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: isSelected ? C.pri : isCurrent ? C.pri : C.txt }}>
+              {d.month} {isCurrent ? "(נוכחי)" : ""} {isSelected ? "▼" : !isFuture ? "▶" : ""}
+            </span>
             {!isFuture && <span style={{ fontSize: 13, color: currentDaily >= (d.tgt1 / d.days) ? C.grn : C.red, fontWeight: 600 }}>
               {fmtC(currentDaily)} /יום
             </span>}
@@ -1222,6 +1301,18 @@ function TgtPage() {
         </Card>;
       })}
     </div>
+
+    {/* Drill-down for selected month */}
+    {selMonth !== null && <Card style={{ marginBottom: 24, border: `2px solid ${C.pri}` }}>
+      <h3 style={{ color: C.pri, fontSize: 16, fontWeight: 700, marginBottom: 16 }}>
+        📊 פירוט יעדים — {MONTHS_HE[selMonth]}
+      </h3>
+      {renderMiniCards("יעדים לפי צ'אטר", "👤", entityTargets.chatters)}
+      {renderMiniCards("יעדים לפי לקוחה", "👑", entityTargets.clients)}
+      {entityTargets.chatters.length === 0 && entityTargets.clients.length === 0 && (
+        <div style={{ color: C.mut, textAlign: "center", padding: 20 }}>אין נתונים לחודש זה</div>
+      )}
+    </Card>}
   </div>;
 }
 
