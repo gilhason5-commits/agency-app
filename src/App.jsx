@@ -530,16 +530,27 @@ function Prov({ children }) {
     if (saved) try { return JSON.parse(saved); } catch { return null; }
     return null;
   });
-  const login = (pass, chatterName) => {
-    if (chatterName) {
-      // Chatter login
+  const login = (pass, entityName, role) => {
+    if (role === "chatter" && entityName) {
       const chatters = {};
       (import.meta.env.VITE_CHATTERS || "").split(",").filter(Boolean).forEach(pair => {
         const [n, p] = pair.split(":");
         if (n && p) chatters[n.trim()] = p.trim();
       });
-      if (chatters[chatterName] && chatters[chatterName] === pass) {
-        const u = { role: "chatter", name: chatterName };
+      if (chatters[entityName] && chatters[entityName] === pass) {
+        const u = { role: "chatter", name: entityName };
+        setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return true;
+      }
+      return false;
+    }
+    if (role === "client" && entityName) {
+      const clients = {};
+      (import.meta.env.VITE_CLIENTS || "").split(",").filter(Boolean).forEach(pair => {
+        const [n, p] = pair.split(":");
+        if (n && p) clients[n.trim()] = p.trim();
+      });
+      if (clients[entityName] && clients[entityName] === pass) {
+        const u = { role: "client", name: entityName };
         setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return true;
       }
       return false;
@@ -572,8 +583,8 @@ function LoginPage() {
   const { login } = useApp();
   const [tab, setTab] = useState("admin");
   const [pass, setPass] = useState("");
-  const [chatterName, setChatterName] = useState("");
-  const [chatterPass, setChatterPass] = useState("");
+  const [entityName, setEntityName] = useState("");
+  const [entityPass, setEntityPass] = useState("");
   const [err, setErr] = useState("");
 
   const handleAdmin = (e) => {
@@ -581,18 +592,18 @@ function LoginPage() {
     if (login(pass)) setErr("");
     else setErr("סיסמה שגויה");
   };
-  const handleChatter = (e) => {
+  const handleEntity = (e, role) => {
     e.preventDefault();
-    if (!chatterName.trim()) { setErr("אנא הזן שם משתמש"); return; }
-    if (login(chatterPass, chatterName.trim())) setErr("");
+    if (!entityName.trim()) { setErr("אנא הזן שם משתמש"); return; }
+    if (login(entityPass, entityName.trim(), role)) setErr("");
     else setErr("שם משתמש או סיסמה שגויים");
   };
 
   const tabBtn = (key, label, icon) => (
-    <button onClick={() => { setTab(key); setErr(""); }} style={{
-      flex: 1, padding: "12px 8px", background: tab === key ? C.pri : "transparent",
+    <button onClick={() => { setTab(key); setErr(""); setEntityName(""); setEntityPass(""); }} style={{
+      flex: 1, padding: "10px 4px", background: tab === key ? C.pri : "transparent",
       color: tab === key ? "#fff" : C.dim, border: `1px solid ${tab === key ? C.pri : C.bdr}`,
-      borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13, transition: "all .2s"
+      borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 12, transition: "all .2s"
     }}>{icon} {label}</button>
   );
 
@@ -602,9 +613,10 @@ function LoginPage() {
     <Card style={{ width: "100%", maxWidth: 380, padding: 32, textAlign: "center" }}>
       <div style={{ fontSize: 48, marginBottom: 16 }}>🏢</div>
       <h1 style={{ color: C.txt, fontSize: 24, fontWeight: 800, marginBottom: 20 }}>ניהול סוכנות</h1>
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
         {tabBtn("admin", "מנהל", "🔐")}
         {tabBtn("chatter", "צ'אטר", "👤")}
+        {tabBtn("client", "לקוחה", "👩")}
       </div>
       {tab === "admin" ? (
         <form onSubmit={handleAdmin}>
@@ -614,10 +626,10 @@ function LoginPage() {
           <Btn size="lg" style={{ width: "100%" }}>התחברות</Btn>
         </form>
       ) : (
-        <form onSubmit={handleChatter}>
-          <p style={{ color: C.dim, fontSize: 13, marginBottom: 14 }}>הזן שם משתמש וסיסמה</p>
-          <input type="text" value={chatterName} onChange={e => setChatterName(e.target.value)} placeholder="שם משתמש" autoFocus style={inputStyle} />
-          <input type="password" value={chatterPass} onChange={e => setChatterPass(e.target.value)} placeholder="סיסמה" style={inputStyle} />
+        <form onSubmit={e => handleEntity(e, tab)}>
+          <p style={{ color: C.dim, fontSize: 13, marginBottom: 14 }}>{tab === "chatter" ? "הזן שם צ'אטר וסיסמה" : "הזן שם לקוחה וסיסמה"}</p>
+          <input type="text" value={entityName} onChange={e => setEntityName(e.target.value)} placeholder="שם משתמש" autoFocus style={inputStyle} />
+          <input type="password" value={entityPass} onChange={e => setEntityPass(e.target.value)} placeholder="סיסמה" style={inputStyle} />
           {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 12 }}>{err}</div>}
           <Btn size="lg" style={{ width: "100%" }}>כניסה</Btn>
         </form>
@@ -655,7 +667,7 @@ const TT = ({ active, payload, label }) => { if (!active || !payload?.length) re
 // ═══════════════════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════════════════
-const NAV = [{ key: "dashboard", label: "דאשבורד", icon: "📊" }, { key: "income", label: "הכנסות", icon: "💰" }, { key: "approvals", label: "אישורים", icon: "✅" }, { key: "expenses", label: "הוצאות", icon: "💳" }, { key: "chatters", label: "צ'אטרים", icon: "👥" }, { key: "clients", label: "לקוחות", icon: "👩" }, { key: "targets", label: "יעדים", icon: "🎯" }, { key: "record", label: "תיעוד הוצאות", icon: "📱" }, { key: "generator", label: "מחולל תכנים", icon: "✨" }];
+const NAV = [{ key: "dashboard", label: "דאשבורד", icon: "📊" }, { key: "income", label: "הכנסות", icon: "💰" }, { key: "approvals", label: "אישורים", icon: "✅" }, { key: "expenses", label: "הוצאות", icon: "💳" }, { key: "chatters", label: "צ'אטרים", icon: "👥" }, { key: "clients", label: "לקוחות", icon: "👩" }, { key: "targets", label: "יעדים", icon: "🎯" }, { key: "record", label: "תיעוד הוצאות", icon: "📱" }, { key: "users", label: "ניהול משתמשים", icon: "⚙️" }, { key: "generator", label: "מחולל תכנים", icon: "✨" }];
 
 function Sidebar({ current, onNav }) {
   const { logout } = useApp();
@@ -2262,14 +2274,186 @@ function ApprovalsPage() {
 }
 
 // ═══════════════════════════════════════════════════════
+// CLIENT PORTAL (for client login)
+// ═══════════════════════════════════════════════════════
+function ClientPortal() {
+  const { user, logout, income, year, month, setMonth, loading, load, connected, setConnected, demo, loadDemo } = useApp();
+  const w = useWin();
+  const [view, setView] = useState("monthly");
+
+  useEffect(() => { if (!connected && !demo) { load().then(() => setConnected(true)).catch(() => loadDemo()); } }, []);
+
+  const clientName = user?.name;
+  const allData = useMemo(() => income.filter(r => r.date && r.date.getFullYear() === year && r.modelName === clientName), [income, year, clientName]);
+  const monthData = useMemo(() => allData.filter(r => r.date.getMonth() === month), [allData, month]);
+  const data = view === "monthly" ? monthData : allData;
+
+  const totalIncome = data.reduce((s, r) => s + r.amountILS, 0);
+  const throughAgency = data.filter(r => !r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
+  const direct = data.filter(r => r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
+  const txCount = data.length;
+
+  if (loading) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ color: C.pri, fontSize: 18 }}>⏳ טוען...</div></div>;
+
+  return <div style={{ minHeight: "100vh", background: C.bg, padding: w < 768 ? 12 : 24 }}>
+    <div style={{ maxWidth: 800, margin: "0 auto", direction: "rtl" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>👩 שלום, {clientName}</h2>
+        <Btn variant="ghost" size="sm" onClick={logout}>🚪 יציאה</Btn>
+      </div>
+
+      <FB>
+        <Sel label="תצוגה:" value={view} onChange={setView} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />
+        {view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}
+      </FB>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+        <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(totalIncome)} color={C.grn} sub={`${txCount} עסקאות`} />
+        <Stat icon="🏢" title="דרך הסוכנות" value={fmtC(throughAgency)} color={C.pri} />
+        <Stat icon="👩" title="ישירות" value={fmtC(direct)} color={C.org} />
+      </div>
+
+      {data.length > 0 && <Card style={{ marginBottom: 16 }}>
+        <ResponsiveContainer width="100%" height={180}>
+          <PieChart>
+            <Pie data={[{ name: "סוכנות", value: throughAgency || 1 }, { name: "ישירות", value: direct || 1 }]} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} fontSize={11}>
+              <Cell fill={C.pri} /><Cell fill={C.org} />
+            </Pie>
+            <Tooltip formatter={v => fmtC(v)} />
+          </PieChart>
+        </ResponsiveContainer>
+      </Card>}
+
+      <Card>
+        <h3 style={{ color: C.dim, fontSize: 14, marginBottom: 12 }}>🧾 פירוט עסקאות</h3>
+        <DT columns={[
+          { label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> },
+          { label: "סוג הכנסה", key: "incomeType" },
+          { label: "צ'אטר", key: "chatterName" },
+          { label: "פלטפורמה", key: "platform" },
+          { label: "שולם ישירות", render: r => r.paidToClient ? "✔️" : "—" },
+          { label: "סכום", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }
+        ]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", fmtC(totalIncome)]} />
+      </Card>
+    </div>
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════
+// USER MANAGEMENT (ADMIN)
+// ═══════════════════════════════════════════════════════
+function UserManagementPage() {
+  const w = useWin();
+
+  const parsePairs = (raw) => {
+    if (!raw) return [];
+    return raw.split(",").filter(Boolean).map(pair => {
+      const [name, pass] = pair.split(":");
+      return { name: name?.trim() || "", pass: pass?.trim() || "" };
+    }).filter(p => p.name);
+  };
+
+  const chatters = useMemo(() => parsePairs(import.meta.env.VITE_CHATTERS), []);
+  const clients = useMemo(() => parsePairs(import.meta.env.VITE_CLIENTS), []);
+
+  const [newChatter, setNewChatter] = useState({ name: "", pass: "" });
+  const [newClient, setNewClient] = useState({ name: "", pass: "" });
+  const [copyMsg, setCopyMsg] = useState("");
+
+  const buildEnvLine = (prefix, existing, newItem) => {
+    const pairs = [...existing.map(e => `${e.name}:${e.pass}`)];
+    if (newItem.name && newItem.pass) pairs.push(`${newItem.name}:${newItem.pass}`);
+    return `${prefix}=${pairs.join(",")}`;
+  };
+
+  const handleAddChatter = () => {
+    if (!newChatter.name || !newChatter.pass) return;
+    const line = buildEnvLine("VITE_CHATTERS", chatters, newChatter);
+    navigator.clipboard.writeText(line).then(() => {
+      setCopyMsg(`✅ הועתק! עדכן ב-.env וב-Vercel:\n${line}`);
+      setNewChatter({ name: "", pass: "" });
+    });
+  };
+
+  const handleAddClient = () => {
+    if (!newClient.name || !newClient.pass) return;
+    const line = buildEnvLine("VITE_CLIENTS", clients, newClient);
+    navigator.clipboard.writeText(line).then(() => {
+      setCopyMsg(`✅ הועתק! עדכן ב-.env וב-Vercel:\n${line}`);
+      setNewClient({ name: "", pass: "" });
+    });
+  };
+
+  const inputStyle = { padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", flex: 1, minWidth: 100 };
+
+  const entityTable = (title, icon, list) => (
+    <Card style={{ marginBottom: 16 }}>
+      <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 12 }}>{icon} {title} ({list.length})</h3>
+      {list.length === 0 ? <div style={{ color: C.mut, fontSize: 13 }}>אין {title.toLowerCase()} רשומים</div> :
+        <DT textSm columns={[
+          { label: "שם", key: "name" },
+          { label: "סיסמה", render: r => "••••" },
+          { label: "סטטוס", render: () => <span style={{ color: C.grn, fontSize: 12 }}>✅ פעיל</span> }
+        ]} rows={list} />
+      }
+    </Card>
+  );
+
+  return <div style={{ direction: "rtl", maxWidth: 700, margin: "0 auto" }}>
+    <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>⚙️ ניהול משתמשים</h2>
+
+    {copyMsg && <Card style={{ marginBottom: 16, background: `${C.grn}15`, border: `1px solid ${C.grn}44` }}>
+      <pre style={{ color: C.grn, fontSize: 12, whiteSpace: "pre-wrap", margin: 0 }}>{copyMsg}</pre>
+      <Btn variant="ghost" size="sm" style={{ marginTop: 8 }} onClick={() => setCopyMsg("")}>סגור</Btn>
+    </Card>}
+
+    {entityTable("צ'אטרים", "👤", chatters)}
+
+    <Card style={{ marginBottom: 24 }}>
+      <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>➕ הוסף צ'אטר חדש</h4>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input placeholder="שם הצ'אטר" value={newChatter.name} onChange={e => setNewChatter(p => ({ ...p, name: e.target.value }))} style={inputStyle} />
+        <input placeholder="סיסמה" value={newChatter.pass} onChange={e => setNewChatter(p => ({ ...p, pass: e.target.value }))} style={inputStyle} />
+        <Btn onClick={handleAddChatter} style={{ whiteSpace: "nowrap" }}>📋 צור והעתק</Btn>
+      </div>
+      <div style={{ color: C.mut, fontSize: 11, marginTop: 8 }}>ייצור שורת VITE_CHATTERS מעודכנת ויעתיק אותה — הדבק ב-.env ובהגדרות Vercel</div>
+    </Card>
+
+    {entityTable("לקוחות", "👩", clients)}
+
+    <Card style={{ marginBottom: 24 }}>
+      <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>➕ הוסף לקוחה חדשה</h4>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input placeholder="שם הלקוחה" value={newClient.name} onChange={e => setNewClient(p => ({ ...p, name: e.target.value }))} style={inputStyle} />
+        <input placeholder="סיסמה" value={newClient.pass} onChange={e => setNewClient(p => ({ ...p, pass: e.target.value }))} style={inputStyle} />
+        <Btn onClick={handleAddClient} style={{ whiteSpace: "nowrap" }}>📋 צור והעתק</Btn>
+      </div>
+      <div style={{ color: C.mut, fontSize: 11, marginTop: 8 }}>ייצור שורת VITE_CLIENTS מעודכנת ויעתיק אותה — הדבק ב-.env ובהגדרות Vercel</div>
+    </Card>
+
+    <Card style={{ background: `${C.ylw}11`, border: `1px solid ${C.ylw}33` }}>
+      <h4 style={{ color: C.ylw, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>💡 איך זה עובד?</h4>
+      <div style={{ color: C.dim, fontSize: 12, lineHeight: 1.8 }}>
+        <div>1. הוסף שם וסיסמה ולחץ "צור והעתק"</div>
+        <div>2. עדכן את שורת ה-VITE_CHATTERS / VITE_CLIENTS בקובץ .env</div>
+        <div>3. עדכן את אותו ערך בהגדרות Vercel (Environment Variables)</div>
+        <div>4. עשה Deploy מחדש</div>
+        <div>5. המשתמש החדש יוכל להתחבר!</div>
+      </div>
+    </Card>
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════
-const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterPage, clients: ClientPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage, approvals: ApprovalsPage };
+const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterPage, clients: ClientPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage, approvals: ApprovalsPage, users: UserManagementPage };
 function Content() {
   const { page, setPage, connected, user, load } = useApp();
   const w = useWin();
   if (import.meta.env.VITE_USE_AUTH === "true" && !user) return <LoginPage />;
   if (user?.role === "chatter") return <ChatterPortal />;
+  if (user?.role === "client") return <ClientPortal />;
   if (!connected) return <SetupPage />;
   const P = PAGES[page] || DashPage;
   return <div style={{ display: "flex", minHeight: "100vh", background: C.bg }}><Sidebar current={page} onNav={setPage} /><div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}><TopBar /><div style={{ flex: 1, padding: w < 768 ? "14px 10px 80px" : "24px", overflowY: "auto" }}><P /></div></div><MobileNav current={page} onNav={setPage} /></div>;
