@@ -1281,10 +1281,12 @@ function RecordExpensePage({ editMode, onDone }) {
         setSaving(false); if (onDone) onDone(); return;
       }
       if (!demo) await ExpSvc.add(exp);
-      const d = new Date(form.date);
-      const newExp = { id: `E${Date.now()}`, ...exp, date: d, year: d.getFullYear(), month: d.getMonth() + 1, classification: "", docType: "הזנה ידנית", _rowIndex: 0 };
-      setExpenses(prev => [...prev, newExp]);
-      setSaving(false); setSaved(true);
+      // Navigate back to record-expenses and reload data
+      setSaving(false);
+      setMode(null);
+      setForm({ category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true });
+      alert("✅ ההוצאה נשמרה בהצלחה!");
+      window.location.reload();
     } catch (e) {
       console.error("Save expense error:", e);
       setErr("שגיאה בשמירה: " + (e.message || "נסה שוב"));
