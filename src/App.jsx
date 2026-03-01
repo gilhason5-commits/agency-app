@@ -2293,6 +2293,22 @@ function ClientPortal() {
   const direct = data.filter(r => r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
   const txCount = data.length;
 
+  // Targets: based on previous month's performance
+  const targets = useMemo(() => {
+    if (view !== "monthly") return null;
+    const prevMonth = month - 1;
+    const prevData = prevMonth >= 0 ? allData.filter(r => r.date.getMonth() === prevMonth) : [];
+    const prevInc = prevData.reduce((s, r) => s + r.amountILS, 0);
+    const prevDays = prevMonth >= 0 ? new Date(year, month, 0).getDate() : 31;
+    const curDays = new Date(year, month + 1, 0).getDate();
+    const t = Calc.targets(prevInc, prevDays, curDays);
+    const curInc = monthData.reduce((s, r) => s + r.amountILS, 0);
+    const isCurrent = month === new Date().getMonth() && year === new Date().getFullYear();
+    const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : curDays;
+    const dailyAvg = curInc / daysPassed;
+    return { ...t, curInc, prevInc, dailyAvg, daysPassed, curDays, isCurrent };
+  }, [allData, monthData, month, year, view]);
+
   if (loading) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ color: C.pri, fontSize: 18 }}>⏳ טוען...</div></div>;
 
   return <div style={{ minHeight: "100vh", background: C.bg, padding: w < 768 ? 12 : 24 }}>
@@ -2312,6 +2328,31 @@ function ClientPortal() {
         <Stat icon="🏢" title="דרך הסוכנות" value={fmtC(throughAgency)} color={C.pri} />
         <Stat icon="👩" title="ישירות" value={fmtC(direct)} color={C.org} />
       </div>
+
+      {/* Monthly Targets */}
+      {targets && targets.prevInc > 0 && <Card style={{ marginBottom: 16 }}>
+        <h3 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>🎯 יעדים — {MONTHS_HE[month]}</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim, marginBottom: 8 }}>
+          <span>ממוצע יומי: <strong style={{ color: C.txt }}>{fmtC(targets.dailyAvg)}</strong></span>
+          <span>חודש קודם: <strong style={{ color: C.txt }}>{fmtC(targets.prevInc)}</strong></span>
+        </div>
+        {[{ label: "יעד ברזל (+5%)", val: targets.t1, color: "#cd7f32" },
+        { label: "יעד כסף (+10%)", val: targets.t2, color: "#c0c0c0" },
+        { label: "יעד זהב (+15%)", val: targets.t3, color: "#ffd700" }
+        ].map(t => {
+          const pct = Math.min(100, targets.curInc / t.val * 100);
+          const hit = targets.curInc >= t.val;
+          return <div key={t.label} style={{ marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+              <span style={{ color: C.txt }}>{t.label}</span>
+              <span style={{ color: hit ? C.grn : C.dim }}>{fmtC(t.val)} {hit ? "🎉" : ""}</span>
+            </div>
+            <div style={{ background: C.bg, borderRadius: 8, height: 8, overflow: "hidden" }}>
+              <div style={{ width: `${pct}%`, height: "100%", background: hit ? C.grn : t.color, borderRadius: 8, transition: "width .5s" }} />
+            </div>
+          </div>;
+        })}
+      </Card>}
 
       {data.length > 0 && <Card style={{ marginBottom: 16 }}>
         <ResponsiveContainer width="100%" height={180}>
