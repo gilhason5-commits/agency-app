@@ -179,8 +179,8 @@ function mapInc(row, i) {
   const rawILS = +row[6] || 0;
   const rawUSD = +row[5] || 0;
   const rate = +row[4] || 0;
-  // If ILS is missing but USD exists, compute ILS from USD × rate
-  const computedILS = rawILS > 0 ? rawILS : (rawUSD > 0 && rate > 0 ? Math.round(rawUSD * rate) : 0);
+  const activeRate = rate > 0 ? rate : ExRate.get();
+  const computedILS = rawILS + (rawUSD > 0 ? Math.round(rawUSD * activeRate) : 0);
 
   return {
     id: `I-${i}-${Date.now()}`,
@@ -191,6 +191,8 @@ function mapInc(row, i) {
     amountUSD: cancelled ? 0 : rawUSD,
     amountILS: cancelled ? 0 : computedILS,
     originalAmount: computedILS,
+    originalRawILS: rawILS,
+    originalRawUSD: rawUSD,
     incomeType, platform: row[8] || "",
     date: parseDate(row[9]), hour,
     notes: row[11] || "", verified: row[12] || "", shiftLocation: row[13] || "",
@@ -199,7 +201,6 @@ function mapInc(row, i) {
   };
 }
 // Combined income per row: rawILS + (USD × liveRate), avoids double-counting
-function rowInc(r, lr) { return (r.rawILS || 0) + ((r.amountUSD || 0) * (lr || ExRate.get())); }
 function mapExp(row, i) {
   const d = parseDate(row[0]);
   return {
@@ -251,7 +252,7 @@ const IncSvc = {
     const rowData = [
       "", // Timestamp placeholder (0)
       incRow.chatterName, incRow.modelName, incRow.clientName, // 1,2,3
-      incRow.usdRate, incRow.amountUSD, incRow.amountILS, // 4,5,6
+      incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS, // 4,5,6
       incRow.incomeType, incRow.platform, // 7,8
       fmtD(d), incRow.hour, // 9,10
       incRow.notes, incRow.verified, incRow.shiftLocation, // 11,12,13
@@ -268,7 +269,7 @@ const IncSvc = {
     const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
     const rowData = [
       "", incRow.chatterName, incRow.modelName, incRow.clientName,
-      incRow.usdRate, incRow.amountUSD, incRow.amountILS,
+      incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS,
       incRow.incomeType, incRow.platform,
       fmtD(d), incRow.hour,
       incRow.notes, incRow.verified, incRow.shiftLocation,
@@ -284,7 +285,7 @@ const IncSvc = {
     const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
     const rowData = [
       "", incRow.chatterName, incRow.modelName, incRow.clientName,
-      incRow.usdRate, incRow.amountUSD || incRow.originalAmount, incRow.originalAmount,
+      incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS,
       incRow.incomeType, incRow.platform,
       fmtD(d), incRow.hour,
       incRow.notes, incRow.verified, incRow.shiftLocation,
@@ -891,7 +892,7 @@ function DashPage() {
     let lastDays = 31, lastInc = 0;
     return MONTHS_HE.map((m, i) => {
       const mi = iY.filter(r => r.date.getMonth() === i), me = eY.filter(e => e.date.getMonth() === i);
-      const inc = mi.reduce((s, r) => s + rowInc(r, liveRate), 0), exp = me.reduce((s, e) => s + e.amount, 0);
+      const inc = mi.reduce((s, r) => s + r.amountILS, 0), exp = me.reduce((s, e) => s + e.amount, 0);
       const daysInMonth = new Date(year, i + 1, 0).getDate();
       const t = Calc.targets(lastInc, lastDays, daysInMonth);
       lastInc = inc; lastDays = daysInMonth;
@@ -1062,7 +1063,7 @@ function IncPage() {
   const totalILS = data.reduce((s, r) => s + (r.rawILS || 0), 0);
   const totalUSD = data.reduce((s, r) => s + (r.amountUSD || 0), 0);
   const usdInILS = Math.round(totalUSD * liveRate);
-  const grandTotal = data.reduce((s, r) => s + rowInc(r, liveRate), 0);
+  const grandTotal = data.reduce((s, r) => s + r.amountILS, 0);
 
   const togglePaid = async (r) => {
     try {
@@ -1086,9 +1087,9 @@ function IncPage() {
     } catch (e) { alert("שגיאה: " + e.message); }
   };
   const chartData = useMemo(() => {
-    if (view === "yearly") return MONTHS_HE.map((m, i) => ({ name: MONTHS_SHORT[i], value: data.filter(r => r.date && r.date.getMonth() === i).reduce((s, r) => s + rowInc(r, liveRate), 0) }));
-    if (xAxis === "date") { const map = {}; data.forEach(r => { const k = r.date ? r.date.getDate() : "?"; map[k] = (map[k] || 0) + rowInc(r, liveRate); }); return Object.entries(map).sort((a, b) => +a[0] - +b[0]).map(([k, v]) => ({ name: k, value: v })); }
-    const map = {}; data.forEach(r => { const k = xAxis === "chatter" ? r.chatterName : xAxis === "client" ? r.modelName : xAxis === "type" ? r.incomeType : r.platform; map[k] = (map[k] || 0) + rowInc(r, liveRate); }); return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ name: k, value: v }));
+    if (view === "yearly") return MONTHS_HE.map((m, i) => ({ name: MONTHS_SHORT[i], value: data.filter(r => r.date && r.date.getMonth() === i).reduce((s, r) => s + r.amountILS, 0) }));
+    if (xAxis === "date") { const map = {}; data.forEach(r => { const k = r.date ? r.date.getDate() : "?"; map[k] = (map[k] || 0) + r.amountILS; }); return Object.entries(map).sort((a, b) => +a[0] - +b[0]).map(([k, v]) => ({ name: k, value: v })); }
+    const map = {}; data.forEach(r => { const k = xAxis === "chatter" ? r.chatterName : xAxis === "client" ? r.modelName : xAxis === "type" ? r.incomeType : r.platform; map[k] = (map[k] || 0) + r.amountILS; }); return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ name: k, value: v }));
   }, [data, view, xAxis, liveRate]);
 
   return <div style={{ direction: "rtl" }}>
@@ -1274,7 +1275,7 @@ function TgtPage() {
     let lastDays = 31, lastInc = 0;
     return MONTHS_HE.map((m, i) => {
       const mi = iY.filter(r => r.date.getMonth() === i);
-      const inc = mi.reduce((s, r) => s + rowInc(r, liveRate), 0);
+      const inc = mi.reduce((s, r) => s + r.amountILS, 0);
       const daysInMonth = new Date(year, i + 1, 0).getDate();
       const t = Calc.targets(lastInc, lastDays, daysInMonth);
       lastInc = inc; lastDays = daysInMonth;
@@ -1295,8 +1296,8 @@ function TgtPage() {
         const key = keyFn(r);
         if (!key) return;
         const mi = r.date.getMonth();
-        if (mi === prevIdx && prevIdx >= 0) prevMap[key] = (prevMap[key] || 0) + rowInc(r, liveRate);
-        if (mi === selMonth) curMap[key] = (curMap[key] || 0) + rowInc(r, liveRate);
+        if (mi === prevIdx && prevIdx >= 0) prevMap[key] = (prevMap[key] || 0) + r.amountILS;
+        if (mi === selMonth) curMap[key] = (curMap[key] || 0) + r.amountILS;
       });
       const allKeys = [...new Set([...Object.keys(prevMap), ...Object.keys(curMap)])].sort();
       return allKeys.map(name => {
@@ -2096,11 +2097,14 @@ function ChatterPortal() {
   const save = async () => {
     if (!form.modelName || (!form.amountILS && !form.amountUSD)) { setErr("נא למלא לקוחה וסכום"); return; }
     setSaving(true); setErr("");
-    const rate = +form.usdRate || 3.6;
-    const ils = +form.amountILS || Math.round((+form.amountUSD || 0) * rate);
+    const rate = +form.usdRate || 3.08;
+    const inputILS = +form.amountILS || 0;
+    const inputUSD = +form.amountUSD || 0;
+    const combinedILS = inputILS + Math.round(inputUSD * rate);
+
     const row = [
       "", chatterName, form.modelName, "", String(rate),
-      String(+form.amountUSD || 0), String(ils), "",
+      String(inputUSD), String(inputILS), "",
       form.platform, form.date.split("-").reverse().join("/"),
       form.hour, form.notes, "", form.shiftLocation, "", ""
     ];
@@ -2109,8 +2113,9 @@ function ChatterPortal() {
       // Add to local state
       const newInc = {
         id: `I-chatter-${Date.now()}`, chatterName, modelName: form.modelName,
-        clientName: "", usdRate: rate, amountUSD: +form.amountUSD || 0,
-        amountILS: ils, originalAmount: ils, incomeType: "",
+        clientName: "", usdRate: rate, amountUSD: inputUSD,
+        amountILS: combinedILS, originalAmount: combinedILS,
+        originalRawILS: inputILS, originalRawUSD: inputUSD, incomeType: "",
         platform: form.platform, date: new Date(form.date), hour: form.hour,
         notes: form.notes, verified: "", shiftLocation: form.shiftLocation,
         paidToClient: false, cancelled: false, _rowIndex: 0
@@ -2388,9 +2393,9 @@ function ClientPortal() {
   const monthData = useMemo(() => allData.filter(r => r.date.getMonth() === month), [allData, month]);
   const data = view === "monthly" ? monthData : allData;
 
-  const totalIncome = data.reduce((s, r) => s + rowInc(r, liveRate), 0);
-  const throughAgency = data.filter(r => !r.paidToClient).reduce((s, r) => s + rowInc(r, liveRate), 0);
-  const direct = data.filter(r => r.paidToClient).reduce((s, r) => s + rowInc(r, liveRate), 0);
+  const totalIncome = data.reduce((s, r) => s + r.amountILS, 0);
+  const throughAgency = data.filter(r => !r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
+  const direct = data.filter(r => r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
   const txCount = data.length;
 
   // Targets: based on previous month's performance
@@ -2398,11 +2403,11 @@ function ClientPortal() {
     if (view !== "monthly") return null;
     const prevMonth = month - 1;
     const prevData = prevMonth >= 0 ? allData.filter(r => r.date.getMonth() === prevMonth) : [];
-    const prevInc = prevData.reduce((s, r) => s + rowInc(r, liveRate), 0);
+    const prevInc = prevData.reduce((s, r) => s + r.amountILS, 0);
     const prevDays = prevMonth >= 0 ? new Date(year, month, 0).getDate() : 31;
     const curDays = new Date(year, month + 1, 0).getDate();
     const t = Calc.targets(prevInc, prevDays, curDays);
-    const curInc = monthData.reduce((s, r) => s + rowInc(r, liveRate), 0);
+    const curInc = monthData.reduce((s, r) => s + r.amountILS, 0);
     const isCurrent = month === new Date().getMonth() && year === new Date().getFullYear();
     const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : curDays;
     const dailyAvg = curInc / daysPassed;
