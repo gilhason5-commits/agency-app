@@ -187,6 +187,7 @@ function mapInc(row, i) {
     _rowIndex: i + 2,
     chatterName: row[1] || "", modelName: row[2] || "", clientName: row[3] || "",
     usdRate: rate,
+    rawILS: cancelled ? 0 : rawILS,
     amountUSD: cancelled ? 0 : rawUSD,
     amountILS: cancelled ? 0 : computedILS,
     originalAmount: computedILS,
@@ -197,6 +198,8 @@ function mapInc(row, i) {
     cancelled
   };
 }
+// Combined income per row: rawILS + (USD × liveRate), avoids double-counting
+function rowInc(r, lr) { return (r.rawILS || 0) + ((r.amountUSD || 0) * (lr || ExRate.get())); }
 function mapExp(row, i) {
   const d = parseDate(row[0]);
   return {
@@ -857,7 +860,7 @@ function SetupPage() {
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
-  const { year, month, setMonth, view, setView } = useApp();
+  const { year, month, setMonth, view, setView, liveRate } = useApp();
   const { iM, iY, eM, eY, targets } = useFD();
   const w = useWin();
   const mp = Calc.profit(iM, eM);
@@ -865,13 +868,13 @@ function DashPage() {
     let lastDays = 31, lastInc = 0;
     return MONTHS_HE.map((m, i) => {
       const mi = iY.filter(r => r.date.getMonth() === i), me = eY.filter(e => e.date.getMonth() === i);
-      const inc = mi.reduce((s, r) => s + r.amountILS, 0), exp = me.reduce((s, e) => s + e.amount, 0);
+      const inc = mi.reduce((s, r) => s + rowInc(r, liveRate), 0), exp = me.reduce((s, e) => s + e.amount, 0);
       const daysInMonth = new Date(year, i + 1, 0).getDate();
       const t = Calc.targets(lastInc, lastDays, daysInMonth);
       lastInc = inc; lastDays = daysInMonth;
       return { month: m, ms: MONTHS_SHORT[i], idx: i, inc, exp, tgt1: t.t1, tgt2: t.t2, tgt3: t.t3, dailyAvg: t.daily, days: daysInMonth };
     });
-  }, [iY, eY, year]);
+  }, [iY, eY, year, liveRate]);
 
   const cumData = useMemo(() => { let ci = 0, ct = 0; return mbd.map(d => { ci += d.inc; ct += d.tgt1; return { ...d, cumInc: ci, cumTgt: ct }; }); }, [mbd]);
   const yearTotInc = cumData[11]?.cumInc || 0, yearTotTgt = cumData[11]?.cumTgt || 0;
@@ -1033,10 +1036,10 @@ function IncPage() {
   const incTypes = useMemo(() => [...new Set((view === "monthly" ? iM : iY).map(r => r.incomeType).filter(Boolean))].sort(), [iM, iY, view]);
   const [fP, setFP] = useState("all"), [fC, setFC] = useState("all"), [fCh, setFCh] = useState("all"), [fL, setFL] = useState("all"), [fT, setFT] = useState("all"), [xAxis, setXAxis] = useState("date");
   const data = (view === "monthly" ? iM : iY).filter(r => (fP === "all" || r.platform === fP) && (fC === "all" || r.modelName === fC) && (fCh === "all" || r.chatterName === fCh) && (fL === "all" || r.shiftLocation === fL) && (fT === "all" || r.incomeType === fT));
-  const totalILS = data.reduce((s, r) => s + r.amountILS, 0);
+  const totalILS = data.reduce((s, r) => s + (r.rawILS || 0), 0);
   const totalUSD = data.reduce((s, r) => s + (r.amountUSD || 0), 0);
   const usdInILS = Math.round(totalUSD * liveRate);
-  const grandTotal = totalILS + usdInILS;
+  const grandTotal = data.reduce((s, r) => s + rowInc(r, liveRate), 0);
 
   const togglePaid = async (r) => {
     try {
@@ -1060,10 +1063,10 @@ function IncPage() {
     } catch (e) { alert("שגיאה: " + e.message); }
   };
   const chartData = useMemo(() => {
-    if (view === "yearly") return MONTHS_HE.map((m, i) => ({ name: MONTHS_SHORT[i], value: data.filter(r => r.date && r.date.getMonth() === i).reduce((s, r) => s + r.amountILS, 0) }));
-    if (xAxis === "date") { const map = {}; data.forEach(r => { const k = r.date ? r.date.getDate() : "?"; map[k] = (map[k] || 0) + r.amountILS; }); return Object.entries(map).sort((a, b) => +a[0] - +b[0]).map(([k, v]) => ({ name: k, value: v })); }
-    const map = {}; data.forEach(r => { const k = xAxis === "chatter" ? r.chatterName : xAxis === "client" ? r.modelName : xAxis === "type" ? r.incomeType : r.platform; map[k] = (map[k] || 0) + r.amountILS; }); return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ name: k, value: v }));
-  }, [data, view, xAxis]);
+    if (view === "yearly") return MONTHS_HE.map((m, i) => ({ name: MONTHS_SHORT[i], value: data.filter(r => r.date && r.date.getMonth() === i).reduce((s, r) => s + rowInc(r, liveRate), 0) }));
+    if (xAxis === "date") { const map = {}; data.forEach(r => { const k = r.date ? r.date.getDate() : "?"; map[k] = (map[k] || 0) + rowInc(r, liveRate); }); return Object.entries(map).sort((a, b) => +a[0] - +b[0]).map(([k, v]) => ({ name: k, value: v })); }
+    const map = {}; data.forEach(r => { const k = xAxis === "chatter" ? r.chatterName : xAxis === "client" ? r.modelName : xAxis === "type" ? r.incomeType : r.platform; map[k] = (map[k] || 0) + rowInc(r, liveRate); }); return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ name: k, value: v }));
+  }, [data, view, xAxis, liveRate]);
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>💰 פירוט הכנסות</h2>
@@ -1240,7 +1243,7 @@ function ClientPage() {
 // PAGE: TARGETS
 // ═══════════════════════════════════════════════════════
 function TgtPage() {
-  const { year, month } = useApp();
+  const { year, month, liveRate } = useApp();
   const { iY } = useFD();
   const [selMonth, setSelMonth] = useState(null);
 
@@ -1248,13 +1251,13 @@ function TgtPage() {
     let lastDays = 31, lastInc = 0;
     return MONTHS_HE.map((m, i) => {
       const mi = iY.filter(r => r.date.getMonth() === i);
-      const inc = mi.reduce((s, r) => s + r.amountILS, 0);
+      const inc = mi.reduce((s, r) => s + rowInc(r, liveRate), 0);
       const daysInMonth = new Date(year, i + 1, 0).getDate();
       const t = Calc.targets(lastInc, lastDays, daysInMonth);
       lastInc = inc; lastDays = daysInMonth;
       return { month: m, idx: i, inc, tgt1: t.t1, tgt2: t.t2, tgt3: t.t3, dailyAvg: t.daily, days: daysInMonth };
     });
-  }, [iY, year]);
+  }, [iY, year, liveRate]);
 
   // Per-entity targets for selected month
   const entityTargets = useMemo(() => {
@@ -1269,8 +1272,8 @@ function TgtPage() {
         const key = keyFn(r);
         if (!key) return;
         const mi = r.date.getMonth();
-        if (mi === prevIdx && prevIdx >= 0) prevMap[key] = (prevMap[key] || 0) + r.amountILS;
-        if (mi === selMonth) curMap[key] = (curMap[key] || 0) + r.amountILS;
+        if (mi === prevIdx && prevIdx >= 0) prevMap[key] = (prevMap[key] || 0) + rowInc(r, liveRate);
+        if (mi === selMonth) curMap[key] = (curMap[key] || 0) + rowInc(r, liveRate);
       });
       const allKeys = [...new Set([...Object.keys(prevMap), ...Object.keys(curMap)])].sort();
       return allKeys.map(name => {
@@ -2351,7 +2354,7 @@ function ApprovalsPage() {
 // CLIENT PORTAL (for client login)
 // ═══════════════════════════════════════════════════════
 function ClientPortal() {
-  const { user, logout, income, year, month, setMonth, loading, load, connected, setConnected, demo, loadDemo } = useApp();
+  const { user, logout, income, year, month, setMonth, loading, load, connected, setConnected, demo, loadDemo, liveRate } = useApp();
   const w = useWin();
   const [view, setView] = useState("monthly");
 
@@ -2362,9 +2365,9 @@ function ClientPortal() {
   const monthData = useMemo(() => allData.filter(r => r.date.getMonth() === month), [allData, month]);
   const data = view === "monthly" ? monthData : allData;
 
-  const totalIncome = data.reduce((s, r) => s + r.amountILS, 0);
-  const throughAgency = data.filter(r => !r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
-  const direct = data.filter(r => r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
+  const totalIncome = data.reduce((s, r) => s + rowInc(r, liveRate), 0);
+  const throughAgency = data.filter(r => !r.paidToClient).reduce((s, r) => s + rowInc(r, liveRate), 0);
+  const direct = data.filter(r => r.paidToClient).reduce((s, r) => s + rowInc(r, liveRate), 0);
   const txCount = data.length;
 
   // Targets: based on previous month's performance
@@ -2372,11 +2375,11 @@ function ClientPortal() {
     if (view !== "monthly") return null;
     const prevMonth = month - 1;
     const prevData = prevMonth >= 0 ? allData.filter(r => r.date.getMonth() === prevMonth) : [];
-    const prevInc = prevData.reduce((s, r) => s + r.amountILS, 0);
+    const prevInc = prevData.reduce((s, r) => s + rowInc(r, liveRate), 0);
     const prevDays = prevMonth >= 0 ? new Date(year, month, 0).getDate() : 31;
     const curDays = new Date(year, month + 1, 0).getDate();
     const t = Calc.targets(prevInc, prevDays, curDays);
-    const curInc = monthData.reduce((s, r) => s + r.amountILS, 0);
+    const curInc = monthData.reduce((s, r) => s + rowInc(r, liveRate), 0);
     const isCurrent = month === new Date().getMonth() && year === new Date().getFullYear();
     const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : curDays;
     const dailyAvg = curInc / daysPassed;
