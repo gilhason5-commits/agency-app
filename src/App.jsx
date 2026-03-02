@@ -47,6 +47,7 @@ function parseDate(v) {
 }
 function fmtD(d) { if (!d) return ""; return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`; }
 function fmtC(n) { if (n == null || isNaN(n)) return "₪0"; return `${n < 0 ? "-" : ""}₪${Math.abs(n).toLocaleString("he-IL", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`; }
+function fmtUSD(n) { if (!n || isNaN(n)) return "—"; return `$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`; }
 function ym(y, m) { return `${y}-${String(m + 1).padStart(2, "0")}`; }
 function useWin() { const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1200); useEffect(() => { const h = () => setW(window.innerWidth); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, []); return w; }
 
@@ -135,6 +136,33 @@ const API = {
     if (data.error) throw new Error(data.error);
     return data;
   },
+};
+
+// ═══════════════════════════════════════════════════════
+// EXCHANGE RATE
+// ═══════════════════════════════════════════════════════
+const ExRate = {
+  _rate: null,
+  async fetchUsdIls() {
+    // Check localStorage cache (valid for 24h)
+    const cached = localStorage.getItem("USD_ILS_RATE");
+    if (cached) {
+      const { rate, ts } = JSON.parse(cached);
+      if (Date.now() - ts < 24 * 60 * 60 * 1000) { this._rate = rate; return rate; }
+    }
+    try {
+      const resp = await fetch("https://api.exchangerate-api.com/v4/latest/USD");
+      const data = await resp.json();
+      const rate = data.rates?.ILS || 3.6;
+      this._rate = rate;
+      localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate, ts: Date.now() }));
+      return rate;
+    } catch {
+      this._rate = this._rate || 3.6;
+      return this._rate;
+    }
+  },
+  get() { return this._rate || 3.6; }
 };
 
 // ═══════════════════════════════════════════════════════
@@ -494,7 +522,11 @@ function Prov({ children }) {
   const [demo, setDemo] = useState(false);
   const [rv, setRv] = useState(0);
   const [loadStep, setLoadStep] = useState("");
+  const [liveRate, setLiveRate] = useState(ExRate.get());
   const updRate = useCallback((n, ymi, p) => { setRate(n, ymi, p); setRv(v => v + 1); }, []);
+
+  // Fetch live exchange rate on mount
+  useEffect(() => { ExRate.fetchUsdIls().then(r => setLiveRate(r)); }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null); setLoadStep("מתחבר...");
@@ -601,8 +633,8 @@ function Prov({ children }) {
     income, setIncome, expenses, setExpenses, models, setModels,
     history, setHistory, genParams, setGenParams, loading, error,
     connected, setConnected, demo, setDemo, load, loadDemo, rv, updRate,
-    loadStep, user, login, logout, sheetUsers, loadSheetUsers
-  }), [year, month, view, page, income, expenses, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user]);
+    loadStep, user, login, logout, sheetUsers, loadSheetUsers, liveRate
+  }), [year, month, view, page, income, expenses, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
@@ -996,7 +1028,7 @@ function TierCubes({ income }) {
 // PAGE: INCOME
 // ═══════════════════════════════════════════════════════
 function IncPage() {
-  const { year, month, setMonth, view, setView, setIncome } = useApp();
+  const { year, month, setMonth, view, setView, setIncome, liveRate } = useApp();
   const { iM, iY, chatters, clients, platforms } = useFD();
   const incTypes = useMemo(() => [...new Set((view === "monthly" ? iM : iY).map(r => r.incomeType).filter(Boolean))].sort(), [iM, iY, view]);
   const [fP, setFP] = useState("all"), [fC, setFC] = useState("all"), [fCh, setFCh] = useState("all"), [fL, setFL] = useState("all"), [fT, setFT] = useState("all"), [xAxis, setXAxis] = useState("date");
@@ -1034,12 +1066,12 @@ function IncPage() {
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>💰 פירוט הכנסות</h2>
     <FB><Sel label="תצוגה:" value={view} onChange={setView} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />{view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}</FB>
     <FB><Sel label="פלטפורמה:" value={fP} onChange={setFP} options={[{ value: "all", label: "הכל" }, ...platforms.map(p => ({ value: p, label: p }))]} /><Sel label="סוג הכנסה:" value={fT} onChange={setFT} options={[{ value: "all", label: "הכל" }, ...incTypes.map(t => ({ value: t, label: t }))]} /><Sel label="לקוחה:" value={fC} onChange={setFC} options={[{ value: "all", label: "הכל" }, ...clients.map(c => ({ value: c, label: c }))]} /><Sel label="צ'אטר:" value={fCh} onChange={setFCh} options={[{ value: "all", label: "הכל" }, ...chatters.map(c => ({ value: c, label: c }))]} /><Sel label="מיקום:" value={fL} onChange={setFL} options={[{ value: "all", label: "הכל" }, { value: "משרד", label: "משרד" }, { value: "חוץ", label: "חוץ" }]} /></FB>
-    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}><Stat icon="💰" title="סה״כ" value={fmtC(total)} color={C.grn} sub={`${data.length} עסקאות`} /></div>
+    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}><Stat icon="💰" title="סה״כ ₪" value={fmtC(total)} color={C.grn} sub={`${data.length} עסקאות`} /><Stat icon="💵" title="סה״כ $" value={fmtUSD(data.reduce((s, r) => s + (r.amountUSD || 0), 0))} color={C.pri} sub={`שער: ₪${liveRate.toFixed(2)}`} /></div>
     <Card style={{ marginBottom: 16 }}>
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✔️" : "—"}</Btn> }, { label: "סכום", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.dim }}>{r.cancelled ? "↩️ שחזר" : "—"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", fmtC(total), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(total)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✔️" : "—"}</Btn> }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.dim }}>{r.cancelled ? "↩️ שחזר" : "—"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(data.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(total), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(total)]} />}
   </div>;
 }
 
@@ -1189,7 +1221,7 @@ function ClientPage() {
       </Card>
       <Modal open={editPct} onClose={() => setEditPct(false)} title={`עריכת אחוז — ${sel} — ${MONTHS_HE[month]}`} width={340}><input type="number" min="0" max="100" value={pv} onChange={e => setPv(e.target.value)} style={{ width: "100%", padding: "12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 20, outline: "none", boxSizing: "border-box", marginBottom: 14 }} /><div style={{ display: "flex", gap: 8 }}><Btn variant="success" onClick={() => { updRate(sel, ymi, +pv); setEditPct(false); }}>💾 שמור</Btn><Btn variant="ghost" onClick={() => setEditPct(false)}>ביטול</Btn></div></Modal>
       <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>🧾 עסקאות ({MONTHS_HE[month]})</h3>
-        <DT columns={[{ label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✔️" : "❌"}</Btn> }, { label: "סכום", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }]} rows={incD.filter(r => r.modelName === sel).sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", fmtC(bal.totalIncome)]} /></div>
+        <DT columns={[{ label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✔️" : "❌"}</Btn> }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }]} rows={incD.filter(r => r.modelName === sel).sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", fmtUSD(incD.filter(r => r.modelName === sel).reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome)]} /></div>
     </> : <>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><ComposedChart data={ybd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="totalIncome" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Line type="monotone" dataKey="ent" stroke={C.pri} strokeWidth={2} name="זכאות" /><Line type="monotone" dataKey="bal" stroke={C.ylw} strokeWidth={2} strokeDasharray="5 5" name="יתרה" /></ComposedChart></ResponsiveContainer></Card>
       <DT columns={[{ label: "חודש", key: "month" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "דרך סוכנות", render: r => fmtC(r.through) }, { label: "ישירות", render: r => fmtC(r.direct) }, { label: "%", render: r => `${r.pct}%` }, { label: "זכאות", render: r => fmtC(r.ent) }, { label: "יתרה", render: r => <span style={{ color: r.bal >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.bal)}</span> }]} rows={ybd} footer={["סה״כ", fmtC(ybd.reduce((s, r) => s + r.totalIncome, 0)), "", "", "", fmtC(ybd.reduce((s, r) => s + r.ent, 0)), ""]} />
