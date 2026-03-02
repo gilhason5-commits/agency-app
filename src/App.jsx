@@ -325,9 +325,9 @@ const UserSvc = {
       const offset = isHeader ? 2 : 1; // Google Sheets is 1-indexed
 
       return actualRows.map((r, i) => ({
-        name: (r[0] || "").trim(),
-        pass: (r[1] || "").trim(),
-        role: (r[2] || "chatter").trim(),
+        name: String(r[0] || "").trim(),
+        pass: String(r[1] || "").trim(),
+        role: String(r[2] || "chatter").trim(),
         _rowIndex: i + offset
       })).filter(u => u.name && u.pass);
     } catch (e) {
