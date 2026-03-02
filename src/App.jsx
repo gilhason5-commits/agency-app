@@ -317,12 +317,18 @@ const UserSvc = {
   async fetchAll() {
     try {
       const rows = await API.read("users");
-      // Skip header row. Columns: A=name, B=password, C=role (chatter/client)
-      return rows.slice(1).map((r, i) => ({
+      if (!rows || rows.length === 0) return [];
+      const firstRowName = (rows[0][0] || "").toLowerCase().trim();
+      const isHeader = firstRowName === "name" || firstRowName === "שם" || firstRowName === "user" || firstRowName === "first name";
+
+      const actualRows = isHeader ? rows.slice(1) : rows;
+      const offset = isHeader ? 2 : 1; // Google Sheets is 1-indexed
+
+      return actualRows.map((r, i) => ({
         name: (r[0] || "").trim(),
         pass: (r[1] || "").trim(),
         role: (r[2] || "chatter").trim(),
-        _rowIndex: i + 2
+        _rowIndex: i + offset
       })).filter(u => u.name && u.pass);
     } catch (e) {
       console.log("Users sheet not ready:", e.message);
@@ -598,9 +604,9 @@ function Prov({ children }) {
       const correct = import.meta.env.VITE_APP_PASSWORD || "1234";
       if (pass === correct) {
         const u = { role: "admin", name: "admin" };
-        setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return true;
+        setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
       }
-      return false;
+      return { ok: false, Debug: "סיסמת מנהל שגויה" };
     }
     // Chatter/Client login — try Google Sheets first, then env vars fallback
     if (entityName && (role === "chatter" || role === "client")) {
@@ -608,11 +614,28 @@ function Prov({ children }) {
       try {
         const users = await UserSvc.fetchAll();
         setSheetUsers(users);
-        const match = users.find(u => u.name === entityName && u.pass === pass && u.role === role);
+        const cleanName = entityName.trim().toLowerCase();
+        const cleanPass = pass.trim();
+
+        console.log("LOGIN INFO:", { cleanName, cleanPass, role, users });
+
+        const match = users.find(u =>
+          u.name.toLowerCase() === cleanName &&
+          u.pass === cleanPass &&
+          u.role === role
+        );
+
         if (match) {
-          const u = { role, name: entityName };
-          setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return true;
+          const u = { role, name: match.name }; // Keep original casing from sheet
+          setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
         }
+
+        // If we reach here, sheets loaded but no match found. Feed debug info.
+        const debugNames = users.filter(u => u.role === role).map(u => `'${u.name}'`).join(", ");
+        return {
+          ok: false,
+          Debug: `לא נמצאה התאמה בגיליון. השם שהקלדת: '${cleanName}', הסיסמה: '${cleanPass}'. המשתמשים שיש בגיליון תחת סוג '${role}' הם: ${debugNames || "אין"}. (וודא שבאותיות קטנות בעמודה השלישית כתוב ${role})`
+        };
       } catch { /* Sheets not available, try env */ }
       // 2. Fallback to env vars
       const envKey = role === "chatter" ? "VITE_CHATTERS" : "VITE_CLIENTS";
@@ -623,11 +646,11 @@ function Prov({ children }) {
       });
       if (envMap[entityName] && envMap[entityName] === pass) {
         const u = { role, name: entityName };
-        setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return true;
+        setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
       }
-      return false;
+      return { ok: false, Debug: "שם משתמש או סיסמה שגויים (גיבוי סביבה)" };
     }
-    return false;
+    return { ok: false, Debug: "שגיאה כללית בהתחברות" };
   };
   const logout = () => { setUser(null); localStorage.removeItem("AGENCY_USER"); };
 
@@ -656,16 +679,16 @@ function LoginPage() {
 
   const handleAdmin = async (e) => {
     e.preventDefault(); setLogging(true); setErr("");
-    const ok = await login(pass);
-    if (!ok) setErr("סיסמה שגויה");
+    const res = await login(pass);
+    if (!res.ok) setErr(res.Debug || "סיסמה שגויה");
     setLogging(false);
   };
   const handleEntity = async (e, role) => {
     e.preventDefault();
     if (!entityName.trim()) { setErr("אנא הזן שם משתמש"); return; }
     setLogging(true); setErr("");
-    const ok = await login(entityPass, entityName.trim(), role);
-    if (!ok) setErr("שם משתמש או סיסמה שגויים");
+    const res = await login(entityPass, entityName.trim(), role);
+    if (!res.ok) setErr(res.Debug || "שם משתמש או סיסמה שגויים");
     setLogging(false);
   };
 
