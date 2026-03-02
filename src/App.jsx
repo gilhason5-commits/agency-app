@@ -599,59 +599,61 @@ function Prov({ children }) {
   const [sheetUsers, setSheetUsers] = useState([]);
   const loadSheetUsers = async () => { try { const u = await UserSvc.fetchAll(); setSheetUsers(u); return u; } catch { return []; } };
 
-  const login = async (pass, entityName, role) => {
-    // Admin login - always from env
-    if (!role || role === "admin") {
-      const correct = import.meta.env.VITE_APP_PASSWORD || "1234";
-      if (pass === correct) {
-        const u = { role: "admin", name: "admin" };
-        setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
-      }
-      return { ok: false, Debug: "סיסמת מנהל שגויה" };
+  const login = async (pass, entityName = "") => {
+    const cleanName = entityName.trim().toLowerCase();
+    const cleanPass = pass.trim();
+
+    // Admin login
+    if (cleanName === "אדמין" && cleanPass === "11220099") {
+      const u = { role: "admin", name: "admin" };
+      setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
     }
-    // Chatter/Client login — try Google Sheets first, then env vars fallback
-    if (entityName && (role === "chatter" || role === "client")) {
-      // 1. Try Sheets
+
+    // Chatter/Client login — try Google Sheets first
+    if (entityName) {
       try {
         const users = await UserSvc.fetchAll();
         setSheetUsers(users);
-        const cleanName = entityName.trim().toLowerCase();
-        const cleanPass = pass.trim();
 
-        console.log("LOGIN INFO:", { cleanName, cleanPass, role, users });
+        console.log("LOGIN INFO:", { cleanName, cleanPass, users });
 
         const match = users.find(u =>
           u.name.toLowerCase() === cleanName &&
-          u.pass === cleanPass &&
-          u.role === role
+          u.pass === cleanPass
         );
 
         if (match) {
-          const u = { role, name: match.name }; // Keep original casing from sheet
+          const u = { role: match.role, name: match.name }; // Keep original casing from sheet
           setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
         }
 
         // If we reach here, sheets loaded but no match found. Feed debug info.
-        const debugNames = users.filter(u => u.role === role).map(u => `'${u.name}'`).join(", ");
         return {
           ok: false,
-          Debug: `לא נמצאה התאמה בגיליון. השם שהקלדת: '${cleanName}', הסיסמה: '${cleanPass}'. המשתמשים שיש בגיליון תחת סוג '${role}' הם: ${debugNames || "אין"}. (וודא שבאותיות קטנות בעמודה השלישית כתוב ${role})`
+          Debug: `שם משתמש או סיסמה שגויים. השם שהקלדת: '${cleanName}', הסיסמה: '${cleanPass}'.`
         };
       } catch { /* Sheets not available, try env */ }
-      // 2. Fallback to env vars
-      const envKey = role === "chatter" ? "VITE_CHATTERS" : "VITE_CLIENTS";
-      const envMap = {};
-      (import.meta.env[envKey] || "").split(",").filter(Boolean).forEach(pair => {
-        const [n, p] = pair.split(":");
-        if (n && p) envMap[n.trim()] = p.trim();
-      });
-      if (envMap[entityName] && envMap[entityName] === pass) {
-        const u = { role, name: entityName };
-        setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
-      }
+
+      // Fallback to env vars
+      const tryEnv = (envKey, role) => {
+        const envMap = {};
+        (import.meta.env[envKey] || "").split(",").filter(Boolean).forEach(pair => {
+          const [n, p] = pair.split(":");
+          if (n && p) envMap[n.trim()] = p.trim();
+        });
+        if (envMap[entityName] && envMap[entityName] === cleanPass) {
+          const u = { role, name: entityName };
+          setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
+        }
+        return false;
+      };
+
+      const envRes = tryEnv("VITE_CHATTERS", "chatter") || tryEnv("VITE_CLIENTS", "client");
+      if (envRes) return envRes;
+
       return { ok: false, Debug: "שם משתמש או סיסמה שגויים (גיבוי סביבה)" };
     }
-    return { ok: false, Debug: "שגיאה כללית בהתחברות" };
+    return { ok: false, Debug: "שם משתמש או סיסמה שגויים" };
   };
   const logout = () => { setUser(null); localStorage.removeItem("AGENCY_USER"); };
 
@@ -671,35 +673,19 @@ function Prov({ children }) {
 // ═══════════════════════════════════════════════════════
 function LoginPage() {
   const { login } = useApp();
-  const [tab, setTab] = useState("admin");
-  const [pass, setPass] = useState("");
   const [entityName, setEntityName] = useState("");
   const [entityPass, setEntityPass] = useState("");
   const [err, setErr] = useState("");
   const [logging, setLogging] = useState(false);
 
-  const handleAdmin = async (e) => {
-    e.preventDefault(); setLogging(true); setErr("");
-    const res = await login(pass);
-    if (!res.ok) setErr(res.Debug || "סיסמה שגויה");
-    setLogging(false);
-  };
-  const handleEntity = async (e, role) => {
+  const handleEntity = async (e) => {
     e.preventDefault();
     if (!entityName.trim()) { setErr("אנא הזן שם משתמש"); return; }
     setLogging(true); setErr("");
-    const res = await login(entityPass, entityName.trim(), role);
+    const res = await login(entityPass, entityName.trim());
     if (!res.ok) setErr(res.Debug || "שם משתמש או סיסמה שגויים");
     setLogging(false);
   };
-
-  const tabBtn = (key, label, icon) => (
-    <button onClick={() => { setTab(key); setErr(""); setEntityName(""); setEntityPass(""); }} style={{
-      flex: 1, padding: "10px 4px", background: tab === key ? C.pri : "transparent",
-      color: tab === key ? "#fff" : C.dim, border: `1px solid ${tab === key ? C.pri : C.bdr}`,
-      borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 12, transition: "all .2s"
-    }}>{icon} {label}</button>
-  );
 
   const inputStyle = { width: "100%", padding: "14px 16px", background: C.bg, border: `2px solid ${C.bdr}`, borderRadius: 10, color: C.txt, fontSize: 16, outline: "none", marginBottom: 12, textAlign: "center", boxSizing: "border-box" };
 
@@ -707,27 +693,13 @@ function LoginPage() {
     <Card style={{ width: "100%", maxWidth: 380, padding: 32, textAlign: "center" }}>
       <div style={{ fontSize: 48, marginBottom: 16 }}>🏢</div>
       <h1 style={{ color: C.txt, fontSize: 24, fontWeight: 800, marginBottom: 20 }}>ניהול סוכנות</h1>
-      <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
-        {tabBtn("admin", "מנהל", "🔐")}
-        {tabBtn("chatter", "צ'אטר", "👤")}
-        {tabBtn("client", "לקוחה", "👩")}
-      </div>
-      {tab === "admin" ? (
-        <form onSubmit={handleAdmin}>
-          <p style={{ color: C.dim, fontSize: 13, marginBottom: 14 }}>הזן סיסמת מנהל</p>
-          <input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="סיסמה" autoFocus style={inputStyle} />
-          {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 12 }}>{err}</div>}
-          <Btn size="lg" style={{ width: "100%" }} disabled={logging}>{logging ? "⏳ מתחבר..." : "התחברות"}</Btn>
-        </form>
-      ) : (
-        <form onSubmit={e => handleEntity(e, tab)}>
-          <p style={{ color: C.dim, fontSize: 13, marginBottom: 14 }}>{tab === "chatter" ? "הזן שם צ'אטר וסיסמה" : "הזן שם לקוחה וסיסמה"}</p>
-          <input type="text" value={entityName} onChange={e => setEntityName(e.target.value)} placeholder="שם משתמש" autoFocus style={inputStyle} />
-          <input type="password" value={entityPass} onChange={e => setEntityPass(e.target.value)} placeholder="סיסמה" style={inputStyle} />
-          {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 12 }}>{err}</div>}
-          <Btn size="lg" style={{ width: "100%" }} disabled={logging}>{logging ? "⏳ מתחבר..." : "כניסה"}</Btn>
-        </form>
-      )}
+      <form onSubmit={handleEntity}>
+        <p style={{ color: C.dim, fontSize: 13, marginBottom: 14 }}>הזן שם משתמש וסיסמה</p>
+        <input type="text" value={entityName} onChange={e => setEntityName(e.target.value)} placeholder="שם משתמש" autoFocus style={inputStyle} />
+        <input type="password" value={entityPass} onChange={e => setEntityPass(e.target.value)} placeholder="סיסמה" style={inputStyle} />
+        {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 12 }}>{err}</div>}
+        <Btn size="lg" style={{ width: "100%" }} disabled={logging}>{logging ? "⏳ מתחבר..." : "כניסה"}</Btn>
+      </form>
     </Card>
   </div>;
 }
