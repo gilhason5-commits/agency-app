@@ -282,6 +282,30 @@ const ExpSvc = {
   },
 };
 
+const UserSvc = {
+  async fetchAll() {
+    try {
+      const rows = await API.read("users");
+      // Skip header row. Columns: A=name, B=password, C=role (chatter/client)
+      return rows.slice(1).map((r, i) => ({
+        name: (r[0] || "").trim(),
+        pass: (r[1] || "").trim(),
+        role: (r[2] || "chatter").trim(),
+        _rowIndex: i + 2
+      })).filter(u => u.name && u.pass);
+    } catch (e) {
+      console.log("Users sheet not ready:", e.message);
+      return [];
+    }
+  },
+  async add(name, pass, role) {
+    return API.append("users", [[name, pass, role]]);
+  },
+  async remove(rowIndex) {
+    return API.deleteRow("users", rowIndex);
+  }
+};
+
 const GROQ_API_KEY = import.meta.env.VITE_GROK_API_KEY || "";
 
 const GroqSvc = {
@@ -530,36 +554,43 @@ function Prov({ children }) {
     if (saved) try { return JSON.parse(saved); } catch { return null; }
     return null;
   });
-  const login = (pass, entityName, role) => {
-    if (role === "chatter" && entityName) {
-      const chatters = {};
-      (import.meta.env.VITE_CHATTERS || "").split(",").filter(Boolean).forEach(pair => {
-        const [n, p] = pair.split(":");
-        if (n && p) chatters[n.trim()] = p.trim();
-      });
-      if (chatters[entityName] && chatters[entityName] === pass) {
-        const u = { role: "chatter", name: entityName };
+  const [sheetUsers, setSheetUsers] = useState([]);
+  const loadSheetUsers = async () => { try { const u = await UserSvc.fetchAll(); setSheetUsers(u); return u; } catch { return []; } };
+
+  const login = async (pass, entityName, role) => {
+    // Admin login - always from env
+    if (!role || role === "admin") {
+      const correct = import.meta.env.VITE_APP_PASSWORD || "1234";
+      if (pass === correct) {
+        const u = { role: "admin", name: "admin" };
         setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return true;
       }
       return false;
     }
-    if (role === "client" && entityName) {
-      const clients = {};
-      (import.meta.env.VITE_CLIENTS || "").split(",").filter(Boolean).forEach(pair => {
+    // Chatter/Client login — try Google Sheets first, then env vars fallback
+    if (entityName && (role === "chatter" || role === "client")) {
+      // 1. Try Sheets
+      try {
+        const users = await UserSvc.fetchAll();
+        setSheetUsers(users);
+        const match = users.find(u => u.name === entityName && u.pass === pass && u.role === role);
+        if (match) {
+          const u = { role, name: entityName };
+          setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return true;
+        }
+      } catch { /* Sheets not available, try env */ }
+      // 2. Fallback to env vars
+      const envKey = role === "chatter" ? "VITE_CHATTERS" : "VITE_CLIENTS";
+      const envMap = {};
+      (import.meta.env[envKey] || "").split(",").filter(Boolean).forEach(pair => {
         const [n, p] = pair.split(":");
-        if (n && p) clients[n.trim()] = p.trim();
+        if (n && p) envMap[n.trim()] = p.trim();
       });
-      if (clients[entityName] && clients[entityName] === pass) {
-        const u = { role: "client", name: entityName };
+      if (envMap[entityName] && envMap[entityName] === pass) {
+        const u = { role, name: entityName };
         setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return true;
       }
       return false;
-    }
-    // Admin login
-    const correct = import.meta.env.VITE_APP_PASSWORD || "1234";
-    if (pass === correct) {
-      const u = { role: "admin", name: "admin" };
-      setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return true;
     }
     return false;
   };
@@ -570,7 +601,7 @@ function Prov({ children }) {
     income, setIncome, expenses, setExpenses, models, setModels,
     history, setHistory, genParams, setGenParams, loading, error,
     connected, setConnected, demo, setDemo, load, loadDemo, rv, updRate,
-    loadStep, user, login, logout
+    loadStep, user, login, logout, sheetUsers, loadSheetUsers
   }), [year, month, view, page, income, expenses, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
@@ -586,17 +617,21 @@ function LoginPage() {
   const [entityName, setEntityName] = useState("");
   const [entityPass, setEntityPass] = useState("");
   const [err, setErr] = useState("");
+  const [logging, setLogging] = useState(false);
 
-  const handleAdmin = (e) => {
-    e.preventDefault();
-    if (login(pass)) setErr("");
-    else setErr("סיסמה שגויה");
+  const handleAdmin = async (e) => {
+    e.preventDefault(); setLogging(true); setErr("");
+    const ok = await login(pass);
+    if (!ok) setErr("סיסמה שגויה");
+    setLogging(false);
   };
-  const handleEntity = (e, role) => {
+  const handleEntity = async (e, role) => {
     e.preventDefault();
     if (!entityName.trim()) { setErr("אנא הזן שם משתמש"); return; }
-    if (login(entityPass, entityName.trim(), role)) setErr("");
-    else setErr("שם משתמש או סיסמה שגויים");
+    setLogging(true); setErr("");
+    const ok = await login(entityPass, entityName.trim(), role);
+    if (!ok) setErr("שם משתמש או סיסמה שגויים");
+    setLogging(false);
   };
 
   const tabBtn = (key, label, icon) => (
@@ -623,7 +658,7 @@ function LoginPage() {
           <p style={{ color: C.dim, fontSize: 13, marginBottom: 14 }}>הזן סיסמת מנהל</p>
           <input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="סיסמה" autoFocus style={inputStyle} />
           {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 12 }}>{err}</div>}
-          <Btn size="lg" style={{ width: "100%" }}>התחברות</Btn>
+          <Btn size="lg" style={{ width: "100%" }} disabled={logging}>{logging ? "⏳ מתחבר..." : "התחברות"}</Btn>
         </form>
       ) : (
         <form onSubmit={e => handleEntity(e, tab)}>
@@ -631,7 +666,7 @@ function LoginPage() {
           <input type="text" value={entityName} onChange={e => setEntityName(e.target.value)} placeholder="שם משתמש" autoFocus style={inputStyle} />
           <input type="password" value={entityPass} onChange={e => setEntityPass(e.target.value)} placeholder="סיסמה" style={inputStyle} />
           {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 12 }}>{err}</div>}
-          <Btn size="lg" style={{ width: "100%" }}>כניסה</Btn>
+          <Btn size="lg" style={{ width: "100%" }} disabled={logging}>{logging ? "⏳ מתחבר..." : "כניסה"}</Btn>
         </form>
       )}
     </Card>
@@ -2384,102 +2419,99 @@ function ClientPortal() {
 // USER MANAGEMENT (ADMIN)
 // ═══════════════════════════════════════════════════════
 function UserManagementPage() {
-  const w = useWin();
+  const { sheetUsers, loadSheetUsers } = useApp();
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newUser, setNewUser] = useState({ name: "", pass: "", role: "chatter" });
+  const [adding, setAdding] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
 
-  const parsePairs = (raw) => {
-    if (!raw) return [];
-    return raw.split(",").filter(Boolean).map(pair => {
-      const [name, pass] = pair.split(":");
-      return { name: name?.trim() || "", pass: pass?.trim() || "" };
-    }).filter(p => p.name);
+  useEffect(() => { loadUsers(); }, []);
+  const loadUsers = async () => { setLoading(true); const u = await loadSheetUsers(); setUsers(u); setLoading(false); };
+
+  const handleAdd = async () => {
+    if (!newUser.name.trim() || !newUser.pass.trim()) { setErr("נא למלא שם וסיסמה"); return; }
+    setAdding(true); setErr(""); setMsg("");
+    try {
+      await UserSvc.add(newUser.name.trim(), newUser.pass.trim(), newUser.role);
+      setMsg(`✅ ${newUser.role === "chatter" ? "צ'אטר" : "לקוחה"} "${newUser.name}" נוסף/ה בהצלחה!`);
+      setNewUser({ name: "", pass: "", role: newUser.role });
+      await loadUsers();
+    } catch (e) { setErr("שגיאה: " + e.message); }
+    setAdding(false);
   };
 
-  const chatters = useMemo(() => parsePairs(import.meta.env.VITE_CHATTERS), []);
-  const clients = useMemo(() => parsePairs(import.meta.env.VITE_CLIENTS), []);
-
-  const [newChatter, setNewChatter] = useState({ name: "", pass: "" });
-  const [newClient, setNewClient] = useState({ name: "", pass: "" });
-  const [copyMsg, setCopyMsg] = useState("");
-
-  const buildEnvLine = (prefix, existing, newItem) => {
-    const pairs = [...existing.map(e => `${e.name}:${e.pass}`)];
-    if (newItem.name && newItem.pass) pairs.push(`${newItem.name}:${newItem.pass}`);
-    return `${prefix}=${pairs.join(",")}`;
+  const handleDelete = async (u) => {
+    if (!confirm(`למחוק את ${u.name}?`)) return;
+    try {
+      await UserSvc.remove(u._rowIndex);
+      setMsg(`🗑️ ${u.name} נמחק/ה`);
+      await loadUsers();
+    } catch (e) { setErr("שגיאה במחיקה: " + e.message); }
   };
 
-  const handleAddChatter = () => {
-    if (!newChatter.name || !newChatter.pass) return;
-    const line = buildEnvLine("VITE_CHATTERS", chatters, newChatter);
-    navigator.clipboard.writeText(line).then(() => {
-      setCopyMsg(`✅ הועתק! עדכן ב-.env וב-Vercel:\n${line}`);
-      setNewChatter({ name: "", pass: "" });
-    });
-  };
-
-  const handleAddClient = () => {
-    if (!newClient.name || !newClient.pass) return;
-    const line = buildEnvLine("VITE_CLIENTS", clients, newClient);
-    navigator.clipboard.writeText(line).then(() => {
-      setCopyMsg(`✅ הועתק! עדכן ב-.env וב-Vercel:\n${line}`);
-      setNewClient({ name: "", pass: "" });
-    });
-  };
-
+  const chatters = users.filter(u => u.role === "chatter");
+  const clients = users.filter(u => u.role === "client");
   const inputStyle = { padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", flex: 1, minWidth: 100 };
 
   const entityTable = (title, icon, list) => (
     <Card style={{ marginBottom: 16 }}>
       <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 12 }}>{icon} {title} ({list.length})</h3>
-      {list.length === 0 ? <div style={{ color: C.mut, fontSize: 13 }}>אין {title.toLowerCase()} רשומים</div> :
-        <DT textSm columns={[
-          { label: "שם", key: "name" },
-          { label: "סיסמה", render: r => "••••" },
-          { label: "סטטוס", render: () => <span style={{ color: C.grn, fontSize: 12 }}>✅ פעיל</span> }
-        ]} rows={list} />
+      {list.length === 0 ? <div style={{ color: C.mut, fontSize: 13 }}>אין {title} רשומים</div> :
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {list.map(u => (
+            <div key={u._rowIndex} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: `${C.bg}88`, borderRadius: 8, fontSize: 13 }}>
+              <div>
+                <span style={{ color: C.txt, fontWeight: 600 }}>{u.name}</span>
+                <span style={{ color: C.dim, marginRight: 8 }}> • ••••</span>
+              </div>
+              <Btn variant="ghost" size="sm" onClick={() => handleDelete(u)} style={{ color: C.red, fontSize: 12 }}>🗑️</Btn>
+            </div>
+          ))}
+        </div>
       }
     </Card>
   );
 
+  if (loading) return <div style={{ direction: "rtl", textAlign: "center", padding: 40 }}><div style={{ color: C.pri }}>⏳ טוען משתמשים...</div></div>;
+
   return <div style={{ direction: "rtl", maxWidth: 700, margin: "0 auto" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>⚙️ ניהול משתמשים</h2>
 
-    {copyMsg && <Card style={{ marginBottom: 16, background: `${C.grn}15`, border: `1px solid ${C.grn}44` }}>
-      <pre style={{ color: C.grn, fontSize: 12, whiteSpace: "pre-wrap", margin: 0 }}>{copyMsg}</pre>
-      <Btn variant="ghost" size="sm" style={{ marginTop: 8 }} onClick={() => setCopyMsg("")}>סגור</Btn>
+    {msg && <Card style={{ marginBottom: 16, background: `${C.grn}15`, border: `1px solid ${C.grn}44` }}>
+      <div style={{ color: C.grn, fontSize: 13 }}>{msg}</div>
+    </Card>}
+    {err && <Card style={{ marginBottom: 16, background: `${C.red}15`, border: `1px solid ${C.red}44` }}>
+      <div style={{ color: C.red, fontSize: 13 }}>{err}</div>
     </Card>}
 
     {entityTable("צ'אטרים", "👤", chatters)}
-
-    <Card style={{ marginBottom: 24 }}>
-      <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>➕ הוסף צ'אטר חדש</h4>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <input placeholder="שם הצ'אטר" value={newChatter.name} onChange={e => setNewChatter(p => ({ ...p, name: e.target.value }))} style={inputStyle} />
-        <input placeholder="סיסמה" value={newChatter.pass} onChange={e => setNewChatter(p => ({ ...p, pass: e.target.value }))} style={inputStyle} />
-        <Btn onClick={handleAddChatter} style={{ whiteSpace: "nowrap" }}>📋 צור והעתק</Btn>
-      </div>
-      <div style={{ color: C.mut, fontSize: 11, marginTop: 8 }}>ייצור שורת VITE_CHATTERS מעודכנת ויעתיק אותה — הדבק ב-.env ובהגדרות Vercel</div>
-    </Card>
-
     {entityTable("לקוחות", "👩", clients)}
 
     <Card style={{ marginBottom: 24 }}>
-      <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>➕ הוסף לקוחה חדשה</h4>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <input placeholder="שם הלקוחה" value={newClient.name} onChange={e => setNewClient(p => ({ ...p, name: e.target.value }))} style={inputStyle} />
-        <input placeholder="סיסמה" value={newClient.pass} onChange={e => setNewClient(p => ({ ...p, pass: e.target.value }))} style={inputStyle} />
-        <Btn onClick={handleAddClient} style={{ whiteSpace: "nowrap" }}>📋 צור והעתק</Btn>
+      <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>➕ הוסף משתמש חדש</h4>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+        <select value={newUser.role} onChange={e => setNewUser(p => ({ ...p, role: e.target.value }))} style={{ ...inputStyle, flex: "0 0 auto", minWidth: 90, cursor: "pointer" }}>
+          <option value="chatter">צ'אטר</option>
+          <option value="client">לקוחה</option>
+        </select>
+        <input placeholder="שם" value={newUser.name} onChange={e => setNewUser(p => ({ ...p, name: e.target.value }))} style={inputStyle} />
+        <input placeholder="סיסמה" value={newUser.pass} onChange={e => setNewUser(p => ({ ...p, pass: e.target.value }))} style={inputStyle} />
+        <Btn onClick={handleAdd} disabled={adding} style={{ whiteSpace: "nowrap" }}>
+          {adding ? "⏳ שומר..." : "➕ הוסף"}
+        </Btn>
       </div>
-      <div style={{ color: C.mut, fontSize: 11, marginTop: 8 }}>ייצור שורת VITE_CLIENTS מעודכנת ויעתיק אותה — הדבק ב-.env ובהגדרות Vercel</div>
+      <div style={{ color: C.dim, fontSize: 11 }}>המשתמש יתווסף ישירות ויוכל להתחבר מיד — בלי deploy!</div>
     </Card>
 
-    <Card style={{ background: `${C.ylw}11`, border: `1px solid ${C.ylw}33` }}>
-      <h4 style={{ color: C.ylw, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>💡 איך זה עובד?</h4>
+    <Card style={{ background: `${C.pri}08`, border: `1px solid ${C.pri}33` }}>
+      <h4 style={{ color: C.pri, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>💡 הנחיות</h4>
       <div style={{ color: C.dim, fontSize: 12, lineHeight: 1.8 }}>
-        <div>1. הוסף שם וסיסמה ולחץ "צור והעתק"</div>
-        <div>2. עדכן את שורת ה-VITE_CHATTERS / VITE_CLIENTS בקובץ .env</div>
-        <div>3. עדכן את אותו ערך בהגדרות Vercel (Environment Variables)</div>
-        <div>4. עשה Deploy מחדש</div>
-        <div>5. המשתמש החדש יוכל להתחבר!</div>
+        <div>• צור גיליון בשם <strong style={{ color: C.txt }}>users</strong> ב-Google Sheets</div>
+        <div>• עמודות: <strong style={{ color: C.txt }}>שם | סיסמה | תפקיד</strong> (chatter / client)</div>
+        <div>• המשתמשים נשמרים ישירות ב-Sheets ולא צריך Vercel!</div>
+        <div>• השם חייב להתאים בדיוק לשם שמופיע ב-sales_report</div>
       </div>
     </Card>
   </div>;
