@@ -153,16 +153,16 @@ const ExRate = {
     try {
       const resp = await fetch("https://api.exchangerate-api.com/v4/latest/USD");
       const data = await resp.json();
-      const rate = data.rates?.ILS || 3.6;
+      const rate = data.rates?.ILS || 3.08;
       this._rate = rate;
       localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate, ts: Date.now() }));
       return rate;
     } catch {
-      this._rate = this._rate || 3.6;
+      this._rate = this._rate || 3.08;
       return this._rate;
     }
   },
-  get() { return this._rate || 3.6; }
+  get() { return this._rate || 3.08; }
 };
 
 // ═══════════════════════════════════════════════════════
