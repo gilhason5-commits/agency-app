@@ -761,9 +761,19 @@ function LoginPage() {
 function useApp() { return useContext(Ctx); }
 
 function useFD() {
-  const { year, month, view, income, expenses, models, genParams } = useApp();
+  const { year, month, view, income, expenses, models, genParams, liveRate } = useApp();
   const dM = useMemo(() => new Date(year, month, 1), [year, month]);
-  const iY = useMemo(() => income.filter(r => r.date && r.date.getFullYear() === year && r.verified === "V"), [income, year]);
+
+  const incomeWithDynamicRate = useMemo(() => {
+    return income.map(r => {
+      const rate = parseFloat(r.usdRate) > 0 ? parseFloat(r.usdRate) : liveRate;
+      const baseILS = r.rawILS !== undefined ? r.rawILS : (r.originalRawILS || 0);
+      const computedILS = baseILS + ((r.amountUSD || 0) > 0 ? Math.round(r.amountUSD * rate) : 0);
+      return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : computedILS };
+    });
+  }, [income, liveRate]);
+
+  const iY = useMemo(() => incomeWithDynamicRate.filter(r => r.date && r.date.getFullYear() === year && r.verified === "V"), [incomeWithDynamicRate, year]);
   const iM = useMemo(() => iY.filter(r => r.date.getMonth() === month), [iY, month]);
   const eY = useMemo(() => expenses.filter(r => r.date && r.date.getFullYear() === year), [expenses, year]);
   const eM = useMemo(() => eY.filter(r => r.date.getMonth() === month), [eY, month]);
@@ -2070,7 +2080,7 @@ function ChatterPortal() {
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState("");
   const [form, setForm] = useState({
-    modelName: "", platform: "", amountILS: "", amountUSD: "", usdRate: "3.6",
+    modelName: "", platform: "", amountILS: "", amountUSD: "", usdRate: "3.08",
     date: new Date().toISOString().split("T")[0],
     hour: new Date().toTimeString().substring(0, 5),
     shiftLocation: "משרד", notes: "", incomeType: "", customIncomeType: ""
@@ -2131,6 +2141,7 @@ function ChatterPortal() {
   const save = async () => {
     if (!form.modelName || (!form.amountILS && !form.amountUSD)) { setErr("נא למלא לקוחה וסכום"); return; }
     setSaving(true); setErr("");
+
     const rate = +form.usdRate || 3.08;
     const inputILS = +form.amountILS || 0;
     const inputUSD = +form.amountUSD || 0;
@@ -2142,7 +2153,7 @@ function ChatterPortal() {
       const newInc = {
         id: `I-chatter-${Date.now()}`, chatterName, modelName: form.modelName,
         clientName: "", usdRate: rate, amountUSD: inputUSD,
-        amountILS: combinedILS, originalAmount: combinedILS,
+        amountILS: combinedILS, originalAmount: combinedILS, rawILS: inputILS,
         originalRawILS: inputILS, originalRawUSD: inputUSD, incomeType: finalIncomeType,
         platform: form.platform, date: new Date(form.date), hour: form.hour,
         notes: form.notes, verified: "", shiftLocation: form.shiftLocation,
