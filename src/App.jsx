@@ -166,6 +166,43 @@ const ExRate = {
 };
 
 // ═══════════════════════════════════════════════════════
+// LOCAL DATABASE (localStorage persistence)
+// ═══════════════════════════════════════════════════════
+const LocalDB = {
+  _key: "AGENCY_INCOME_DB",
+  load() {
+    try {
+      const raw = localStorage.getItem(this._key);
+      if (!raw) return [];
+      const data = JSON.parse(raw);
+      // Re-hydrate date strings back to Date objects
+      return data.map(r => ({ ...r, date: r.date ? new Date(r.date) : null }));
+    } catch { return []; }
+  },
+  save(records) {
+    localStorage.setItem(this._key, JSON.stringify(records));
+  },
+  add(record) {
+    const all = this.load();
+    all.push(record);
+    this.save(all);
+    return record;
+  },
+  update(id, updates) {
+    const all = this.load();
+    const idx = all.findIndex(r => r.id === id);
+    if (idx >= 0) { all[idx] = { ...all[idx], ...updates }; this.save(all); }
+    return all[idx] || null;
+  },
+  remove(id) {
+    const all = this.load().filter(r => r.id !== id);
+    this.save(all);
+  },
+  clear() { localStorage.removeItem(this._key); },
+  hasData() { return !!localStorage.getItem(this._key); }
+};
+
+// ═══════════════════════════════════════════════════════
 // DATA MAPPING
 // ═══════════════════════════════════════════════════════
 // Columns: A=Timestamp(0), B=chatter(1), C=model(2), D=client(3), E=rate(4), F=usd(5), G=ils(6), H=type(7), I=platform(8), J=date(9), K=hour(10), L=notes(11), M=verified(12), N=location(13), O=paidToClient(14), P=cancelled(15)
@@ -238,62 +275,80 @@ function mapHistory(row, i) {
 }
 
 const IncSvc = {
-  async fetchAll() {
-    const rows = await API.read("sales_report");
-    // Include rows with ILS or USD amounts
-    return rows.slice(1).map((r, i) => mapInc(r, i)).filter(r => r.originalAmount > 0 || r.amountUSD > 0);
+  // Read from localStorage (primary) 
+  fetchAll() {
+    return LocalDB.load();
   },
+  // One-time import from Google Sheets → localStorage
+  async importFromSheets() {
+    const rows = await API.read("sales_report");
+    const parsed = rows.slice(1).map((r, i) => mapInc(r, i)).filter(r => r.originalAmount > 0 || r.amountUSD > 0);
+    // Mark all imported rows as approved (they were already in the system)
+    const withApproval = parsed.map(r => ({ ...r, verified: r.verified || "V" }));
+    LocalDB.save(withApproval);
+    return withApproval;
+  },
+  // Persist locally + backup to Sheets
   async togglePaidToClient(incRow) {
-    const newVal = incRow.paidToClient ? "" : "V";
-    if (!incRow._rowIndex) return { ...incRow, paidToClient: !incRow.paidToClient }; // Demo mode fallback
-    // Using a partial update (if supported) or full row reconstruction.
-    // If we must supply the full row, we reconstruct it based on mapInc:
-    const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
-    const rowData = [
-      "", // Timestamp placeholder (0)
-      incRow.chatterName, incRow.modelName, incRow.clientName, // 1,2,3
-      incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS, // 4,5,6
-      incRow.incomeType, incRow.platform, // 7,8
-      fmtD(d), incRow.hour, // 9,10
-      incRow.notes, incRow.verified, incRow.shiftLocation, // 11,12,13
-      newVal, // 14: paidToClient
-      incRow.cancelled ? "V" : "" // 15: cancelled
-    ];
-    await API.update("sales_report", incRow._rowIndex, rowData);
-    return { ...incRow, paidToClient: !incRow.paidToClient };
+    const updated = { ...incRow, paidToClient: !incRow.paidToClient };
+    LocalDB.update(incRow.id, { paidToClient: updated.paidToClient });
+    // Backup to Google Sheets (fire and forget)
+    try {
+      if (incRow._rowIndex > 0) {
+        const newVal = updated.paidToClient ? "V" : "";
+        const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
+        const rowData = [
+          "", incRow.chatterName, incRow.modelName, incRow.clientName,
+          incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS,
+          incRow.incomeType, incRow.platform,
+          fmtD(d), incRow.hour,
+          incRow.notes, incRow.verified, incRow.shiftLocation,
+          newVal, incRow.cancelled ? "V" : ""
+        ];
+        API.update("sales_report", incRow._rowIndex, rowData).catch(e => console.warn("Sheets backup failed:", e));
+      }
+    } catch { }
+    return updated;
   },
   async cancelTransaction(incRow) {
-    if (!incRow._rowIndex) return { ...incRow, cancelled: true, amountILS: 0, amountUSD: 0 }; // Demo mode fallback
-    // Alternatively, fully delete: return API.deleteRow("sales_report", incRow._rowIndex);
-    // But user asked for a line through, implying we should "mark" it cancelled.
-    const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
-    const rowData = [
-      "", incRow.chatterName, incRow.modelName, incRow.clientName,
-      incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS,
-      incRow.incomeType, incRow.platform,
-      fmtD(d), incRow.hour,
-      incRow.notes, incRow.verified, incRow.shiftLocation,
-      incRow.paidToClient ? "V" : "",
-      "V" // 15: cancelled = V
-    ];
-    await API.update("sales_report", incRow._rowIndex, rowData);
-    // To retain the history and calculate 0 correctly in zero out amountILS, we also alter the client-side state
-    return { ...incRow, cancelled: true, amountILS: 0, amountUSD: 0 };
+    const updated = { ...incRow, cancelled: true, amountILS: 0, amountUSD: 0 };
+    LocalDB.update(incRow.id, { cancelled: true, amountILS: 0, amountUSD: 0 });
+    // Backup to Google Sheets
+    try {
+      if (incRow._rowIndex > 0) {
+        const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
+        const rowData = [
+          "", incRow.chatterName, incRow.modelName, incRow.clientName,
+          incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS,
+          incRow.incomeType, incRow.platform,
+          fmtD(d), incRow.hour,
+          incRow.notes, incRow.verified, incRow.shiftLocation,
+          incRow.paidToClient ? "V" : "", "V"
+        ];
+        API.update("sales_report", incRow._rowIndex, rowData).catch(e => console.warn("Sheets backup failed:", e));
+      }
+    } catch { }
+    return updated;
   },
   async uncancelTransaction(incRow) {
-    if (!incRow._rowIndex) return { ...incRow, cancelled: false, amountILS: incRow.originalAmount, amountUSD: incRow.originalAmount };
-    const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
-    const rowData = [
-      "", incRow.chatterName, incRow.modelName, incRow.clientName,
-      incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS,
-      incRow.incomeType, incRow.platform,
-      fmtD(d), incRow.hour,
-      incRow.notes, incRow.verified, incRow.shiftLocation,
-      incRow.paidToClient ? "V" : "",
-      "" // 15: cancelled = empty (un-cancel)
-    ];
-    await API.update("sales_report", incRow._rowIndex, rowData);
-    return { ...incRow, cancelled: false, amountILS: incRow.originalAmount };
+    const updated = { ...incRow, cancelled: false, amountILS: incRow.originalAmount };
+    LocalDB.update(incRow.id, { cancelled: false, amountILS: incRow.originalAmount });
+    // Backup to Google Sheets
+    try {
+      if (incRow._rowIndex > 0) {
+        const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
+        const rowData = [
+          "", incRow.chatterName, incRow.modelName, incRow.clientName,
+          incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS,
+          incRow.incomeType, incRow.platform,
+          fmtD(d), incRow.hour,
+          incRow.notes, incRow.verified, incRow.shiftLocation,
+          incRow.paidToClient ? "V" : "", ""
+        ];
+        API.update("sales_report", incRow._rowIndex, rowData).catch(e => console.warn("Sheets backup failed:", e));
+      }
+    } catch { }
+    return updated;
   }
 };
 const ExpSvc = {
@@ -539,11 +594,11 @@ function Prov({ children }) {
   useEffect(() => { ExRate.fetchUsdIls().then(r => setLiveRate(r)); }, []);
 
   const load = useCallback(async () => {
-    setLoading(true); setError(null); setLoadStep("מתחבר...");
+    setLoading(true); setError(null); setLoadStep("טוען נתונים...");
     try {
-      setLoadStep("קורא נתוני הכנסות מ-sales_report...");
-      const inc = await IncSvc.fetchAll();
-      console.log("Fetched income:", inc);
+      setLoadStep("קורא הכנסות מאחסון מקומי...");
+      const inc = IncSvc.fetchAll();
+      console.log("Loaded income from localStorage:", inc.length, "records");
       setIncome(inc);
       setLoadStep(`נטענו ${inc.length} שורות הכנסה`);
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
@@ -708,7 +763,7 @@ function useApp() { return useContext(Ctx); }
 function useFD() {
   const { year, month, view, income, expenses, models, genParams } = useApp();
   const dM = useMemo(() => new Date(year, month, 1), [year, month]);
-  const iY = useMemo(() => income.filter(r => r.date && r.date.getFullYear() === year), [income, year]);
+  const iY = useMemo(() => income.filter(r => r.date && r.date.getFullYear() === year && r.verified === "V"), [income, year]);
   const iM = useMemo(() => iY.filter(r => r.date.getMonth() === month), [iY, month]);
   const eY = useMemo(() => expenses.filter(r => r.date && r.date.getFullYear() === year), [expenses, year]);
   const eM = useMemo(() => eY.filter(r => r.date.getMonth() === month), [eY, month]);
@@ -2081,8 +2136,7 @@ function ChatterPortal() {
       form.hour, form.notes, "", form.shiftLocation, "", ""
     ];
     try {
-      await API.append("sales_report", [row]);
-      // Add to local state
+      // Save to localStorage (primary)
       const newInc = {
         id: `I-chatter-${Date.now()}`, chatterName, modelName: form.modelName,
         clientName: "", usdRate: rate, amountUSD: inputUSD,
@@ -2092,10 +2146,13 @@ function ChatterPortal() {
         notes: form.notes, verified: "", shiftLocation: form.shiftLocation,
         paidToClient: false, cancelled: false, _rowIndex: 0
       };
+      LocalDB.add(newInc);
       setIncome(prev => [...prev, newInc]);
       setSaving(false); setSaved(true);
       setTimeout(() => setSaved(false), 3000);
       setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "" }));
+      // Backup to Google Sheets (fire and forget)
+      API.append("sales_report", [row]).catch(e => console.warn("Sheets backup failed:", e));
     } catch (e) { setErr(e.message); setSaving(false); }
   };
 
@@ -2277,43 +2334,56 @@ function ApprovalsPage() {
 
   const approve = async (row) => {
     setApproving(row.id);
+    // Persist to localStorage
+    LocalDB.update(row.id, { verified: "V" });
+    setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
+    // Backup to Google Sheets (fire and forget)
     try {
-      if (!demo && row._rowIndex > 0) {
-        // Update verified column (column 13 = M) in the sheet
-        const rowData = Array(16).fill(null);
-        rowData[12] = "V";
-        await API.update("sales_report", row._rowIndex, rowData);
-      }
-      setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
-    } catch (e) {
-      console.error("Approve error:", e);
-      // Still update locally even if API fails
-      setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
-    }
+      const d = row.date instanceof Date ? row.date : new Date(row.date);
+      const rowData = [
+        "", row.chatterName, row.modelName, row.clientName || "",
+        row.usdRate, row.originalRawUSD || row.amountUSD, row.originalRawILS || row.rawILS,
+        row.incomeType, row.platform,
+        fmtD(d), row.hour,
+        row.notes, "V", row.shiftLocation,
+        row.paidToClient ? "V" : "", row.cancelled ? "V" : ""
+      ];
+      API.append("sales_report", [rowData]).catch(e => console.warn("Sheets backup failed:", e));
+    } catch { }
     setApproving(null);
   };
 
   const reject = async (row) => {
     if (!confirm(`לדחות עסקה של ${row.chatterName}?\n${row.modelName} — ${fmtC(row.amountILS)}`)) return;
     setApproving(row.id);
-    try {
-      if (!demo && row._rowIndex > 0) {
-        await API.deleteRow("sales_report", row._rowIndex);
-      }
-      setIncome(prev => prev.filter(r => r.id !== row.id));
-    } catch (e) {
-      console.error("Reject error:", e);
-      // Still remove locally
-      setIncome(prev => prev.filter(r => r.id !== row.id));
-    }
+    // Remove from localStorage
+    LocalDB.remove(row.id);
+    setIncome(prev => prev.filter(r => r.id !== row.id));
     setApproving(null);
   };
 
   const approveAll = async () => {
     if (!confirm(`לאשר את כל ${pendingAll.length} העסקאות הממתינות?`)) return;
     const ids = new Set(pendingAll.map(p => p.id));
-    // Update local state immediately
+    // Persist to localStorage
+    const all = LocalDB.load();
+    LocalDB.save(all.map(r => ids.has(r.id) ? { ...r, verified: "V" } : r));
     setIncome(prev => prev.map(r => ids.has(r.id) ? { ...r, verified: "V" } : r));
+    // Backup each approved to Sheets
+    pendingAll.forEach(row => {
+      try {
+        const d = row.date instanceof Date ? row.date : new Date(row.date);
+        const rowData = [
+          "", row.chatterName, row.modelName, row.clientName || "",
+          row.usdRate, row.originalRawUSD || row.amountUSD, row.originalRawILS || row.rawILS,
+          row.incomeType, row.platform,
+          fmtD(d), row.hour,
+          row.notes, "V", row.shiftLocation,
+          row.paidToClient ? "V" : "", row.cancelled ? "V" : ""
+        ];
+        API.append("sales_report", [rowData]).catch(e => console.warn("Sheets backup failed:", e));
+      } catch { }
+    });
   };
 
   return <div style={{ direction: "rtl" }}>
@@ -2458,6 +2528,40 @@ function ClientPortal() {
 }
 
 // ═══════════════════════════════════════════════════════
+// IMPORT FROM SHEETS (ONE-TIME)
+// ═══════════════════════════════════════════════════════
+function ImportFromSheetsCard() {
+  const { setIncome } = useApp();
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState("");
+  const localCount = LocalDB.load().length;
+
+  const handleImport = async () => {
+    if (localCount > 0 && !confirm(`כבר יש ${localCount} הכנסות באחסון המקומי. ייבוא מהגיליון יחליף אותן. להמשיך?`)) return;
+    setImporting(true); setResult("");
+    try {
+      const imported = await IncSvc.importFromSheets();
+      setIncome(imported);
+      setResult(`✅ יובאו ${imported.length} הכנסות מהגיליון בהצלחה!`);
+    } catch (e) {
+      setResult(`❌ שגיאה: ${e.message}`);
+    }
+    setImporting(false);
+  };
+
+  return <Card style={{ marginBottom: 16, border: `1px solid ${C.pri}44` }}>
+    <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>📥 ייבוא / סנכרון הכנסות</h4>
+    <div style={{ color: C.dim, fontSize: 12, marginBottom: 12 }}>
+      {localCount > 0 ? `💾 יש ${localCount} הכנסות באחסון מקומי` : "⚠️ אין הכנסות באחסון מקומי — נדרש ייבוא"}
+    </div>
+    <Btn onClick={handleImport} disabled={importing}>
+      {importing ? "⏳ מייבא מהגיליון..." : "📥 ייבוא הכנסות מגוגל שיטס"}
+    </Btn>
+    {result && <div style={{ marginTop: 10, fontSize: 13, color: result.startsWith("✅") ? C.grn : C.red }}>{result}</div>}
+  </Card>;
+}
+
+// ═══════════════════════════════════════════════════════
 // USER MANAGEMENT (ADMIN)
 // ═══════════════════════════════════════════════════════
 function UserManagementPage() {
@@ -2520,6 +2624,9 @@ function UserManagementPage() {
 
   return <div style={{ direction: "rtl", maxWidth: 700, margin: "0 auto" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>⚙️ ניהול משתמשים</h2>
+
+    {/* One-time import from Google Sheets */}
+    <ImportFromSheetsCard />
 
     {msg && <Card style={{ marginBottom: 16, background: `${C.grn}15`, border: `1px solid ${C.grn}44` }}>
       <div style={{ color: C.grn, fontSize: 13 }}>{msg}</div>
