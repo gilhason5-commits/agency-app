@@ -205,24 +205,24 @@ const LocalDB = {
 // ═══════════════════════════════════════════════════════
 // DATA MAPPING
 // ═══════════════════════════════════════════════════════
-// Columns: A=Timestamp(0), B=chatter(1), C=model(2), D=client(3), E=rate(4), F=usd(5), G=ils(6), H=type(7), I=platform(8), J=date(9), K=hour(10), L=notes(11), M=verified(12), N=location(13), O=paidToClient(14), P=cancelled(15)
+// Columns: A=chatter(0), B=model(1), C=client(2), D=rate(3), E=usd(4), F=ils(5), G=type(6), H=platform(7), I=date(8), J=hour(9), K=notes(10), L=verified(11), M=location(12), N=paidToClient(13), O=cancelled(14)
 function mapInc(row, i) {
-  const cancelled = String(row[15]).trim() === "V" || false;
-  const hourRaw = row[10] || "";
+  const cancelled = String(row[14]).trim() === "V" || false;
+  const hourRaw = row[9] || "";
   const hour = (typeof hourRaw === "string" && hourRaw.includes("T")) ? hourRaw.split("T")[1].slice(0, 5) : hourRaw;
-  const typeRaw = row[7] || "";
+  const typeRaw = row[6] || "";
   const incomeType = (typeRaw instanceof Date || (typeof typeRaw === "number" && typeRaw < 2)) ? "" : typeRaw;
 
-  const rawILS = +row[6] || 0;
-  const rawUSD = +row[5] || 0;
-  const rate = +row[4] || 0;
+  const rawILS = +row[5] || 0;
+  const rawUSD = +row[4] || 0;
+  const rate = +row[3] || 0;
   const activeRate = rate > 0 ? rate : ExRate.get();
   const computedILS = rawILS + (rawUSD > 0 ? Math.round(rawUSD * activeRate) : 0);
 
   return {
     id: `I-${i}-${Date.now()}`,
     _rowIndex: i + 2,
-    chatterName: row[1] || "", modelName: row[2] || "", clientName: row[3] || "",
+    chatterName: row[0] || "", modelName: row[1] || "", clientName: row[2] || "",
     usdRate: rate,
     rawILS: cancelled ? 0 : rawILS,
     amountUSD: cancelled ? 0 : rawUSD,
@@ -230,10 +230,10 @@ function mapInc(row, i) {
     originalAmount: computedILS,
     originalRawILS: rawILS,
     originalRawUSD: rawUSD,
-    incomeType, platform: row[8] || "",
-    date: parseDate(row[9]), hour,
-    notes: row[11] || "", verified: row[12] || "", shiftLocation: row[13] || "",
-    paidToClient: String(row[14]).trim() === "V",
+    incomeType, platform: row[7] || "",
+    date: parseDate(row[8]), hour,
+    notes: row[10] || "", verified: row[11] || "", shiftLocation: row[12] || "",
+    paidToClient: String(row[13]).trim() === "V",
     cancelled
   };
 }
