@@ -298,7 +298,7 @@ const IncSvc = {
         const newVal = updated.paidToClient ? "V" : "";
         const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
         const rowData = [
-          "", incRow.chatterName, incRow.modelName, incRow.clientName,
+          incRow.chatterName, incRow.modelName, incRow.clientName,
           incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS,
           incRow.incomeType, incRow.platform,
           fmtD(d), incRow.hour,
@@ -318,7 +318,7 @@ const IncSvc = {
       if (incRow._rowIndex > 0) {
         const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
         const rowData = [
-          "", incRow.chatterName, incRow.modelName, incRow.clientName,
+          incRow.chatterName, incRow.modelName, incRow.clientName,
           incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS,
           incRow.incomeType, incRow.platform,
           fmtD(d), incRow.hour,
@@ -338,7 +338,7 @@ const IncSvc = {
       if (incRow._rowIndex > 0) {
         const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
         const rowData = [
-          "", incRow.chatterName, incRow.modelName, incRow.clientName,
+          incRow.chatterName, incRow.modelName, incRow.clientName,
           incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS,
           incRow.incomeType, incRow.platform,
           fmtD(d), incRow.hour,
@@ -2137,12 +2137,6 @@ function ChatterPortal() {
     const combinedILS = inputILS + Math.round(inputUSD * rate);
 
     const finalIncomeType = form.incomeType === "__other__" ? form.customIncomeType : form.incomeType;
-    const row = [
-      "", chatterName, form.modelName, "", String(rate),
-      String(inputUSD), String(inputILS), finalIncomeType,
-      form.platform, form.date.split("-").reverse().join("/"),
-      form.hour, form.notes, "", form.shiftLocation, "", ""
-    ];
     try {
       // Save to localStorage (primary)
       const newInc = {
@@ -2159,8 +2153,6 @@ function ChatterPortal() {
       setSaving(false); setSaved(true);
       setTimeout(() => setSaved(false), 3000);
       setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "", incomeType: "", customIncomeType: "" }));
-      // Backup to Google Sheets (fire and forget)
-      API.append("הכנסות ארכיון", [row]).catch(e => console.warn("Sheets backup failed:", e));
     } catch (e) { setErr(e.message); setSaving(false); }
   };
 
@@ -2358,7 +2350,7 @@ function ApprovalsPage() {
     try {
       const d = row.date instanceof Date ? row.date : new Date(row.date);
       const rowData = [
-        "", row.chatterName, row.modelName, row.clientName || "",
+        row.chatterName, row.modelName, row.clientName || "",
         row.usdRate, row.originalRawUSD || row.amountUSD, row.originalRawILS || row.rawILS,
         row.incomeType, row.platform,
         fmtD(d), row.hour,
@@ -2391,7 +2383,7 @@ function ApprovalsPage() {
       try {
         const d = row.date instanceof Date ? row.date : new Date(row.date);
         const rowData = [
-          "", row.chatterName, row.modelName, row.clientName || "",
+          row.chatterName, row.modelName, row.clientName || "",
           row.usdRate, row.originalRawUSD || row.amountUSD, row.originalRawILS || row.rawILS,
           row.incomeType, row.platform,
           fmtD(d), row.hour,
