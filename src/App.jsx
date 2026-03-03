@@ -1983,7 +1983,7 @@ ${overridesText || "אין"}
       </Card>
 
       {/* RIGHT: Results */}
-      <div style={{ flex: "2 1 400px", display: "flex", flexDirection: "column", gap: 16, display: activeTab === "generator" ? "flex" : "none" }}>
+      <div style={{ flex: "2 1 400px", flexDirection: "column", gap: 16, display: activeTab === "generator" ? "flex" : "none" }}>
         {res && res.length > 0 && <Card style={{ background: `${C.pri}11`, border: `1px solid ${C.pri}` }}>
           <h3 style={{ color: C.pri, fontSize: 16, marginTop: 0, marginBottom: 16 }}>✅ תוצאות ({res.length})</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
