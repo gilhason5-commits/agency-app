@@ -281,7 +281,7 @@ const IncSvc = {
   },
   // One-time import from Google Sheets → localStorage
   async importFromSheets() {
-    const rows = await API.read("sales_report");
+    const rows = await API.read("הכנסות ארכיון");
     const parsed = rows.slice(1).map((r, i) => mapInc(r, i)).filter(r => r.originalAmount > 0 || r.amountUSD > 0);
     // Mark all imported rows as approved (they were already in the system)
     const withApproval = parsed.map(r => ({ ...r, verified: r.verified || "V" }));
@@ -305,7 +305,7 @@ const IncSvc = {
           incRow.notes, incRow.verified, incRow.shiftLocation,
           newVal, incRow.cancelled ? "V" : ""
         ];
-        API.update("sales_report", incRow._rowIndex, rowData).catch(e => console.warn("Sheets backup failed:", e));
+        API.update("הכנסות ארכיון", incRow._rowIndex, rowData).catch(e => console.warn("Sheets backup failed:", e));
       }
     } catch { }
     return updated;
@@ -325,7 +325,7 @@ const IncSvc = {
           incRow.notes, incRow.verified, incRow.shiftLocation,
           incRow.paidToClient ? "V" : "", "V"
         ];
-        API.update("sales_report", incRow._rowIndex, rowData).catch(e => console.warn("Sheets backup failed:", e));
+        API.update("הכנסות ארכיון", incRow._rowIndex, rowData).catch(e => console.warn("Sheets backup failed:", e));
       }
     } catch { }
     return updated;
@@ -345,7 +345,7 @@ const IncSvc = {
           incRow.notes, incRow.verified, incRow.shiftLocation,
           incRow.paidToClient ? "V" : "", ""
         ];
-        API.update("sales_report", incRow._rowIndex, rowData).catch(e => console.warn("Sheets backup failed:", e));
+        API.update("הכנסות ארכיון", incRow._rowIndex, rowData).catch(e => console.warn("Sheets backup failed:", e));
       }
     } catch { }
     return updated;
@@ -847,8 +847,8 @@ function SetupPage() {
       setStep("בודק חיבור...");
       const sheets = await API.getSheetNames();
       setStep(`נמצאו ${sheets.length} גיליונות: ${sheets.join(", ")}`);
-      if (!sheets.includes("sales_report")) {
-        setErr(`גיליון "sales_report" לא נמצא. גיליונות: ${sheets.join(", ")}`);
+      if (!sheets.includes("הכנסות ארכיון")) {
+        setErr(`גיליון "הכנסות ארכיון" לא נמצא. גיליונות: ${sheets.join(", ")}`);
         setBusy(false); return;
       }
       setStep("טוען נתונים...");
@@ -2160,7 +2160,7 @@ function ChatterPortal() {
       setTimeout(() => setSaved(false), 3000);
       setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "", incomeType: "", customIncomeType: "" }));
       // Backup to Google Sheets (fire and forget)
-      API.append("sales_report", [row]).catch(e => console.warn("Sheets backup failed:", e));
+      API.append("הכנסות ארכיון", [row]).catch(e => console.warn("Sheets backup failed:", e));
     } catch (e) { setErr(e.message); setSaving(false); }
   };
 
@@ -2365,7 +2365,7 @@ function ApprovalsPage() {
         row.notes, "V", row.shiftLocation,
         row.paidToClient ? "V" : "", row.cancelled ? "V" : ""
       ];
-      API.append("sales_report", [rowData]).catch(e => console.warn("Sheets backup failed:", e));
+      API.append("הכנסות ארכיון", [rowData]).catch(e => console.warn("Sheets backup failed:", e));
     } catch { }
     setApproving(null);
   };
@@ -2398,7 +2398,7 @@ function ApprovalsPage() {
           row.notes, "V", row.shiftLocation,
           row.paidToClient ? "V" : "", row.cancelled ? "V" : ""
         ];
-        API.append("sales_report", [rowData]).catch(e => console.warn("Sheets backup failed:", e));
+        API.append("הכנסות ארכיון", [rowData]).catch(e => console.warn("Sheets backup failed:", e));
       } catch { }
     });
   };
@@ -2677,7 +2677,7 @@ function UserManagementPage() {
         <div>• צור גיליון בשם <strong style={{ color: C.txt }}>users</strong> ב-Google Sheets</div>
         <div>• עמודות: <strong style={{ color: C.txt }}>שם | סיסמה | תפקיד</strong> (chatter / client)</div>
         <div>• המשתמשים נשמרים ישירות ב-Sheets ולא צריך Vercel!</div>
-        <div>• השם חייב להתאים בדיוק לשם שמופיע ב-sales_report</div>
+        <div>• השם חייב להתאים בדיוק לשם שמופיע ב-הכנסות ארכיון</div>
       </div>
     </Card>
   </div>;
