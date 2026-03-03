@@ -2073,7 +2073,7 @@ function ChatterPortal() {
     modelName: "", platform: "", amountILS: "", amountUSD: "", usdRate: "3.6",
     date: new Date().toISOString().split("T")[0],
     hour: new Date().toTimeString().substring(0, 5),
-    shiftLocation: "משרד", notes: ""
+    shiftLocation: "משרד", notes: "", incomeType: "", customIncomeType: ""
   });
 
   // Auto-load data if not connected
@@ -2121,6 +2121,13 @@ function ChatterPortal() {
   // Unique client names from all income
   const clientNames = useMemo(() => [...new Set(income.map(r => r.modelName).filter(Boolean))].sort(), [income]);
 
+  // Income types from all existing income data
+  const incomeTypes = useMemo(() => {
+    const fromData = income.map(r => r.incomeType).filter(Boolean);
+    const defaults = ["Tip", "Message", "Subscription", "PPV", "Custom", "Stream"];
+    return [...new Set([...defaults, ...fromData])].sort();
+  }, [income]);
+
   const save = async () => {
     if (!form.modelName || (!form.amountILS && !form.amountUSD)) { setErr("נא למלא לקוחה וסכום"); return; }
     setSaving(true); setErr("");
@@ -2129,9 +2136,10 @@ function ChatterPortal() {
     const inputUSD = +form.amountUSD || 0;
     const combinedILS = inputILS + Math.round(inputUSD * rate);
 
+    const finalIncomeType = form.incomeType === "__other__" ? form.customIncomeType : form.incomeType;
     const row = [
       "", chatterName, form.modelName, "", String(rate),
-      String(inputUSD), String(inputILS), "",
+      String(inputUSD), String(inputILS), finalIncomeType,
       form.platform, form.date.split("-").reverse().join("/"),
       form.hour, form.notes, "", form.shiftLocation, "", ""
     ];
@@ -2141,7 +2149,7 @@ function ChatterPortal() {
         id: `I-chatter-${Date.now()}`, chatterName, modelName: form.modelName,
         clientName: "", usdRate: rate, amountUSD: inputUSD,
         amountILS: combinedILS, originalAmount: combinedILS,
-        originalRawILS: inputILS, originalRawUSD: inputUSD, incomeType: "",
+        originalRawILS: inputILS, originalRawUSD: inputUSD, incomeType: finalIncomeType,
         platform: form.platform, date: new Date(form.date), hour: form.hour,
         notes: form.notes, verified: "", shiftLocation: form.shiftLocation,
         paidToClient: false, cancelled: false, _rowIndex: 0
@@ -2150,7 +2158,7 @@ function ChatterPortal() {
       setIncome(prev => [...prev, newInc]);
       setSaving(false); setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-      setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "" }));
+      setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "", incomeType: "", customIncomeType: "" }));
       // Backup to Google Sheets (fire and forget)
       API.append("sales_report", [row]).catch(e => console.warn("Sheets backup failed:", e));
     } catch (e) { setErr(e.message); setSaving(false); }
@@ -2251,6 +2259,15 @@ function ChatterPortal() {
               <option value="">בחר...</option>
               {["OnlyFans", "Fansly", "Instagram", "TikTok", "טלגרם", "אחר"].map(p => <option key={p} value={p}>{p}</option>)}
             </select>
+          </div>
+          <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סוג הכנסה</label>
+            <select value={form.incomeType} onChange={e => upd("incomeType", e.target.value)} style={inputStyle}>
+              <option value="">בחר...</option>
+              {incomeTypes.map(t => <option key={t} value={t}>{t}</option>)}
+              <option value="__other__">אחר (רשום ידנית)</option>
+            </select>
+            {form.incomeType === "__other__" && <input type="text" value={form.customIncomeType} onChange={e => upd("customIncomeType", e.target.value)} placeholder="רשום סוג הכנסה..." style={{ ...inputStyle, marginTop: 6 }} />}
           </div>
           <div>
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סכום (₪)</label>
