@@ -2586,10 +2586,12 @@ function ImportFromSheetsCard() {
 // ═══════════════════════════════════════════════════════
 function UserManagementPage() {
   const { sheetUsers, loadSheetUsers } = useApp();
+  const { chatters: activeChatters } = useFD();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newUser, setNewUser] = useState({ name: "", pass: "", role: "chatter" });
   const [adding, setAdding] = useState(false);
+  const [autoAdding, setAutoAdding] = useState(false);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
 
@@ -2606,6 +2608,28 @@ function UserManagementPage() {
       await loadUsers();
     } catch (e) { setErr("שגיאה: " + e.message); }
     setAdding(false);
+  };
+
+  const autoAddMissingChatters = async () => {
+    if (!confirm("פעולה זו תיצור משתמש חדש עם סיסמה 1234 לכל הצ'אטרים שמופיעים במערכת ואין להם עדיין משתמש. להמשיך?")) return;
+    setAutoAdding(true); setErr(""); setMsg("");
+    let addedCount = 0;
+    try {
+      const existingNames = new Set(users.filter(u => u.role === "chatter").map(u => u.name.trim().toLowerCase()));
+      for (const ch of activeChatters) {
+        if (!existingNames.has(ch.trim().toLowerCase())) {
+          await UserSvc.add(ch.trim(), "1234", "chatter");
+          addedCount++;
+        }
+      }
+      if (addedCount > 0) {
+        setMsg(`🎉 נוצרו משתמשים חדשים עבור ${addedCount} צ'אטרים!`);
+        await loadUsers();
+      } else {
+        setMsg("✅ לכל הצ'אטרים במערכת כבר יש משתמש.");
+      }
+    } catch (e) { setErr("שגיאה מול השרת: " + e.message); }
+    setAutoAdding(false);
   };
 
   const handleDelete = async (u) => {
@@ -2671,7 +2695,12 @@ function UserManagementPage() {
           {adding ? "⏳ שומר..." : "➕ הוסף"}
         </Btn>
       </div>
-      <div style={{ color: C.dim, fontSize: 11 }}>המשתמש יתווסף ישירות ויוכל להתחבר מיד — בלי deploy!</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ color: C.dim, fontSize: 11 }}>המשתמש יתווסף ישירות ויוכל להתחבר מיד — בלי deploy!</div>
+        <Btn variant="ghost" onClick={autoAddMissingChatters} disabled={autoAdding} style={{ border: `1px solid ${C.pri}`, color: C.pri, fontSize: 12 }}>
+          {autoAdding ? "⏳ מסנכרן צ'אטרים..." : "⚡️ צור משתמשים לכל הצ'אטרים (סיסמה 1234)"}
+        </Btn>
+      </div>
     </Card>
 
     <Card style={{ background: `${C.pri}08`, border: `1px solid ${C.pri}33` }}>
