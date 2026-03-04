@@ -290,8 +290,10 @@ const IncSvc = {
     console.log("Raw rows from Sheets:", rows.length);
     const parsed = rows.slice(1).map((r, i) => mapInc(r, i));
     console.log("Parsed rows:", parsed.length);
-    // Mark all imported rows as approved (they were already in the system)
-    const withApproval = parsed.map(r => ({ ...r, verified: r.verified || "V" }));
+    // Mark all imported rows as verified
+    const withApproval = parsed.map(r => ({ ...r, verified: "V" }));
+    // CLEAR existing data first to avoid duplicates, then save
+    LocalDB.clear();
     LocalDB.save(withApproval);
     return withApproval;
   },
@@ -780,7 +782,7 @@ function useFD() {
     });
   }, [income, liveRate]);
 
-  const iY = useMemo(() => incomeWithDynamicRate.filter(r => r.date && r.date.getFullYear() === year && r.verified === "V"), [incomeWithDynamicRate, year]);
+  const iY = useMemo(() => incomeWithDynamicRate.filter(r => r.date && r.date.getFullYear() === year), [incomeWithDynamicRate, year]);
   const iM = useMemo(() => iY.filter(r => r.date.getMonth() === month), [iY, month]);
   const eY = useMemo(() => expenses.filter(r => r.date && r.date.getFullYear() === year), [expenses, year]);
   const eM = useMemo(() => eY.filter(r => r.date.getMonth() === month), [eY, month]);
