@@ -2584,9 +2584,14 @@ function ImportFromSheetsCard() {
     <div style={{ color: C.dim, fontSize: 12, marginBottom: 12 }}>
       {localCount > 0 ? `💾 יש ${localCount} הכנסות באחסון מקומי` : "⚠️ אין הכנסות באחסון מקומי — נדרש ייבוא"}
     </div>
-    <Btn onClick={handleImport} disabled={importing}>
-      {importing ? "⏳ מייבא מהגיליון..." : "📥 ייבוא הכנסות מגוגל שיטס"}
-    </Btn>
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <Btn onClick={handleImport} disabled={importing}>
+        {importing ? "⏳ מייבא מהגיליון..." : "📥 ייבוא הכנסות מגוגל שיטס"}
+      </Btn>
+      {localCount > 0 && <Btn variant="danger" onClick={() => { if (confirm("למחוק את כל ההכנסות מהאחסון המקומי?")) { LocalDB.clear(); setIncome([]); setResult("🗑️ הנתונים נמחקו — ניתן לייבא מחדש"); } }}>
+        🗑️ מחק נתונים
+      </Btn>}
+    </div>
     {result && <div style={{ marginTop: 10, fontSize: 13, color: result.startsWith("✅") ? C.grn : C.red }}>{result}</div>}
   </Card>;
 }
