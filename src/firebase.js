@@ -159,3 +159,45 @@ export async function saveAllUsers(users) {
     });
     await batch.commit();
 }
+
+// ── Expenses ─────────────────────────────────────────
+const expensesCol = () => collection(db, "expenses");
+
+export async function fetchAllExpenses() {
+    const snap = await getDocs(expensesCol());
+    return snap.docs.map(d => deserialize({ ...d.data(), id: d.id }));
+}
+
+export async function addExpense(record) {
+    const data = serialize(record);
+    const { id, ...rest } = data;
+    const ref = await addDoc(expensesCol(), rest);
+    return { ...record, id: ref.id };
+}
+
+export async function updateExpense(id, updates) {
+    await updateDoc(doc(db, "expenses", id), serialize(updates));
+}
+
+export async function removeExpense(id) {
+    await deleteDoc(doc(db, "expenses", id));
+}
+
+// Batch save for migration
+export async function saveAllExpenses(records, onProgress) {
+    const BATCH_SIZE = 400;
+    let saved = 0;
+    for (let i = 0; i < records.length; i += BATCH_SIZE) {
+        const batch = writeBatch(db);
+        const chunk = records.slice(i, i + BATCH_SIZE);
+        chunk.forEach((r, j) => {
+            const { id, ...rest } = serialize(r);
+            const docId = `exp-${i + j}-${Date.now()}`;
+            batch.set(doc(db, "expenses", docId), rest);
+        });
+        await batch.commit();
+        saved += chunk.length;
+        if (onProgress) onProgress(saved, records.length);
+    }
+    return saved;
+}

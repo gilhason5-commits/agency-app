@@ -3,7 +3,8 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Cart
 import {
   fetchAllIncome, addIncome, updateIncome, removeIncome, saveAllIncome, clearAllIncome,
   fetchPending, addPending, removePending, approvePending,
-  fetchUsers, addUser, removeUser, findUser, saveAllUsers
+  fetchUsers, addUser, removeUser, findUser, saveAllUsers,
+  fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -322,20 +323,61 @@ const IncSvc = {
   }
 };
 const ExpSvc = {
+  // Generate a unique key for dedup
+  _key(e) {
+    const d = e.date instanceof Date ? e.date.toISOString().split('T')[0] : String(e.date || '').split('T')[0];
+    return `${d}|${e.name}|${e.amount}`;
+  },
   async fetchAll() {
-    try { const rows = await API.read("כל החשבוניות", EXPENSES_URL); return rows.slice(1).map((r, i) => mapExp(r, i)); }
-    catch (e) { console.log("Expenses sheet not ready:", e.message); return []; }
+    try {
+      // 1. Read existing expenses from Firebase
+      const fbExpenses = await fetchAllExpenses();
+      console.log("Firebase expenses:", fbExpenses.length);
+
+      // 2. Read new invoices from Sheets
+      let sheetsExpenses = [];
+      try {
+        const rows = await API.read("כל החשבוניות", EXPENSES_URL);
+        sheetsExpenses = rows.slice(1).map((r, i) => mapExp(r, i));
+        console.log("Sheets expenses:", sheetsExpenses.length);
+      } catch (e) { console.log("Sheets expenses not available:", e.message); }
+
+      // 3. Find new items: in Sheets but not in Firebase
+      const existingKeys = new Set(fbExpenses.map(e => this._key(e)));
+      const newItems = sheetsExpenses.filter(e => !existingKeys.has(this._key(e)));
+
+      if (newItems.length > 0) {
+        console.log(`Adding ${newItems.length} new expenses to Firebase...`);
+        for (const item of newItems) {
+          const { _rowIndex, id, ...rest } = item;
+          await addExpense(rest);
+        }
+        // Return combined list
+        const updated = await fetchAllExpenses();
+        return updated;
+      }
+
+      return fbExpenses.length > 0 ? fbExpenses : sheetsExpenses;
+    } catch (e) {
+      console.error("ExpSvc.fetchAll failed:", e);
+      // Fallback to Sheets only
+      try {
+        const rows = await API.read("כל החשבוניות", EXPENSES_URL);
+        return rows.slice(1).map((r, i) => mapExp(r, i));
+      } catch { return []; }
+    }
   },
   async add(e) {
-    const id = `EXP-${Date.now()}`; const d = e.date instanceof Date ? e.date : new Date(e.date);
-    return API.append("כל החשבוניות", [[fmtD(d), "חשבונית מס קבלה", e.name, e.amount, e.vatRecognized ? "כן" : "לא", e.taxRecognized ? "כן" : "לא", e.category, e.paidBy, e.hour || "", e.receiptImage || "", "", "", e.classification || ""]], EXPENSES_URL);
+    const d = e.date instanceof Date ? e.date : new Date(e.date);
+    const record = { ...e, date: d };
+    return addExpense(record);
   },
   async edit(e) {
     const d = e.date instanceof Date ? e.date : new Date(e.date);
-    return API.update("כל החשבוניות", e._rowIndex, [fmtD(d), e.docType || "חשבונית מס קבלה", e.name, e.amount, e.vatRecognized ? "כן" : "לא", e.taxRecognized ? "כן" : "לא", e.category, e.paidBy, e.hour || "", e.receiptImage || "", "", "", e.classification || ""], EXPENSES_URL);
+    await updateExpense(e.id, { ...e, date: d });
   },
   async remove(e) {
-    return API.deleteRow("כל החשבוניות", e._rowIndex, EXPENSES_URL);
+    return removeExpense(e.id);
   },
 };
 
