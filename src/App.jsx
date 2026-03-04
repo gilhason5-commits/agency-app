@@ -280,9 +280,22 @@ function mapHistory(row, i) {
 }
 
 const IncSvc = {
-  // Read from localStorage (primary) 
-  fetchAll() {
-    return LocalDB.load();
+  // Read from localStorage, auto-import from Sheets if empty
+  async fetchAll() {
+    const local = LocalDB.load();
+    if (local.length > 0) return local;
+    // First visit on this device — auto-import from Sheets
+    console.log("No local data — auto-importing from Sheets...");
+    try {
+      const rows = await API.read("הכנסות ארכיון");
+      const parsed = rows.slice(1).map((r, i) => mapInc(r, i));
+      const withApproval = parsed.map(r => ({ ...r, verified: "V" }));
+      LocalDB.save(withApproval);
+      return withApproval;
+    } catch (e) {
+      console.error("Auto-import failed:", e);
+      return [];
+    }
   },
   // One-time import from Google Sheets → localStorage
   async importFromSheets() {
@@ -605,9 +618,9 @@ function Prov({ children }) {
   const load = useCallback(async () => {
     setLoading(true); setError(null); setLoadStep("טוען נתונים...");
     try {
-      setLoadStep("קורא הכנסות מאחסון מקומי...");
-      const inc = IncSvc.fetchAll();
-      console.log("Loaded income from localStorage:", inc.length, "records");
+      setLoadStep("טוען הכנסות...");
+      const inc = await IncSvc.fetchAll();
+      console.log("Loaded income:", inc.length, "records");
       setIncome(inc);
       setLoadStep(`נטענו ${inc.length} שורות הכנסה`);
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
