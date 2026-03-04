@@ -942,6 +942,7 @@ function DashPage() {
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: w < 768 ? 18 : 22, fontWeight: 700, marginBottom: 20 }}>📊 דאשבורד ניהול סוכנות</h2>
+    <ImportFromSheetsCard />
     <Card style={{ marginBottom: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
         <span style={{ color: C.dim, fontSize: 13 }}>🎯 התקדמות שנתית {year}</span>
