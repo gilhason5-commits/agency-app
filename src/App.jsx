@@ -21,6 +21,11 @@ const CHART_COLORS = [C.pri, C.grn, C.org, C.purple, C.cyan, C.pink, C.ylw, C.re
 // ═══════════════════════════════════════════════════════
 // UTILITIES
 // ═══════════════════════════════════════════════════════
+function sanitizeName(name) {
+  if (!name) return "";
+  return String(name).replace(/׳/g, "'").replace(/\s+/g, " ").trim();
+}
+
 function parseDate(v) {
   if (!v) return null;
   if (v instanceof Date) return isNaN(v) ? null : v;
@@ -222,7 +227,7 @@ function mapInc(row, i) {
   return {
     id: `I-${i}-${Date.now()}`,
     _rowIndex: i + 2,
-    chatterName: row[0] || "", modelName: row[1] || "", clientName: row[2] || "",
+    chatterName: sanitizeName(row[0]), modelName: sanitizeName(row[1]), clientName: sanitizeName(row[2]),
     usdRate: rate,
     rawILS: cancelled ? 0 : rawILS,
     amountUSD: cancelled ? 0 : rawUSD,
@@ -282,7 +287,9 @@ const IncSvc = {
   // One-time import from Google Sheets → localStorage
   async importFromSheets() {
     const rows = await API.read("הכנסות ארכיון");
-    const parsed = rows.slice(1).map((r, i) => mapInc(r, i)).filter(r => r.originalAmount > 0 || r.amountUSD > 0);
+    console.log("Raw rows from Sheets:", rows.length);
+    const parsed = rows.slice(1).map((r, i) => mapInc(r, i));
+    console.log("Parsed rows:", parsed.length);
     // Mark all imported rows as approved (they were already in the system)
     const withApproval = parsed.map(r => ({ ...r, verified: r.verified || "V" }));
     LocalDB.save(withApproval);
