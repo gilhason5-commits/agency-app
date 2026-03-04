@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback, createContext, useContext, useMemo, useRef } from "react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Area } from "recharts";
+import {
+  fetchAllIncome, addIncome, updateIncome, removeIncome, saveAllIncome, clearAllIncome,
+  fetchPending, addPending, removePending, approvePending,
+  fetchUsers, addUser, removeUser, findUser, saveAllUsers
+} from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
 // CONFIG
@@ -280,96 +285,39 @@ function mapHistory(row, i) {
 }
 
 const IncSvc = {
-  // Read from localStorage, auto-import from Sheets if empty
+  // Read all approved income from Firebase
   async fetchAll() {
-    const local = LocalDB.load();
-    if (local.length > 0) return local;
-    // First visit on this device — auto-import from Sheets
-    console.log("No local data — auto-importing from Sheets...");
     try {
-      const rows = await API.read("הכנסות ארכיון");
-      const parsed = rows.slice(1).map((r, i) => mapInc(r, i));
-      const withApproval = parsed.map(r => ({ ...r, verified: "V" }));
-      LocalDB.save(withApproval);
-      return withApproval;
+      const records = await fetchAllIncome();
+      console.log("Loaded income from Firebase:", records.length);
+      return records;
     } catch (e) {
-      console.error("Auto-import failed:", e);
+      console.error("Firebase fetch failed:", e);
       return [];
     }
   },
-  // One-time import from Google Sheets → localStorage
-  async importFromSheets() {
+  // One-time migration: import from Sheets → Firebase
+  async migrateFromSheets(onProgress) {
     const rows = await API.read("הכנסות ארכיון");
-    console.log("Raw rows from Sheets:", rows.length);
     const parsed = rows.slice(1).map((r, i) => mapInc(r, i));
-    console.log("Parsed rows:", parsed.length);
-    // Mark all imported rows as verified
     const withApproval = parsed.map(r => ({ ...r, verified: "V" }));
-    // CLEAR existing data first to avoid duplicates, then save
-    LocalDB.clear();
-    LocalDB.save(withApproval);
+    await clearAllIncome();
+    const saved = await saveAllIncome(withApproval, onProgress);
     return withApproval;
   },
-  // Persist locally + backup to Sheets
   async togglePaidToClient(incRow) {
     const updated = { ...incRow, paidToClient: !incRow.paidToClient };
-    LocalDB.update(incRow.id, { paidToClient: updated.paidToClient });
-    // Backup to Google Sheets (fire and forget)
-    try {
-      if (incRow._rowIndex > 0) {
-        const newVal = updated.paidToClient ? "V" : "";
-        const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
-        const rowData = [
-          incRow.chatterName, incRow.modelName, incRow.clientName,
-          incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS,
-          incRow.incomeType, incRow.platform,
-          fmtD(d), incRow.hour,
-          incRow.notes, incRow.verified, incRow.shiftLocation,
-          newVal, incRow.cancelled ? "V" : ""
-        ];
-        API.update("הכנסות ארכיון", incRow._rowIndex, rowData).catch(e => console.warn("Sheets backup failed:", e));
-      }
-    } catch { }
+    await updateIncome(incRow.id, { paidToClient: updated.paidToClient });
     return updated;
   },
   async cancelTransaction(incRow) {
     const updated = { ...incRow, cancelled: true, amountILS: 0, amountUSD: 0 };
-    LocalDB.update(incRow.id, { cancelled: true, amountILS: 0, amountUSD: 0 });
-    // Backup to Google Sheets
-    try {
-      if (incRow._rowIndex > 0) {
-        const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
-        const rowData = [
-          incRow.chatterName, incRow.modelName, incRow.clientName,
-          incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS,
-          incRow.incomeType, incRow.platform,
-          fmtD(d), incRow.hour,
-          incRow.notes, incRow.verified, incRow.shiftLocation,
-          incRow.paidToClient ? "V" : "", "V"
-        ];
-        API.update("הכנסות ארכיון", incRow._rowIndex, rowData).catch(e => console.warn("Sheets backup failed:", e));
-      }
-    } catch { }
+    await updateIncome(incRow.id, { cancelled: true, amountILS: 0, amountUSD: 0 });
     return updated;
   },
   async uncancelTransaction(incRow) {
     const updated = { ...incRow, cancelled: false, amountILS: incRow.originalAmount };
-    LocalDB.update(incRow.id, { cancelled: false, amountILS: incRow.originalAmount });
-    // Backup to Google Sheets
-    try {
-      if (incRow._rowIndex > 0) {
-        const d = incRow.date instanceof Date ? incRow.date : new Date(incRow.date);
-        const rowData = [
-          incRow.chatterName, incRow.modelName, incRow.clientName,
-          incRow.usdRate, incRow.originalRawUSD, incRow.originalRawILS,
-          incRow.incomeType, incRow.platform,
-          fmtD(d), incRow.hour,
-          incRow.notes, incRow.verified, incRow.shiftLocation,
-          incRow.paidToClient ? "V" : "", ""
-        ];
-        API.update("הכנסות ארכיון", incRow._rowIndex, rowData).catch(e => console.warn("Sheets backup failed:", e));
-      }
-    } catch { }
+    await updateIncome(incRow.id, { cancelled: false, amountILS: incRow.originalAmount });
     return updated;
   }
 };
@@ -394,30 +342,18 @@ const ExpSvc = {
 const UserSvc = {
   async fetchAll() {
     try {
-      const rows = await API.read("users");
-      if (!rows || rows.length === 0) return [];
-      const firstRowName = (rows[0][0] || "").toLowerCase().trim();
-      const isHeader = firstRowName === "name" || firstRowName === "שם" || firstRowName === "user" || firstRowName === "first name";
-
-      const actualRows = isHeader ? rows.slice(1) : rows;
-      const offset = isHeader ? 2 : 1; // Google Sheets is 1-indexed
-
-      return actualRows.map((r, i) => ({
-        name: String(r[0] || "").trim(),
-        pass: String(r[1] || "").trim(),
-        role: String(r[2] || "chatter").trim(),
-        _rowIndex: i + offset
-      })).filter(u => u.name && u.pass);
+      const users = await fetchUsers();
+      return users.map(u => ({ ...u, pass: u.password, _rowIndex: u.id }));
     } catch (e) {
-      console.log("Users sheet not ready:", e.message);
+      console.error("Firebase users fetch failed:", e);
       return [];
     }
   },
   async add(name, pass, role) {
-    return API.append("users", [[name, pass, role]]);
+    return addUser(name, pass, role);
   },
-  async remove(rowIndex) {
-    return API.deleteRow("users", rowIndex);
+  async remove(id) {
+    return removeUser(id);
   }
 };
 
@@ -618,14 +554,13 @@ function Prov({ children }) {
   const load = useCallback(async () => {
     setLoading(true); setError(null); setLoadStep("טוען נתונים...");
     try {
-      setLoadStep("טוען הכנסות...");
+      setLoadStep("טוען הכנסות מ-Firebase...");
       const inc = await IncSvc.fetchAll();
-      console.log("Loaded income:", inc.length, "records");
+      console.log("Loaded income from Firebase:", inc.length, "records");
       setIncome(inc);
       setLoadStep(`נטענו ${inc.length} שורות הכנסה`);
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
       setConnected(true);
-      localStorage.setItem("AGENCY_CONNECTED", "true");
       setTimeout(() => setLoadStep(""), 3000);
     } catch (e) {
       setError(e.message);
@@ -686,13 +621,11 @@ function Prov({ children }) {
       setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
     }
 
-    // Chatter/Client login — try Google Sheets first
+    // Chatter/Client login — check Firebase users
     if (entityName) {
       try {
         const users = await UserSvc.fetchAll();
         setSheetUsers(users);
-
-        console.log("LOGIN INFO:", { cleanName, cleanPass, users });
 
         const match = users.find(u =>
           u.name.toLowerCase() === cleanName &&
@@ -700,37 +633,20 @@ function Prov({ children }) {
         );
 
         if (match) {
-          const u = { role: match.role, name: match.name }; // Keep original casing from sheet
+          const u = { role: match.role, name: match.name };
           setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
         }
 
-        // If we reach here, sheets loaded but no match found. Feed debug info.
         return {
           ok: false,
-          Debug: `שם משתמש או סיסמה שגויים. השם שהקלדת: '${cleanName}', הסיסמה: '${cleanPass}'.`
+          Debug: `שם משתמש או סיסמה שגויים.`
         };
-      } catch { /* Sheets not available, try env */ }
-
-      // Fallback to env vars
-      const tryEnv = (envKey, role) => {
-        const envMap = {};
-        (import.meta.env[envKey] || "").split(",").filter(Boolean).forEach(pair => {
-          const [n, p] = pair.split(":");
-          if (n && p) envMap[n.trim()] = p.trim();
-        });
-        if (envMap[entityName] && envMap[entityName] === cleanPass) {
-          const u = { role, name: entityName };
-          setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
-        }
-        return false;
-      };
-
-      const envRes = tryEnv("VITE_CHATTERS", "chatter") || tryEnv("VITE_CLIENTS", "client");
-      if (envRes) return envRes;
-
-      return { ok: false, Debug: "שם משתמש או סיסמה שגויים (גיבוי סביבה)" };
+      } catch (e) {
+        console.error("Firebase login check failed:", e);
+        return { ok: false, Debug: "שגיאה בבדיקת משתמשים" };
+      }
     }
-    return { ok: false, Debug: "שם משתמש או סיסמה שגויים" };
+    return { ok: false, Debug: "נא להזין שם משתמש" };
   };
   const logout = () => { setUser(null); localStorage.removeItem("AGENCY_USER"); };
 
@@ -2171,18 +2087,17 @@ function ChatterPortal() {
 
     const finalIncomeType = form.incomeType === "__other__" ? form.customIncomeType : form.incomeType;
     try {
-      // Save to localStorage (primary)
+      // Save to Firebase pendingIncome (awaits admin approval)
       const newInc = {
-        id: `I-chatter-${Date.now()}`, chatterName, modelName: form.modelName,
+        chatterName, modelName: form.modelName,
         clientName: "", usdRate: rate, amountUSD: inputUSD,
         amountILS: combinedILS, originalAmount: combinedILS, rawILS: inputILS,
         originalRawILS: inputILS, originalRawUSD: inputUSD, incomeType: finalIncomeType,
         platform: form.platform, date: new Date(form.date), hour: form.hour,
         notes: form.notes, verified: "", shiftLocation: form.shiftLocation,
-        paidToClient: false, cancelled: false, _rowIndex: 0
+        paidToClient: false, cancelled: false
       };
-      LocalDB.add(newInc);
-      setIncome(prev => [...prev, newInc]);
+      const saved = await addPending(newInc);
       setSaving(false); setSaved(true);
       setTimeout(() => setSaved(false), 3000);
       setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "", incomeType: "", customIncomeType: "" }));
@@ -2373,71 +2288,62 @@ function ChatterPortal() {
 // APPROVALS PAGE (ADMIN)
 // ═══════════════════════════════════════════════════════
 function ApprovalsPage() {
-  const { income, setIncome, demo } = useApp();
+  const { setIncome, demo } = useApp();
   const [approving, setApproving] = useState(null);
+  const [pendingAll, setPendingAll] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const pendingAll = useMemo(() =>
-    income.filter(r => r.verified !== "V" && r.chatterName).sort((a, b) => (b.date || 0) - (a.date || 0)),
-    [income]);
+  // Load pending transactions from Firebase
+  const loadPending = async () => {
+    setLoading(true);
+    try {
+      const p = await fetchPending();
+      setPendingAll(p.sort((a, b) => (b.date || 0) - (a.date || 0)));
+    } catch (e) { console.error("Failed to load pending:", e); }
+    setLoading(false);
+  };
+  useEffect(() => { loadPending(); }, []);
 
   const approve = async (row) => {
     setApproving(row.id);
-    // Persist to localStorage
-    LocalDB.update(row.id, { verified: "V" });
-    setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
-    // Backup to Google Sheets (fire and forget)
     try {
-      const d = row.date instanceof Date ? row.date : new Date(row.date);
-      const rowData = [
-        row.chatterName, row.modelName, row.clientName || "",
-        row.usdRate, row.originalRawUSD || row.amountUSD, row.originalRawILS || row.rawILS,
-        row.incomeType, row.platform,
-        fmtD(d), row.hour,
-        row.notes, "V", row.shiftLocation,
-        row.paidToClient ? "V" : "", row.cancelled ? "V" : ""
-      ];
-      API.append("הכנסות ארכיון", [rowData]).catch(e => console.warn("Sheets backup failed:", e));
-    } catch { }
+      const approved = await approvePending(row);
+      setIncome(prev => [...prev, approved]);
+      setPendingAll(prev => prev.filter(r => r.id !== row.id));
+    } catch (e) { alert("שגיאה: " + e.message); }
     setApproving(null);
   };
 
   const reject = async (row) => {
     if (!confirm(`לדחות עסקה של ${row.chatterName}?\n${row.modelName} — ${fmtC(row.amountILS)}`)) return;
     setApproving(row.id);
-    // Remove from localStorage
-    LocalDB.remove(row.id);
-    setIncome(prev => prev.filter(r => r.id !== row.id));
+    try {
+      await removePending(row.id);
+      setPendingAll(prev => prev.filter(r => r.id !== row.id));
+    } catch (e) { alert("שגיאה: " + e.message); }
     setApproving(null);
   };
 
   const approveAll = async () => {
     if (!confirm(`לאשר את כל ${pendingAll.length} העסקאות הממתינות?`)) return;
-    const ids = new Set(pendingAll.map(p => p.id));
-    // Persist to localStorage
-    const all = LocalDB.load();
-    LocalDB.save(all.map(r => ids.has(r.id) ? { ...r, verified: "V" } : r));
-    setIncome(prev => prev.map(r => ids.has(r.id) ? { ...r, verified: "V" } : r));
-    // Backup each approved to Sheets
-    pendingAll.forEach(row => {
+    for (const row of pendingAll) {
       try {
-        const d = row.date instanceof Date ? row.date : new Date(row.date);
-        const rowData = [
-          row.chatterName, row.modelName, row.clientName || "",
-          row.usdRate, row.originalRawUSD || row.amountUSD, row.originalRawILS || row.rawILS,
-          row.incomeType, row.platform,
-          fmtD(d), row.hour,
-          row.notes, "V", row.shiftLocation,
-          row.paidToClient ? "V" : "", row.cancelled ? "V" : ""
-        ];
-        API.append("הכנסות ארכיון", [rowData]).catch(e => console.warn("Sheets backup failed:", e));
-      } catch { }
-    });
+        const approved = await approvePending(row);
+        setIncome(prev => [...prev, approved]);
+      } catch (e) { console.error("Failed to approve:", row.id, e); }
+    }
+    setPendingAll([]);
   };
+
+  if (loading) return <div style={{ direction: "rtl", textAlign: "center", padding: 40 }}><div style={{ color: C.pri }}>⏳ טוען עסקאות ממתינות...</div></div>;
 
   return <div style={{ direction: "rtl" }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 800, margin: 0 }}>✅ אישור עסקאות</h2>
-      {pendingAll.length > 0 && <Btn variant="success" onClick={approveAll}>✅ אשר הכל ({pendingAll.length})</Btn>}
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn variant="ghost" size="sm" onClick={loadPending}>🔄 רענן</Btn>
+        {pendingAll.length > 0 && <Btn variant="success" onClick={approveAll}>✅ אשר הכל ({pendingAll.length})</Btn>}
+      </div>
     </div>
 
     {pendingAll.length === 0 ? (
@@ -2579,37 +2485,62 @@ function ClientPortal() {
 // IMPORT FROM SHEETS (ONE-TIME)
 // ═══════════════════════════════════════════════════════
 function ImportFromSheetsCard() {
-  const { setIncome } = useApp();
+  const { setIncome, load } = useApp();
   const [importing, setImporting] = useState(false);
+  const [progress, setProgress] = useState("");
   const [result, setResult] = useState("");
-  const localCount = LocalDB.load().length;
 
-  const handleImport = async () => {
-    if (localCount > 0 && !confirm(`כבר יש ${localCount} הכנסות באחסון המקומי. ייבוא מהגיליון יחליף אותן. להמשיך?`)) return;
-    setImporting(true); setResult("");
+  const handleMigrate = async () => {
+    if (!confirm("זה יעביר את כל ההכנסות מגוגל שיטס ל-Firebase. להמשיך?")) return;
+    setImporting(true); setResult(""); setProgress("מוריד נתונים מגוגל שיטס...");
     try {
-      const imported = await IncSvc.importFromSheets();
-      setIncome(imported);
-      setResult(`✅ יובאו ${imported.length} הכנסות מהגיליון בהצלחה!`);
+      const imported = await IncSvc.migrateFromSheets((saved, total) => {
+        setProgress(`שומר ב-Firebase... ${saved}/${total}`);
+      });
+      setResult(`✅ הועברו ${imported.length} הכנסות ל-Firebase בהצלחה!`);
+      setProgress("");
+      load(); // Reload from Firebase
     } catch (e) {
       setResult(`❌ שגיאה: ${e.message}`);
+      setProgress("");
+    }
+    setImporting(false);
+  };
+
+  const handleMigrateUsers = async () => {
+    if (!confirm("להעביר משתמשים מגוגל שיטס ל-Firebase?")) return;
+    setImporting(true); setResult(""); setProgress("מוריד משתמשים...");
+    try {
+      const rows = await API.read("users");
+      const users = rows.slice(1).map(r => ({
+        name: String(r[0] || "").trim(),
+        password: String(r[1] || "").trim(),
+        role: String(r[2] || "chatter").trim()
+      })).filter(u => u.name && u.password);
+      await saveAllUsers(users);
+      setResult(`✅ הועברו ${users.length} משתמשים ל-Firebase!`);
+      setProgress("");
+    } catch (e) {
+      setResult(`❌ שגיאה: ${e.message}`);
+      setProgress("");
     }
     setImporting(false);
   };
 
   return <Card style={{ marginBottom: 16, border: `1px solid ${C.pri}44` }}>
-    <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>📥 ייבוא / סנכרון הכנסות</h4>
+    <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>🔥 מיגרציה ל-Firebase</h4>
     <div style={{ color: C.dim, fontSize: 12, marginBottom: 12 }}>
-      {localCount > 0 ? `💾 יש ${localCount} הכנסות באחסון מקומי` : "⚠️ אין הכנסות באחסון מקומי — נדרש ייבוא"}
+      העבר נתונים מגוגל שיטס ל-Firebase (פעם אחת בלבד)
     </div>
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-      <Btn onClick={handleImport} disabled={importing}>
-        {importing ? "⏳ מייבא מהגיליון..." : "📥 ייבוא הכנסות מגוגל שיטס"}
+      <Btn onClick={handleMigrate} disabled={importing}>
+        {importing ? "⏳ מעביר..." : "📥 העבר הכנסות ל-Firebase"}
       </Btn>
-      {localCount > 0 && <Btn variant="danger" onClick={() => { if (confirm("למחוק את כל ההכנסות מהאחסון המקומי?")) { LocalDB.clear(); setIncome([]); setResult("🗑️ הנתונים נמחקו — ניתן לייבא מחדש"); } }}>
-        🗑️ מחק נתונים
-      </Btn>}
+      <Btn variant="warning" onClick={handleMigrateUsers} disabled={importing}>
+        👤 העבר משתמשים ל-Firebase
+      </Btn>
     </div>
+    {progress && <div style={{ marginTop: 8, fontSize: 12, color: C.pri }}>{progress}</div>}
     {result && <div style={{ marginTop: 10, fontSize: 13, color: result.startsWith("✅") ? C.grn : C.red }}>{result}</div>}
   </Card>;
 }
