@@ -4,14 +4,15 @@ import {
     deleteDoc, doc, writeBatch
 } from "firebase/firestore";
 
-// Firebase configuration (using Vite env variables)
+// Firebase configuration (hardcoded to work without env vars, as it was before)
 const firebaseConfig = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSy_YOUR_API_KEY",
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "your-project.firebaseapp.com",
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "your-project",
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "your-project.appspot.com",
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "123456789",
-    appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:123456789:web:abcdef"
+    apiKey: "AIzaSyBMUVrjTXoIQVy6NMaeBYVwor4STbyXmaw",
+    authDomain: "agency-app-db.firebaseapp.com",
+    databaseURL: "https://agency-app-db-default-rtdb.firebaseio.com",
+    projectId: "agency-app-db",
+    storageBucket: "agency-app-db.firebasestorage.app",
+    messagingSenderId: "672668419469",
+    appId: "1:672668419469:web:40f5a57bd04961b5cf69c4"
 };
 
 // Initialize Firebase
