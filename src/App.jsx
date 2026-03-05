@@ -2678,12 +2678,11 @@ function UserManagementPage() {
     </Card>
 
     <Card style={{ background: `${C.pri}08`, border: `1px solid ${C.pri}33` }}>
-      <h4 style={{ color: C.pri, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>💡 הנחיות</h4>
+      <h4 style={{ color: C.pri, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>💡 הנחיות חשובות</h4>
       <div style={{ color: C.dim, fontSize: 12, lineHeight: 1.8 }}>
-        <div>• צור גיליון בשם <strong style={{ color: C.txt }}>users</strong> ב-Google Sheets</div>
-        <div>• עמודות: <strong style={{ color: C.txt }}>שם | סיסמה | תפקיד</strong> (chatter / client)</div>
-        <div>• המשתמשים נשמרים ישירות ב-Sheets ולא צריך Vercel!</div>
-        <div>• השם חייב להתאים בדיוק לשם שמופיע ב-הכנסות ארכיון</div>
+        <div>• השם חייב להתאים בדיוק לשם שמופיע בדו״חות העסקאות.</div>
+        <div>• מומלץ לתת סיסמות פשוטות שקל לזכור (למשל מספר טלפון).</div>
+        <div>• המשתמשים נשמרים ישירות לדאטה-בייס ויכולים להתחבר מיד!</div>
       </div>
     </Card>
 
