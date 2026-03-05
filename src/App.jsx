@@ -1122,7 +1122,7 @@ function IncPage() {
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✔️" : "☐"}</Btn> }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(totalILS), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✅" : "☐"}</Btn> }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(totalILS), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
   </div>;
 }
 
@@ -1220,7 +1220,7 @@ function ChatterPage() {
         <Card><div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>מכירות לפי לקוחה</div><div style={{ width: "100%", direction: "ltr" }}><ResponsiveContainer width="100%" height={180}><BarChart data={byCl} layout="vertical" margin={{ top: 5, right: 150, bottom: 5, left: 20 }}><XAxis type="number" reversed={true} tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={150} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 0, 0, 4]} name="מכירות" /></BarChart></ResponsiveContainer></div></Card>
         {byType.length > 0 && <Card><div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>מכירות לפי סוג הכנסה</div><div style={{ width: "100%", direction: "ltr" }}><ResponsiveContainer width="100%" height={180}><BarChart data={byType} layout="vertical" margin={{ top: 5, right: 150, bottom: 5, left: 20 }}><XAxis type="number" reversed={true} tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={150} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.priL} radius={[4, 0, 0, 4]} name="מכירות" /></BarChart></ResponsiveContainer></div></Card>}
       </div>
-      <DT columns={[{ label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> }, { label: "סוג הכנסה", key: "incomeType" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => r.paidToClient ? "✔️" : "☐" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }]} rows={rows.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", fmtUSD(rows.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(tot)]} />
+      <DT columns={[{ label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => r.paidToClient ? "✅" : "☐" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }, { label: "ביטול", render: r => <span style={{ color: r.cancelled ? C.ylw : C.dim }}>{r.cancelled ? "בוטל" : "❌"}</span> }]} rows={rows.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(rows.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(tot), ""]} />
     </> : <>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><ComposedChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="sales" fill={C.pri} radius={[4, 4, 0, 0]} name="מכירות" /><Line type="monotone" dataKey="total" stroke={C.ylw} strokeWidth={2} dot={{ r: 3 }} name="משכורת" /></ComposedChart></ResponsiveContainer></Card>
       <DT columns={[{ label: "חודש", key: "month" }, { label: "מכירות", render: r => fmtC(r.sales) }, { label: "משרד", render: r => fmtC(r.oSales) }, { label: "חוץ", render: r => fmtC(r.rSales) }, { label: "שכר", render: r => <strong style={{ color: C.pri }}>{fmtC(r.total)}</strong> }]} rows={mbd} footer={["סה״כ", fmtC(mbd.reduce((s, r) => s + r.sales, 0)), "", "", fmtC(mbd.reduce((s, r) => s + r.total, 0))]} />
@@ -1272,7 +1272,7 @@ function ClientPage() {
       </Card>
       <Modal open={editPct} onClose={() => setEditPct(false)} title={`עריכת אחוז — ${sel} — ${MONTHS_HE[month]}`} width={340}><input type="number" min="0" max="100" value={pv} onChange={e => setPv(e.target.value)} style={{ width: "100%", padding: "12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 20, outline: "none", boxSizing: "border-box", marginBottom: 14 }} /><div style={{ display: "flex", gap: 8 }}><Btn variant="success" onClick={() => { updRate(sel, ymi, +pv); setEditPct(false); }}>💾 שמור</Btn><Btn variant="ghost" onClick={() => setEditPct(false)}>ביטול</Btn></div></Modal>
       <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>🧾 עסקאות ({MONTHS_HE[month]})</h3>
-        <DT columns={[{ label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✔️" : "❌"}</Btn> }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }]} rows={incD.filter(r => r.modelName === sel).sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", fmtUSD(incD.filter(r => r.modelName === sel).reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome)]} /></div>
+        <DT columns={[{ label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✅" : "☐"}</Btn> }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }, { label: "ביטול", render: r => r.cancelled ? <span style={{ color: C.ylw }}>בוטל</span> : <span style={{ color: C.dim }}>❌</span> }]} rows={incD.filter(r => r.modelName === sel).sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(incD.filter(r => r.modelName === sel).reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome), ""]} /></div>
     </> : <>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><ComposedChart data={ybd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="totalIncome" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Line type="monotone" dataKey="ent" stroke={C.pri} strokeWidth={2} name="זכאות" /><Line type="monotone" dataKey="bal" stroke={C.ylw} strokeWidth={2} strokeDasharray="5 5" name="יתרה" /></ComposedChart></ResponsiveContainer></Card>
       <DT columns={[{ label: "חודש", key: "month" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "דרך סוכנות", render: r => fmtC(r.through) }, { label: "ישירות", render: r => fmtC(r.direct) }, { label: "%", render: r => `${r.pct}%` }, { label: "זכאות", render: r => fmtC(r.ent) }, { label: "יתרה", render: r => <span style={{ color: r.bal >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.bal)}</span> }]} rows={ybd} footer={["סה״כ", fmtC(ybd.reduce((s, r) => s + r.totalIncome, 0)), "", "", "", fmtC(ybd.reduce((s, r) => s + r.ent, 0)), ""]} />
@@ -2111,11 +2111,11 @@ function ChatterPortal() {
   // Unique client names from all income
   const clientNames = useMemo(() => [...new Set(income.map(r => r.modelName).filter(Boolean))].sort(), [income]);
 
-  // Income types from all existing income data
+  // Income types from all existing income data (filters out any string containing English characters)
   const incomeTypes = useMemo(() => {
     const fromData = income.map(r => r.incomeType).filter(Boolean);
     const defaults = ["תוכן", "שיחה", "סקסטינג", "ביט", "העברה בנקאית", "פייבוקס", "וולט"];
-    return [...new Set([...defaults, ...fromData])].filter(t => !/^[a-zA-Z]+$/.test(t)).sort();
+    return [...new Set([...defaults, ...fromData])].filter(t => !/[a-zA-Z]/.test(t)).sort();
   }, [income]);
 
   const save = async () => {
@@ -2298,13 +2298,15 @@ function ChatterPortal() {
           <DT textSm columns={[
             { label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> },
             { label: "סוג הכנסה", key: "incomeType" },
-            { label: "לקוחה", key: "modelName" },
+            { label: "צ'אטר", key: "chatterName" },
+            { label: "דוגמנית", key: "modelName" },
             { label: "פלטפורמה", key: "platform" },
             { label: "מיקום", key: "shiftLocation" },
+            { label: "שולם ללקוחה", render: r => r.paidToClient ? "✅" : "☐" },
             { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
             { label: "סכום ₪", render: r => <span style={{ color: C.ylw }}>{fmtC(r.originalAmount)}</span> },
-            { label: "סטטוס", render: () => <span style={{ color: C.ylw }}>⏳</span> }
-          ]} rows={pending} footer={["סה״כ", "", "", "", "", fmtUSD(pending.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalPending), ""]} />
+            { label: "ביטול", render: () => <span style={{ color: C.ylw }}>⏳ ממתין</span> }
+          ]} rows={pending} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(pending.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalPending), ""]} />
         </div>
       </>}
 
@@ -2314,13 +2316,15 @@ function ChatterPortal() {
         <DT textSm columns={[
           { label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> },
           { label: "סוג הכנסה", key: "incomeType" },
-          { label: "לקוחה", key: "modelName" },
+          { label: "צ'אטר", key: "chatterName" },
+          { label: "דוגמנית", key: "modelName" },
           { label: "פלטפורמה", key: "platform" },
           { label: "מיקום", key: "shiftLocation" },
-          { label: "שולם ללקוחה", render: r => r.paidToClient ? "✔️" : "☐" },
+          { label: "שולם ללקוחה", render: r => r.paidToClient ? "✅" : "☐" },
           { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
-          { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }
-        ]} rows={approved} footer={["סה״כ", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved)]} />
+          { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> },
+          { label: "ביטול", render: r => <span style={{ color: r.cancelled ? C.ylw : C.dim }}>{r.cancelled ? "בוטל" : "❌"}</span> }
+        ]} rows={approved} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved), ""]} />
       }
     </div>
   </div>;
@@ -2514,10 +2518,14 @@ function ClientPortal() {
           { label: "תאריך", render: r => <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {r.hour && <span style={{ fontSize: 11, color: C.mut }}>{r.hour}</span>}</span> },
           { label: "סוג הכנסה", key: "incomeType" },
           { label: "צ'אטר", key: "chatterName" },
+          { label: "דוגמנית", key: "modelName" },
           { label: "פלטפורמה", key: "platform" },
-          { label: "שולם ישירות", render: r => r.paidToClient ? "✔️" : "—" },
-          { label: "סכום", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }
-        ]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", fmtC(totalIncome)]} />
+          { label: "מיקום", key: "shiftLocation" },
+          { label: "שולם ללקוחה", render: r => r.paidToClient ? "✅" : "☐" },
+          { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
+          { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> },
+          { label: "ביטול", render: r => <span style={{ color: r.cancelled ? C.ylw : C.dim }}>{r.cancelled ? "בוטל" : "❌"}</span> }
+        ]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(data.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalIncome), ""]} />
       </Card>
     </div>
   </div>;
