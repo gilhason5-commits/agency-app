@@ -1,203 +1,224 @@
 import { initializeApp } from "firebase/app";
 import {
-    getFirestore, collection, doc,
-    getDocs, getDoc, addDoc, setDoc, updateDoc, deleteDoc,
-    query, where, writeBatch
+    getFirestore, collection, getDocs, addDoc, updateDoc,
+    deleteDoc, doc, writeBatch
 } from "firebase/firestore";
 
+// Firebase configuration (using Vite env variables)
 const firebaseConfig = {
-    apiKey: "AIzaSyBMUVrjTXoIQVy6NMaeBYVwor4STbyXmaw",
-    authDomain: "agency-app-db.firebaseapp.com",
-    databaseURL: "https://agency-app-db-default-rtdb.firebaseio.com",
-    projectId: "agency-app-db",
-    storageBucket: "agency-app-db.firebasestorage.app",
-    messagingSenderId: "672668419469",
-    appId: "1:672668419469:web:40f5a57bd04961b5cf69c4"
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSy_YOUR_API_KEY",
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "your-project.firebaseapp.com",
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "your-project",
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "your-project.appspot.com",
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "123456789",
+    appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:123456789:web:abcdef"
 };
 
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// ── Helpers ──────────────────────────────────────────
-function serialize(obj) {
-    const o = { ...obj };
-    // Convert Date objects to ISO strings for Firestore
-    if (o.date instanceof Date) o.date = o.date.toISOString();
-    if (o.submittedAt instanceof Date) o.submittedAt = o.submittedAt.toISOString();
-    return o;
-}
-
-function deserialize(obj) {
-    const o = { ...obj };
-    // Convert ISO strings back to Date objects
-    if (typeof o.date === "string" && o.date) {
-        const d = new Date(o.date);
-        if (!isNaN(d)) o.date = d;
-    }
-    if (typeof o.submittedAt === "string" && o.submittedAt) {
-        const d = new Date(o.submittedAt);
-        if (!isNaN(d)) o.submittedAt = d;
-    }
-    return o;
-}
-
-// ── Income (approved) ────────────────────────────────
-const incomeCol = () => collection(db, "income");
-
+// ═══════════════════════════════════════════════════════
+// INCOME API
+// ═══════════════════════════════════════════════════════
 export async function fetchAllIncome() {
-    const snap = await getDocs(incomeCol());
-    return snap.docs.map(d => deserialize({ ...d.data(), id: d.id }));
+    const querySnapshot = await getDocs(collection(db, "income"));
+    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), date: doc.data().date ? new Date(doc.data().date) : null }));
 }
 
 export async function addIncome(record) {
-    const data = serialize(record);
-    const { id, ...rest } = data;
-    if (id && !id.startsWith("I-chatter-")) {
-        // Use existing ID as doc ID
-        await setDoc(doc(db, "income", id), rest);
-        return { ...record, id };
+    const cleanRecord = { ...record };
+    if (cleanRecord.date instanceof Date) {
+        cleanRecord.date = cleanRecord.date.toISOString();
     }
-    const ref = await addDoc(incomeCol(), rest);
-    return { ...record, id: ref.id };
+    const docRef = await addDoc(collection(db, "income"), cleanRecord);
+    return { id: docRef.id, ...cleanRecord, date: record.date };
 }
 
 export async function updateIncome(id, updates) {
-    await updateDoc(doc(db, "income", id), serialize(updates));
+    const docRef = doc(db, "income", id);
+    const cleanUpdates = { ...updates };
+    if (cleanUpdates.date instanceof Date) {
+        cleanUpdates.date = cleanUpdates.date.toISOString();
+    }
+    await updateDoc(docRef, cleanUpdates);
+    return { id, ...updates };
 }
 
 export async function removeIncome(id) {
     await deleteDoc(doc(db, "income", id));
 }
 
-// Batch save for migration (500 per batch = Firestore limit)
 export async function saveAllIncome(records, onProgress) {
-    const BATCH_SIZE = 400;
-    let saved = 0;
-    for (let i = 0; i < records.length; i += BATCH_SIZE) {
-        const batch = writeBatch(db);
-        const chunk = records.slice(i, i + BATCH_SIZE);
-        chunk.forEach(r => {
-            const { id, ...rest } = serialize(r);
-            const docId = id || `inc-${i}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-            batch.set(doc(db, "income", docId), rest);
-        });
-        await batch.commit();
-        saved += chunk.length;
-        if (onProgress) onProgress(saved, records.length);
+    const batch = writeBatch(db);
+    const colRef = collection(db, "income");
+    let i = 0;
+    for (const record of records) {
+        const cleanRecord = { ...record };
+        if (cleanRecord.date instanceof Date) {
+            cleanRecord.date = cleanRecord.date.toISOString();
+        }
+        const newDoc = doc(colRef);
+        batch.set(newDoc, cleanRecord);
+        i++;
+        if (i % 100 === 0 && onProgress) onProgress(i, records.length);
     }
-    return saved;
+    await batch.commit();
+    if (onProgress) onProgress(records.length, records.length);
+    return records;
 }
 
 export async function clearAllIncome() {
-    const snap = await getDocs(incomeCol());
-    const BATCH_SIZE = 400;
-    const docs = snap.docs;
-    for (let i = 0; i < docs.length; i += BATCH_SIZE) {
-        const batch = writeBatch(db);
-        docs.slice(i, i + BATCH_SIZE).forEach(d => batch.delete(d.ref));
-        await batch.commit();
-    }
+    const querySnapshot = await getDocs(collection(db, "income"));
+    const batch = writeBatch(db);
+    querySnapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+    });
+    await batch.commit();
 }
 
-// ── Pending Income ───────────────────────────────────
-const pendingCol = () => collection(db, "pendingIncome");
-
+// ═══════════════════════════════════════════════════════
+// PENDING INCOME API
+// ═══════════════════════════════════════════════════════
 export async function fetchPending() {
-    const snap = await getDocs(pendingCol());
-    return snap.docs.map(d => deserialize({ ...d.data(), id: d.id }));
+    const querySnapshot = await getDocs(collection(db, "pendingIncome"));
+    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), date: doc.data().date ? new Date(doc.data().date) : null }));
 }
 
 export async function addPending(record) {
-    const data = serialize({ ...record, submittedAt: new Date() });
-    const { id, ...rest } = data;
-    const ref = await addDoc(pendingCol(), rest);
-    return { ...record, id: ref.id, submittedAt: new Date() };
+    const cleanRecord = { ...record, submittedAt: new Date().toISOString() };
+    if (cleanRecord.date instanceof Date) {
+        cleanRecord.date = cleanRecord.date.toISOString();
+    }
+    const docRef = await addDoc(collection(db, "pendingIncome"), cleanRecord);
+    return { id: docRef.id, ...cleanRecord, date: record.date };
 }
 
 export async function removePending(id) {
     await deleteDoc(doc(db, "pendingIncome", id));
 }
 
-// Approve: move from pending → income
-export async function approvePending(pendingRecord) {
-    const { submittedAt, ...incomeData } = pendingRecord;
-    const saved = await addIncome({ ...incomeData, verified: "V" });
-    await removePending(pendingRecord.id);
-    return saved;
+export async function approvePending(id, pendingData) {
+    const cleanData = { ...pendingData };
+    delete cleanData.id;
+    delete cleanData.submittedAt;
+
+    if (cleanData.date instanceof Date) {
+        cleanData.date = cleanData.date.toISOString();
+    }
+
+    const batch = writeBatch(db);
+    const newIncomeRef = doc(collection(db, "income"));
+    batch.set(newIncomeRef, cleanData);
+
+    const pendingRef = doc(db, "pendingIncome", id);
+    batch.delete(pendingRef);
+
+    await batch.commit();
+    return { id: newIncomeRef.id, ...pendingData };
 }
 
-// ── Users ────────────────────────────────────────────
-const usersCol = () => collection(db, "users");
-
+// ═══════════════════════════════════════════════════════
+// USERS API
+// ═══════════════════════════════════════════════════════
 export async function fetchUsers() {
-    const snap = await getDocs(usersCol());
-    return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    const querySnapshot = await getDocs(collection(db, "users"));
+    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
-export async function addUser(name, password, role) {
-    const ref = await addDoc(usersCol(), { name, password, role });
-    return { id: ref.id, name, password, role };
+export async function addUser(name, pass, role) {
+    const docRef = await addDoc(collection(db, "users"), { name, password: pass, role });
+    return { id: docRef.id, name, password: pass, role };
 }
 
 export async function removeUser(id) {
     await deleteDoc(doc(db, "users", id));
 }
 
-export async function findUser(name, password) {
-    const snap = await getDocs(usersCol());
-    return snap.docs.map(d => ({ ...d.data(), id: d.id }))
-        .find(u => u.name === name && u.password === password) || null;
-}
-
-// Batch save users for migration
 export async function saveAllUsers(users) {
     const batch = writeBatch(db);
-    users.forEach(u => {
-        const { id, _rowIndex, ...rest } = u;
-        const docId = `user-${rest.name.replace(/\s+/g, '-')}`;
-        batch.set(doc(db, "users", docId), rest);
-    });
+    const colRef = collection(db, "users");
+    for (const user of users) {
+        const newDoc = doc(colRef);
+        batch.set(newDoc, { name: user.name, password: user.pass || user.password, role: user.role });
+    }
     await batch.commit();
 }
 
-// ── Expenses ─────────────────────────────────────────
-const expensesCol = () => collection(db, "expenses");
+export async function findUser(name, pass) {
+    const users = await fetchUsers();
+    return users.find(u => u.name.toLowerCase() === name.toLowerCase() && u.password === pass);
+}
 
+// ═══════════════════════════════════════════════════════
+// EXPENSES API
+// ═══════════════════════════════════════════════════════
 export async function fetchAllExpenses() {
-    const snap = await getDocs(expensesCol());
-    return snap.docs.map(d => deserialize({ ...d.data(), id: d.id }));
+    const querySnapshot = await getDocs(collection(db, "expenses"));
+    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), date: doc.data().date ? new Date(doc.data().date) : null }));
 }
 
 export async function addExpense(record) {
-    const data = serialize(record);
-    const { id, ...rest } = data;
-    const ref = await addDoc(expensesCol(), rest);
-    return { ...record, id: ref.id };
+    const cleanRecord = { ...record };
+    if (cleanRecord.date instanceof Date) {
+        cleanRecord.date = cleanRecord.date.toISOString();
+    }
+    const docRef = await addDoc(collection(db, "expenses"), cleanRecord);
+    return { id: docRef.id, ...cleanRecord, date: record.date };
 }
 
 export async function updateExpense(id, updates) {
-    await updateDoc(doc(db, "expenses", id), serialize(updates));
+    const docRef = doc(db, "expenses", id);
+    const cleanUpdates = { ...updates };
+    if (cleanUpdates.date instanceof Date) {
+        cleanUpdates.date = cleanUpdates.date.toISOString();
+    }
+    await updateDoc(docRef, cleanUpdates);
+    return { id, ...updates };
 }
 
 export async function removeExpense(id) {
     await deleteDoc(doc(db, "expenses", id));
 }
 
-// Batch save for migration
-export async function saveAllExpenses(records, onProgress) {
-    const BATCH_SIZE = 400;
-    let saved = 0;
-    for (let i = 0; i < records.length; i += BATCH_SIZE) {
-        const batch = writeBatch(db);
-        const chunk = records.slice(i, i + BATCH_SIZE);
-        chunk.forEach((r, j) => {
-            const { id, ...rest } = serialize(r);
-            const docId = `exp-${i + j}-${Date.now()}`;
-            batch.set(doc(db, "expenses", docId), rest);
-        });
-        await batch.commit();
-        saved += chunk.length;
-        if (onProgress) onProgress(saved, records.length);
+export async function saveAllExpenses(records) {
+    const batch = writeBatch(db);
+    const colRef = collection(db, "expenses");
+    for (const record of records) {
+        const cleanRecord = { ...record };
+        if (cleanRecord.date instanceof Date) {
+            cleanRecord.date = cleanRecord.date.toISOString();
+        }
+        const newDoc = doc(colRef);
+        batch.set(newDoc, cleanRecord);
     }
-    return saved;
+    await batch.commit();
+    return records;
+}
+
+// ═══════════════════════════════════════════════════════
+// SETTLEMENTS API (העברות כספים וקיזוזים)
+// ═══════════════════════════════════════════════════════
+export async function fetchSettlements() {
+    const querySnapshot = await getDocs(collection(db, "settlements"));
+    return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        date: doc.data().date ? new Date(doc.data().date) : null
+    }));
+}
+
+export async function addSettlement(data) {
+    const cleanRecord = { ...data };
+    if (cleanRecord.date instanceof Date) {
+        cleanRecord.date = cleanRecord.date.toISOString();
+    } else if (!cleanRecord.date) {
+        cleanRecord.date = new Date().toISOString();
+    }
+    const docRef = await addDoc(collection(db, "settlements"), cleanRecord);
+    return { id: docRef.id, ...cleanRecord, date: new Date(cleanRecord.date) };
+}
+
+export async function removeSettlement(id) {
+    await deleteDoc(doc(db, "settlements", id));
 }

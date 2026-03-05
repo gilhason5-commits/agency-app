@@ -4,7 +4,8 @@ import {
   fetchAllIncome, addIncome, updateIncome, removeIncome, saveAllIncome, clearAllIncome,
   fetchPending, addPending, removePending, approvePending,
   fetchUsers, addUser, removeUser, findUser, saveAllUsers,
-  fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses
+  fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses,
+  fetchSettlements, addSettlement, removeSettlement
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -549,12 +550,26 @@ const GenParamsSvc = {
 // ═══════════════════════════════════════════════════════
 const Calc = {
   chatterSalary(rows) { let o = 0, r = 0; rows.forEach(x => { if (x.shiftLocation === "משרד") o += x.amountILS; else r += x.amountILS; }); return { oSales: o, rSales: r, oSal: o * .17, rSal: r * .15, total: o * .17 + r * .15 }; },
-  clientBal(rows, cn, pct) {
+  clientBal(rows, cn, pct, settlements = []) {
     const clRows = rows.filter(r => r.modelName === cn);
     const tot = clRows.reduce((s, r) => s + r.amountILS, 0);
     const direct = clRows.filter(r => r.incomeType === cn || r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
     const ent = tot * (pct / 100);
-    return { totalIncome: tot, direct, through: tot - direct, pct, ent, bal: ent - direct, actualDue: ent - direct };
+
+    // settlements logic: 
+    // AgencyToClient decreases the agency's debt to the client (or increases client debt to agency)
+    // ClientToAgency decreases the client's debt to the agency (or increases agency debt to client)
+    // Positive actualDue = Agency owes client. Negative = Client owes agency.
+    let netSettled = 0; // The amount the agency has paid towards its debt via settlements
+    settlements.filter(s => s.modelName === cn).forEach(s => {
+      if (s.direction === "AgencyToClient") netSettled += s.amount;
+      if (s.direction === "ClientToAgency") netSettled -= s.amount;
+    });
+
+    // actualDue is the pure mathematical debt before settlements: (entitlement - what they already got directly)
+    // then subtract the net amount the agency has manually settled
+    const actualDue = ent - direct - netSettled;
+    return { totalIncome: tot, direct, through: tot - direct, pct, ent, bal: ent - direct, netSettled, actualDue };
   },
   offset(exps) { const d = exps.filter(e => e.paidBy === "דור").reduce((s, e) => s + e.amount, 0); const y = exps.filter(e => e.paidBy === "יוראי").reduce((s, e) => s + e.amount, 0); return { dor: d, yurai: y, off: Math.abs(d - y) / 2, owes: d > y ? "יוראי" : "דור", paid: d > y ? "דור" : "יוראי" }; },
   profit(inc, exp) { const i = inc.reduce((s, r) => s + r.amountILS, 0); const e = exp.reduce((s, x) => s + x.amount, 0); return { inc: i, exp: e, profit: i - e }; },
@@ -578,6 +593,7 @@ function Prov({ children }) {
   const [page, setPage] = useState("dashboard");
   const [income, setIncome] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [settlements, setSettlements] = useState([]);
   const [models, setModels] = useState([]);
   const [history, setHistory] = useState([]);
   const [genParams, setGenParams] = useState(DEFAULT_PARAMS);
@@ -602,6 +618,7 @@ function Prov({ children }) {
       setIncome(inc);
       setLoadStep(`נטענו ${inc.length} שורות הכנסה`);
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
+      try { const sets = await fetchSettlements(); console.log("Fetched settlements:", sets); setSettlements(sets); } catch (e) { console.error("Error fetching settlements:", e); }
       setConnected(true);
       setTimeout(() => setLoadStep(""), 3000);
     } catch (e) {
@@ -631,7 +648,7 @@ function Prov({ children }) {
     const di = []; for (let m = 0; m < 12; m++) { const cnt = 30 + Math.floor(Math.random() * 40); for (let i = 0; i < cnt; i++) { const day = Math.floor(Math.random() * 28) + 1, ils = Math.floor(Math.random() * 3000) + 200, c = cl[Math.floor(Math.random() * cl.length)]; di.push({ id: `demo-I-${m}-${i}-${Date.now()}`, chatterName: ch[Math.floor(Math.random() * ch.length)], modelName: c, clientName: c, usdRate: 3.6, amountUSD: Math.round(ils / 3.6), amountILS: ils, originalAmount: ils, incomeType: Math.random() < .25 ? c : "", platform: pl[Math.floor(Math.random() * pl.length)], date: new Date(year, m, day), hour: `${Math.floor(Math.random() * 24)}:00`, notes: "", verified: "", shiftLocation: lo[Math.floor(Math.random() * lo.length)] }); } }
     const de = []; EXPENSE_CATEGORIES.forEach(cat => { for (let m = 0; m < 12; m++) { const n = Math.floor(Math.random() * 3) + 1; for (let i = 0; i < n; i++) { de.push({ id: `E${Date.now()}-${Math.random()}`, category: cat, name: `${cat} #${i + 1}`, amount: Math.floor(Math.random() * 5000) + 100, date: new Date(year, m, Math.floor(Math.random() * 28) + 1), hour: "12:00", paidBy: Math.random() > .5 ? "דור" : "יוראי", vatRecognized: Math.random() > .4, taxRecognized: Math.random() > .2, year, month: m + 1, source: Math.random() > .5 ? "אוטומטי" : "ידני", receiptImage: null, _rowIndex: 0 }); } } });
     cl.forEach(c => { for (let m = 0; m < 12; m++)setRate(c, ym(year, m), Math.floor(Math.random() * 20) + 25); });
-    setIncome(di); setExpenses(de); setConnected(true); setRv(v => v + 1);
+    setIncome(di); setExpenses(de); setSettlements([]); setConnected(true); setRv(v => v + 1);
   }, [year]);
 
   // Parse chatters from env var: "name1:pass1,name2:pass2"
@@ -694,11 +711,21 @@ function Prov({ children }) {
 
   const val = useMemo(() => ({
     year, setYear, month, setMonth, view, setView, page, setPage,
-    income, setIncome, expenses, setExpenses, models, setModels,
+    income, setIncome, expenses, setExpenses, settlements, setSettlements, models, setModels,
     history, setHistory, genParams, setGenParams, loading, error,
     connected, setConnected, demo, setDemo, load, loadDemo, rv, updRate,
-    loadStep, user, login, logout, sheetUsers, loadSheetUsers, liveRate
-  }), [year, month, view, page, income, expenses, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate]);
+    loadStep, user, login, logout, sheetUsers, loadSheetUsers, liveRate,
+    addSettlement: async (s) => {
+      if (demo) {
+        const d = { id: `S-${Date.now()}`, ...s, timestamp: Date.now() };
+        setSettlements(prev => [...prev, d]);
+        return d;
+      }
+      const saved = await addSettlement(s);
+      setSettlements(prev => [...prev, saved]);
+      return saved;
+    }
+  }), [year, month, view, page, income, expenses, settlements, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
@@ -778,7 +805,19 @@ const TT = ({ active, payload, label }) => { if (!active || !payload?.length) re
 // ═══════════════════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════════════════
-const NAV = [{ key: "dashboard", label: "דאשבורד", icon: "📊" }, { key: "income", label: "הכנסות", icon: "💰" }, { key: "approvals", label: "אישורים", icon: "✅" }, { key: "expenses", label: "הוצאות", icon: "💳" }, { key: "chatters", label: "צ'אטרים", icon: "👥" }, { key: "clients", label: "לקוחות", icon: "👩" }, { key: "targets", label: "יעדים", icon: "🎯" }, { key: "record", label: "תיעוד הוצאות", icon: "📱" }, { key: "users", label: "ניהול משתמשים", icon: "⚙️" }, { key: "generator", label: "מחולל תכנים", icon: "✨" }];
+const NAV = [
+  { key: "dashboard", label: "דאשבורד", icon: "📊" },
+  { key: "income", label: "הכנסות", icon: "💰" },
+  { key: "approvals", label: "אישורים", icon: "✅" },
+  { key: "debts", label: "דוח התחשבנות", icon: "🤝" },
+  { key: "expenses", label: "הוצאות", icon: "💳" },
+  { key: "chatters", label: "צ'אטרים", icon: "👥" },
+  { key: "clients", label: "לקוחות", icon: "👩" },
+  { key: "targets", label: "יעדים", icon: "🎯" },
+  { key: "record", label: "תיעוד הוצאות", icon: "📱" },
+  { key: "users", label: "ניהול משתמשים", icon: "⚙️" },
+  { key: "generator", label: "מחולל תכנים", icon: "✨" }
+];
 
 function Sidebar({ current, onNav }) {
   const { logout } = useApp();
@@ -2696,9 +2735,127 @@ function UserManagementPage() {
 }
 
 // ═══════════════════════════════════════════════════════
+// PAGE: DEBTS REPORT (דוח חובות)
+// ═══════════════════════════════════════════════════════
+function DebtsPage() {
+  const { models, income, settlements, month, year, addSettlement } = useApp();
+  const [modalClient, setModalClient] = useState(null);
+  const [form, setForm] = useState({ amount: "", direction: "AgencyToClient", notes: "" });
+  const [saving, setSaving] = useState(false);
+
+  // Group data by client for the current month
+  const monthData = useMemo(() => income.filter(r => new Date(r.date || 0).getMonth() === month && new Date(r.date || 0).getFullYear() === year), [income, month, year]);
+
+  const debtRows = useMemo(() => {
+    // Get all valid client names from anywhere (models or income)
+    const allClientNames = [...new Set([...models.map(m => m.name), ...income.map(i => i.modelName)])].filter(Boolean);
+
+    return allClientNames.map(clientName => {
+      const pct = getRate(clientName, ym(year, month));
+      const bal = Calc.clientBal(monthData, clientName, pct, settlements.filter(s => new Date(s.timestamp || s.date || Date.now()).getMonth() === month && new Date(s.timestamp || s.date || Date.now()).getFullYear() === year));
+      return {
+        name: clientName,
+        totalIncome: bal.totalIncome,
+        direct: bal.direct,
+        throughAgency: bal.through,
+        pct: bal.pct,
+        entitlement: bal.ent,
+        netSettled: bal.netSettled,
+        actualDue: bal.actualDue
+      };
+    }).sort((a, b) => b.totalIncome - a.totalIncome);
+  }, [models, income, monthData, settlements, year, month]);
+
+  const totalDue = debtRows.reduce((acc, r) => acc + r.actualDue, 0);
+
+  const handleSave = async () => {
+    if (!form.amount || isNaN(form.amount) || form.amount <= 0) return alert("הכנס סכום תקין");
+    setSaving(true);
+    try {
+      await addSettlement({
+        modelName: modalClient.name,
+        amount: Number(form.amount),
+        direction: form.direction,
+        notes: form.notes,
+        date: new Date().toISOString()
+      });
+      setModalClient(null);
+    } catch (e) {
+      alert("שגיאה במערכת: " + e.message);
+    }
+    setSaving(false);
+  };
+
+  return <div style={{ direction: "rtl", maxWidth: 1000, margin: "0 auto" }}>
+    <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>⚖️ דוח חובות והתחשבנות — {MONTHS_HE[month]}</h2>
+
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+      <Stat icon="🏦" title="סה״כ פער דורש קיזוז" value={fmtC(Math.abs(totalDue))} color={totalDue > 0 ? C.grn : C.red} sub={totalDue > 0 ? "הסוכנות חייבת בסך הכל" : "לקוחות חייבות בסך הכל"} />
+    </div>
+
+    <Card style={{ padding: "0" }}>
+      <DT
+        columns={[
+          { label: "לקוחה", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
+          { label: 'סה״כ הכנסות', render: r => <span style={{ color: C.dim }}>{fmtC(r.totalIncome)}</span> },
+          { label: 'דרך סוכנות', render: r => <span style={{ color: C.dim }}>{fmtC(r.throughAgency)}</span> },
+          { label: 'שולם ללקוחה ישירות', render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
+          { label: 'אחוז הלקוחה', render: r => <span style={{ color: C.dim }}>{r.pct}%</span> },
+          { label: 'שכר מגיע ללקוחה', render: r => <span style={{ color: C.pri }}>{fmtC(r.entitlement)}</span> },
+          { label: 'קוזז החודש (העברות)', render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
+          {
+            label: 'חוב מסכם לתשלום',
+            render: r => {
+              const bg = Math.abs(r.actualDue) < 1 ? 'transparent' : (r.actualDue > 0 ? `${C.grn}15` : `${C.red}15`);
+              const col = Math.abs(r.actualDue) < 1 ? C.mut : (r.actualDue > 0 ? C.grn : C.red);
+              const txt = Math.abs(r.actualDue) < 1 ? 'מאוזן' : (r.actualDue > 0 ? 'אנחנו צריכים לשלם לה' : 'היא צריכה להעביר לנו');
+              return <div style={{ background: bg, color: col, padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 13 }}>
+                <div style={{ fontSize: 16 }}>{fmtC(Math.abs(r.actualDue))}</div>
+                <div style={{ fontSize: 9 }}>{txt}</div>
+              </div>
+            }
+          },
+          {
+            label: 'פעולות',
+            render: r => <Btn size="sm" variant="outline" onClick={() => { setModalClient(r); setForm({ amount: Math.abs(r.actualDue), direction: r.actualDue > 0 ? "AgencyToClient" : "ClientToAgency", notes: "" }) }}>
+              ⚖️ בצע קיזוז
+            </Btn>
+          }
+        ]}
+        rows={debtRows}
+        footer={null} // Omitting total footer for now for simplicity
+      />
+    </Card>
+
+    {modalClient && <Modal open={true} onClose={() => setModalClient(null)} title={`תיעוד העברה לקיזוז חוב: ${modalClient.name}`} width={400}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <p style={{ color: C.dim, fontSize: 13, marginBottom: 10 }}>יתרת חוב מצב נוכחי: <strong style={{ color: C.txt }}>{fmtC(Math.abs(modalClient.actualDue))}</strong> ({modalClient.actualDue >= 0 ? "הסוכנות חייבת" : "הלקוחה חייבת"})</p>
+
+        <label style={{ color: C.dim, fontSize: 12 }}>כיוון העברה</label>
+        <select value={form.direction} onChange={e => setForm({ ...form, direction: e.target.value })} style={{ padding: 12, borderRadius: 8, background: C.bg, border: `1px solid ${C.bdr}`, color: C.txt, outline: "none" }}>
+          <option value="AgencyToClient">הסוכנות משלמת/מעבירה ללקוחה (+)</option>
+          <option value="ClientToAgency">הלקוחה מעבירה לסוכנות (-)</option>
+        </select>
+
+        <label style={{ color: C.dim, fontSize: 12 }}>סכום (₪)</label>
+        <input type="number" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} style={{ padding: 12, borderRadius: 8, background: C.bg, border: `1px solid ${C.bdr}`, color: C.txt, outline: "none", fontSize: 18 }} placeholder="לדוגמה 1000" />
+
+        <label style={{ color: C.dim, fontSize: 12 }}>הערה (אופציונלי)</label>
+        <input type="text" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} style={{ padding: 12, borderRadius: 8, background: C.bg, border: `1px solid ${C.bdr}`, color: C.txt, outline: "none" }} placeholder="העברה בביט / מזומן / סיבת קיזוז" />
+
+        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          <Btn style={{ flex: 1 }} variant="success" onClick={handleSave} disabled={saving}>{saving ? "⏳" : "💾 תעד המרה/קיזוז"}</Btn>
+          <Btn variant="ghost" onClick={() => setModalClient(null)}>ביטול</Btn>
+        </div>
+      </div>
+    </Modal>}
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════
-const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterPage, clients: ClientPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage, approvals: ApprovalsPage, users: UserManagementPage };
+const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterPage, clients: ClientPage, debts: DebtsPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage, approvals: ApprovalsPage, users: UserManagementPage };
 function Content() {
   const { page, setPage, connected, user, load } = useApp();
   const w = useWin();
