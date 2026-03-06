@@ -2436,7 +2436,17 @@ function ApprovalsPage() {
       </Card>
     ) : (
       <DT columns={[
-        { label: "תאריך", render: r => fmtD(r.date) },
+        {
+          label: "תאריך",
+          render: r => {
+            let h = r.hour;
+            // Clean up Sheets artifact, e.g. "1899-12-30T11:57:20.000Z" -> "11:57"
+            if (h && h.includes("1899-") && h.includes("T")) {
+              h = h.split("T")[1].substring(0, 5);
+            }
+            return <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {h ? <span style={{ fontSize: 11, color: C.mut }}>{h}</span> : ""}</span>;
+          }
+        },
         { label: "סוג הכנסה", key: "incomeType" },
         { label: "צ'אטר", key: "chatterName" },
         { label: "לקוחה", key: "modelName" },
