@@ -2810,7 +2810,7 @@ function DebtsPage() {
           { label: 'שולם ללקוחה ישירות', render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
           { label: 'אחוז הלקוחה', render: r => <span style={{ color: C.dim }}>{r.pct}%</span> },
           { label: 'שכר מגיע ללקוחה', render: r => <span style={{ color: C.pri }}>{fmtC(r.entitlement)}</span> },
-          { label: 'קוזז החודש (העברות)', render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
+          { label: 'קוזז החודש', render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
           {
             label: 'חוב מסכם לתשלום',
             render: r => {
