@@ -1189,7 +1189,8 @@ function IncPage() {
 // RECORD INCOME ADMIN FORM (Bypasses approvals)
 // ═══════════════════════════════════════════════════════
 function RecordIncomeAdmin({ onClose }) {
-  const { setIncome, models, chatters, liveRate } = useApp();
+  const { setIncome, liveRate } = useApp();
+  const { chatters, clients } = useFD();
   const [form, setForm] = useState({
     chatterName: "",
     modelName: "",
@@ -1268,7 +1269,7 @@ function RecordIncomeAdmin({ onClose }) {
       <div><label style={labelStyle}>דוגמנית *</label>
         <select value={form.modelName} onChange={e => upd("modelName", e.target.value)} style={inputStyle}>
           <option value="">בחר דוגמנית...</option>
-          {models.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+          {clients.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
         </select>
       </div>
     </div>
