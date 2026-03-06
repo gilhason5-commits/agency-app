@@ -1190,7 +1190,7 @@ function IncPage() {
 // ═══════════════════════════════════════════════════════
 function RecordIncomeAdmin({ onClose }) {
   const { setIncome, liveRate } = useApp();
-  const { chatters, clients } = useFD();
+  const { chatters, clients, platforms } = useFD();
   const [form, setForm] = useState({
     chatterName: "",
     modelName: "",
@@ -1207,8 +1207,7 @@ function RecordIncomeAdmin({ onClose }) {
 
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const platforms = useMemo(() => PLATFORMS, []);
-  const locations = useMemo(() => SHIFT_LOCATIONS, []);
+  const locations = useMemo(() => ["משרד", "חוץ"], []);
   const commonIncomeTypes = useMemo(() => ["הכנסה רגילה", "מכירת תוכן", "טיפ", "מנוי", "אחר"], []);
 
   const save = async () => {
@@ -1263,13 +1262,13 @@ function RecordIncomeAdmin({ onClose }) {
       <div><label style={labelStyle}>צ'אטר *</label>
         <select value={form.chatterName} onChange={e => upd("chatterName", e.target.value)} style={inputStyle}>
           <option value="">בחר צ'אטר...</option>
-          {chatters.map(c => <option key={c} value={c}>{c}</option>)}
+          {(chatters || []).map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
       <div><label style={labelStyle}>דוגמנית *</label>
         <select value={form.modelName} onChange={e => upd("modelName", e.target.value)} style={inputStyle}>
           <option value="">בחר דוגמנית...</option>
-          {clients.map(m => <option key={m} value={m}>{m}</option>)}
+          {(clients || []).map(m => <option key={m} value={m}>{m}</option>)}
         </select>
       </div>
     </div>
@@ -1278,7 +1277,7 @@ function RecordIncomeAdmin({ onClose }) {
       <div><label style={labelStyle}>פלטפורמה *</label>
         <select value={form.platform} onChange={e => upd("platform", e.target.value)} style={inputStyle}>
           <option value="">בחר פלטפורמה...</option>
-          {platforms.map(p => <option key={p} value={p}>{p}</option>)}
+          {(platforms || []).map(p => <option key={p} value={p}>{p}</option>)}
         </select>
       </div>
       <div><label style={labelStyle}>מיקום המשמרת *</label>
