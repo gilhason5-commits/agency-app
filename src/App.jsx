@@ -2397,7 +2397,7 @@ function ApprovalsPage() {
   const approve = async (row) => {
     setApproving(row.id);
     try {
-      const approved = await approvePending(row);
+      const approved = await approvePending(row.id, row);
       setIncome(prev => [...prev, approved]);
       setPendingAll(prev => prev.filter(r => r.id !== row.id));
     } catch (e) { alert("שגיאה: " + e.message); }
@@ -2418,7 +2418,7 @@ function ApprovalsPage() {
     if (!confirm(`לאשר את כל ${pendingAll.length} העסקאות הממתינות?`)) return;
     for (const row of pendingAll) {
       try {
-        const approved = await approvePending(row);
+        const approved = await approvePending(row.id, row);
         setIncome(prev => [...prev, approved]);
       } catch (e) { console.error("Failed to approve:", row.id, e); }
     }
