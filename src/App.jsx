@@ -1263,13 +1263,13 @@ function RecordIncomeAdmin({ onClose }) {
       <div><label style={labelStyle}>צ'אטר *</label>
         <select value={form.chatterName} onChange={e => upd("chatterName", e.target.value)} style={inputStyle}>
           <option value="">בחר צ'אטר...</option>
-          {chatters.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+          {chatters.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
       <div><label style={labelStyle}>דוגמנית *</label>
         <select value={form.modelName} onChange={e => upd("modelName", e.target.value)} style={inputStyle}>
           <option value="">בחר דוגמנית...</option>
-          {clients.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
+          {clients.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
       </div>
     </div>
