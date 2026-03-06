@@ -1351,30 +1351,33 @@ function RecordIncomeAdmin({ onClose }) {
 
     <div style={{ marginTop: 20, paddingTop: 10, borderTop: `1px solid ${C.bdr}`, textAlign: "center" }}>
       <Btn variant="warning" size="sm" onClick={async () => {
-        if (!confirm("האם אתה בטוח שברצונך לעדכן את כל עסקאות 'אונליפאנס' ו-'אולני' ל-'אונלי'? פעולה זו בלתי הפיכה.")) return;
+        if (!confirm("האם אתה בטוח שברצונך לעדכן את כל עסקאות 'אונליפאנס/אולני' ל-'אונלי' ו-'טלגקם' ל-'טלגרם'? פעולה זו בלתי הפיכה.")) return;
         try {
           let count = 0;
-          const incSnap = await getDocs(collection(db, "income"));
-          for (const d of incSnap.docs) {
-            const data = d.data();
-            if (data.platform === "אונליפאנס" || data.platform === "אולני") {
-              await updateDoc(doc(db, "income", d.id), { platform: "אונלי" });
-              count++;
+
+          const processDocs = async (collectionName) => {
+            const snap = await getDocs(collection(db, collectionName));
+            for (const d of snap.docs) {
+              const data = d.data();
+              const p = data.platform;
+              if (p === "אונליפאנס" || p === "אולני") {
+                await updateDoc(doc(db, collectionName, d.id), { platform: "אונלי" });
+                count++;
+              } else if (p === "טלגקם") {
+                await updateDoc(doc(db, collectionName, d.id), { platform: "טלגרם" });
+                count++;
+              }
             }
-          }
-          const penSnap = await getDocs(collection(db, "pendingIncome"));
-          for (const d of penSnap.docs) {
-            const data = d.data();
-            if (data.platform === "אונליפאנס" || data.platform === "אולני") {
-              await updateDoc(doc(db, "pendingIncome", d.id), { platform: "אונלי" });
-              count++;
-            }
-          }
+          };
+
+          await processDocs("income");
+          await processDocs("pendingIncome");
+
           alert(`בוצע בהצלחה! תוקנו ${count} רשומות.`);
         } catch (e) {
           alert("שגיאה בהגירה: " + e.message);
         }
-      }}>🛠️ מיגרציית חירום - תיקון פלטפורמות אונלי</Btn>
+      }}>🛠️ מיגרציית חירום - תיקון פלטפורמות אונלי וטלגרם</Btn>
     </div>
   </div>;
 }
