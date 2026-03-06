@@ -2437,6 +2437,7 @@ function ApprovalsPage() {
     ) : (
       <DT columns={[
         { label: "תאריך", render: r => fmtD(r.date) },
+        { label: "סוג הכנסה", key: "incomeType" },
         { label: "צ'אטר", key: "chatterName" },
         { label: "לקוחה", key: "modelName" },
         { label: "פלטפורמה", key: "platform" },
@@ -2452,7 +2453,7 @@ function ApprovalsPage() {
             </div>
           )
         }
-      ]} rows={pendingAll} footer={["סה״כ", "", "", "", fmtC(pendingAll.reduce((s, r) => s + r.amountILS, 0)), "", ""]} />
+      ]} rows={pendingAll} footer={["סה״כ", "", "", "", "", fmtC(pendingAll.reduce((s, r) => s + r.amountILS, 0)), "", ""]} />
     )}
   </div>;
 }
