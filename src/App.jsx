@@ -60,7 +60,13 @@ function parseDate(v) {
 function fmtD(d) { if (!d) return ""; return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`; }
 function fmtC(n) { if (n == null || isNaN(n)) return "₪0"; return `${n < 0 ? "-" : ""}₪${Math.abs(n).toLocaleString("he-IL", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`; }
 function fmtUSD(n) { if (!n || isNaN(n)) return "—"; return `$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`; }
-function renderDateHour(r) { let h = r.hour; if (h && h.includes("1899-") && h.includes("T")) { h = h.split("T")[1].substring(0, 5); } return <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {h ? <span style={{ fontSize: 11, color: C.mut }}>{h}</span> : ""}</span>; }
+function renderDateHour(r) {
+  let h = r.hour;
+  if (h && typeof h === "string" && h.includes("1899-") && h.includes("T")) {
+    h = h.split("T")[1].substring(0, 5);
+  }
+  return <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {h ? <span style={{ fontSize: 11, color: C.mut }}>{h}</span> : ""}</span>;
+}
 function ym(y, m) { return `${y}-${String(m + 1).padStart(2, "0")}`; }
 function useWin() { const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1200); useEffect(() => { const h = () => setW(window.innerWidth); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, []); return w; }
 
