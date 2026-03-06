@@ -69,6 +69,15 @@ export async function saveAllIncome(records, onProgress) {
     return records;
 }
 
+export async function addIncome(record) {
+    const cleanRecord = { ...record };
+    if (cleanRecord.date instanceof Date) {
+        cleanRecord.date = cleanRecord.date.toISOString();
+    }
+    const docRef = await addDoc(collection(db, "income"), cleanRecord);
+    return { id: docRef.id, ...cleanRecord, date: record.date };
+}
+
 export async function clearAllIncome() {
     const querySnapshot = await getDocs(collection(db, "income"));
     const batch = writeBatch(db);

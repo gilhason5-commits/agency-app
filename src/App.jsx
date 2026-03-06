@@ -305,6 +305,11 @@ const IncSvc = {
       return [];
     }
   },
+  // Add income directly (Admin manual entry)
+  async addDirect(incRow) {
+    const saved = await addIncome(incRow);
+    return saved;
+  },
   // One-time migration: import from Sheets → Firebase
   async migrateFromSheets(onProgress) {
     const rows = await API.read("הכנסות ארכיון");
@@ -1122,6 +1127,7 @@ function IncPage() {
   const { iM, iY, chatters, clients, platforms } = useFD();
   const incTypes = useMemo(() => [...new Set((view === "monthly" ? iM : iY).map(r => r.incomeType).filter(Boolean))].sort(), [iM, iY, view]);
   const [fP, setFP] = useState("all"), [fC, setFC] = useState("all"), [fCh, setFCh] = useState("all"), [fL, setFL] = useState("all"), [fT, setFT] = useState("all"), [xAxis, setXAxis] = useState("date");
+  const [showIncForm, setShowIncForm] = useState(false);
   const data = (view === "monthly" ? iM : iY).filter(r => (fP === "all" || r.platform === fP) && (fC === "all" || r.modelName === fC) && (fCh === "all" || r.chatterName === fCh) && (fL === "all" || r.shiftLocation === fL) && (fT === "all" || r.incomeType === fT));
   const totalILS = data.reduce((s, r) => s + (r.rawILS || 0), 0);
   const totalUSD = data.reduce((s, r) => s + (r.amountUSD || 0), 0);
@@ -1155,8 +1161,11 @@ function IncPage() {
     const map = {}; data.forEach(r => { const k = xAxis === "chatter" ? r.chatterName : xAxis === "client" ? r.modelName : xAxis === "type" ? r.incomeType : r.platform; map[k] = (map[k] || 0) + r.amountILS; }); return Object.entries(map).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ name: k, value: v }));
   }, [data, view, xAxis, liveRate]);
 
-  return <div style={{ direction: "rtl" }}>
-    <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>💰 פירוט הכנסות</h2>
+  return <div style={{ direction: "rtl", position: "relative" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, margin: 0 }}>💰 פירוט הכנסות</h2>
+      <Btn variant="success" size="sm" onClick={() => setShowIncForm(true)}>+ הוסף הכנסה ידנית</Btn>
+    </div>
     <FB><Sel label="תצוגה:" value={view} onChange={setView} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />{view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}</FB>
     <FB><Sel label="פלטפורמה:" value={fP} onChange={setFP} options={[{ value: "all", label: "הכל" }, ...platforms.map(p => ({ value: p, label: p }))]} /><Sel label="סוג הכנסה:" value={fT} onChange={setFT} options={[{ value: "all", label: "הכל" }, ...incTypes.map(t => ({ value: t, label: t }))]} /><Sel label="לקוחה:" value={fC} onChange={setFC} options={[{ value: "all", label: "הכל" }, ...clients.map(c => ({ value: c, label: c }))]} /><Sel label="צ'אטר:" value={fCh} onChange={setFCh} options={[{ value: "all", label: "הכל" }, ...chatters.map(c => ({ value: c, label: c }))]} /><Sel label="מיקום:" value={fL} onChange={setFL} options={[{ value: "all", label: "הכל" }, { value: "משרד", label: "משרד" }, { value: "חוץ", label: "חוץ" }]} /></FB>
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
@@ -1169,6 +1178,138 @@ function IncPage() {
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
     {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✅" : "☐"}</Btn> }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(totalILS), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+
+    {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד הכנסה ידני" width={500}>
+      <RecordIncomeAdmin onClose={() => setShowIncForm(false)} />
+    </Modal>}
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════
+// RECORD INCOME ADMIN FORM (Bypasses approvals)
+// ═══════════════════════════════════════════════════════
+function RecordIncomeAdmin({ onClose }) {
+  const { setIncome, models, chatters, liveRate } = useApp();
+  const [form, setForm] = useState({
+    chatterName: "",
+    modelName: "",
+    platform: "",
+    incomeType: "",
+    customIncomeType: "",
+    amountUSD: "",
+    shiftLocation: "משרד",
+    date: new Date().toISOString().split("T")[0],
+    hour: new Date().toTimeString().slice(0, 5)
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const platforms = useMemo(() => PLATFORMS, []);
+  const locations = useMemo(() => SHIFT_LOCATIONS, []);
+  const commonIncomeTypes = useMemo(() => ["הכנסה רגילה", "מכירת תוכן", "טיפ", "מנוי", "אחר"], []);
+
+  const save = async () => {
+    if (!form.chatterName || !form.modelName || !form.platform || (!form.incomeType && !form.customIncomeType) || !form.amountUSD) {
+      return setErr("אנא מלא את כל שדות החובה");
+    }
+    setSaving(true);
+    setErr("");
+
+    try {
+      const typeStr = form.incomeType === "אחר" ? form.customIncomeType : form.incomeType;
+      const amtUsd = parseFloat(form.amountUSD) || 0;
+      const amtIlsX = amtUsd * liveRate;
+
+      const newInc = {
+        date: new Date(form.date).toISOString(),
+        hour: form.hour,
+        chatterName: form.chatterName,
+        modelName: form.modelName,
+        platform: form.platform,
+        incomeType: typeStr,
+        shiftLocation: form.shiftLocation,
+        amountUSD: amtUsd,
+        amountILS: Math.round(amtIlsX),
+        originalAmount: Math.round(amtIlsX),
+        rawILS: Math.round(amtIlsX),
+        paidToClient: false,
+        cancelled: false,
+        source: "ידני ממשק מנהל",
+        submittedAt: new Date().toISOString(),
+      };
+
+      // Since firebase.js might not expose "addIncome", we'll use approvePending trick, or just direct Firestore.
+      // Wait, let's look at firebase.js. Actually we can just use the writeBatch here or let me check if addIncome exists
+      // I'll call a helper here
+      const res = await IncSvc.addDirect(newInc);
+
+      setIncome(prev => [res, ...prev]);
+      onClose();
+    } catch (e) {
+      setErr("שגיאה בשמירה: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputStyle = { width: "100%", padding: "10px 12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 12 };
+  const labelStyle = { color: C.dim, fontSize: 13, display: "block", marginBottom: 6, fontWeight: 500 };
+
+  return <div>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
+      <div><label style={labelStyle}>צ'אטר *</label>
+        <select value={form.chatterName} onChange={e => upd("chatterName", e.target.value)} style={inputStyle}>
+          <option value="">בחר צ'אטר...</option>
+          {chatters.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+        </select>
+      </div>
+      <div><label style={labelStyle}>דוגמנית *</label>
+        <select value={form.modelName} onChange={e => upd("modelName", e.target.value)} style={inputStyle}>
+          <option value="">בחר דוגמנית...</option>
+          {models.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+        </select>
+      </div>
+    </div>
+
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
+      <div><label style={labelStyle}>פלטפורמה *</label>
+        <select value={form.platform} onChange={e => upd("platform", e.target.value)} style={inputStyle}>
+          <option value="">בחר פלטפורמה...</option>
+          {platforms.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+      </div>
+      <div><label style={labelStyle}>מיקום המשמרת *</label>
+        <select value={form.shiftLocation} onChange={e => upd("shiftLocation", e.target.value)} style={inputStyle}>
+          {locations.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+      </div>
+    </div>
+
+    <div><label style={labelStyle}>סוג הכנסה *</label>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        {commonIncomeTypes.map(t => (
+          <button key={t} onClick={() => upd("incomeType", t)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${form.incomeType === t ? C.pri : C.bdr}`, background: form.incomeType === t ? C.pri : C.card, color: form.incomeType === t ? "#fff" : C.txt, cursor: "pointer", fontSize: 13, flex: 1 }}>{t}</button>
+        ))}
+      </div>
+      {form.incomeType === "אחר" && <input value={form.customIncomeType} onChange={e => upd("customIncomeType", e.target.value)} placeholder="הזן סוג הכנסה..." style={inputStyle} />}
+    </div>
+
+    <div><label style={labelStyle}>סכום עמלה נטו ($) - לאחר ניכוי אתר *</label>
+      <input type="number" value={form.amountUSD} onChange={e => upd("amountUSD", e.target.value)} placeholder="לדוגמה: 12.50" style={{ ...inputStyle, directon: "ltr" }} />
+    </div>
+
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
+      <div><label style={labelStyle}>תאריך</label><input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} /></div>
+      <div><label style={labelStyle}>שעה</label><input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={inputStyle} /></div>
+    </div>
+
+    {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 12 }}>{err}</div>}
+
+    <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+      <Btn variant="success" size="lg" style={{ flex: 1 }} onClick={save} disabled={saving}>{saving ? "⏳ שומר..." : "💾 שמור הכנסה"}</Btn>
+    </div>
   </div>;
 }
 
