@@ -1188,6 +1188,10 @@ function IncPage() {
 // ═══════════════════════════════════════════════════════
 // RECORD INCOME ADMIN FORM (Bypasses approvals)
 // ═══════════════════════════════════════════════════════
+
+import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import { db } from "./firebase.js";
+
 function RecordIncomeAdmin({ onClose }) {
   const { setIncome, liveRate, income } = useApp();
   const { chatters, clients } = useFD();
@@ -1289,8 +1293,7 @@ function RecordIncomeAdmin({ onClose }) {
       <div>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>פלטפורמה</label>
         <select value={form.platform} onChange={e => upd("platform", e.target.value)} style={inputStyle}>
-          <option value="">בחר...</option>
-          {["טלגרם", "אונליפאנס"].map(p => <option key={p} value={p}>{p}</option>)}
+          {["טלגרם", "אונלי"].map(p => <option key={p} value={p}>{p}</option>)}
         </select>
       </div>
       <div>
@@ -1345,6 +1348,34 @@ function RecordIncomeAdmin({ onClose }) {
     <Btn onClick={save} variant="success" size="lg" style={{ width: "100%", marginTop: 14 }} disabled={saving}>
       {saving ? "⏳ שומר..." : "💾 שמור הכנסה"}
     </Btn>
+
+    <div style={{ marginTop: 20, paddingTop: 10, borderTop: `1px solid ${C.bdr}`, textAlign: "center" }}>
+      <Btn variant="warning" size="sm" onClick={async () => {
+        if (!confirm("האם אתה בטוח שברצונך לעדכן את כל עסקאות 'אונליפאנס' ו-'אולני' ל-'אונלי'? פעולה זו בלתי הפיכה.")) return;
+        try {
+          let count = 0;
+          const incSnap = await getDocs(collection(db, "income"));
+          for (const d of incSnap.docs) {
+            const data = d.data();
+            if (data.platform === "אונליפאנס" || data.platform === "אולני") {
+              await updateDoc(doc(db, "income", d.id), { platform: "אונלי" });
+              count++;
+            }
+          }
+          const penSnap = await getDocs(collection(db, "pendingIncome"));
+          for (const d of penSnap.docs) {
+            const data = d.data();
+            if (data.platform === "אונליפאנס" || data.platform === "אולני") {
+              await updateDoc(doc(db, "pendingIncome", d.id), { platform: "אונלי" });
+              count++;
+            }
+          }
+          alert(`בוצע בהצלחה! תוקנו ${count} רשומות.`);
+        } catch (e) {
+          alert("שגיאה בהגירה: " + e.message);
+        }
+      }}>🛠️ מיגרציית חירום - תיקון פלטפורמות אונלי</Btn>
+    </div>
   </div>;
 }
 
@@ -2461,7 +2492,7 @@ function ChatterPortal() {
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>פלטפורמה</label>
             <select value={form.platform} onChange={e => upd("platform", e.target.value)} style={inputStyle}>
               <option value="">בחר...</option>
-              {["טלגרם", "אונליפאנס"].map(p => <option key={p} value={p}>{p}</option>)}
+              {["טלגרם", "אונלי"].map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
           <div>
