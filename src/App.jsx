@@ -1189,16 +1189,18 @@ function IncPage() {
 // RECORD INCOME ADMIN FORM (Bypasses approvals)
 // ═══════════════════════════════════════════════════════
 function RecordIncomeAdmin({ onClose }) {
-  const { setIncome, liveRate } = useApp();
-  const { chatters, clients, platforms } = useFD();
+  const { setIncome, liveRate, income } = useApp();
+  const { chatters, clients } = useFD();
   const [form, setForm] = useState({
     chatterName: "",
     modelName: "",
     platform: "",
     incomeType: "",
     customIncomeType: "",
+    amountILS: "",
     amountUSD: "",
     shiftLocation: "משרד",
+    notes: "",
     date: new Date().toISOString().split("T")[0],
     hour: new Date().toTimeString().slice(0, 5)
   });
@@ -1207,42 +1209,53 @@ function RecordIncomeAdmin({ onClose }) {
 
   const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const locations = useMemo(() => ["משרד", "חוץ"], []);
-  const commonIncomeTypes = useMemo(() => ["הכנסה רגילה", "מכירת תוכן", "טיפ", "מנוי", "אחר"], []);
+  // Replicate incomeTypes logic from ChatterPortal
+  const incomeTypes = useMemo(() => {
+    const fromData = income.map(r => r.incomeType).filter(Boolean);
+    const defaults = ["תוכן", "שיחה", "סקסטינג", "ביט", "העברה בנקאית", "פייבוקס", "וולט"];
+    return [...new Set([...defaults, ...fromData])].filter(t => !/[a-zA-Z]/.test(t)).sort();
+  }, [income]);
 
   const save = async () => {
-    if (!form.chatterName || !form.modelName || !form.platform || (!form.incomeType && !form.customIncomeType) || !form.amountUSD) {
-      return setErr("אנא מלא את כל שדות החובה");
+    if (!form.chatterName || !form.modelName || (!form.amountILS && !form.amountUSD)) {
+      setErr("נא למלא צ'אטר, לקוחה וסכום");
+      return;
     }
     setSaving(true);
     setErr("");
 
     try {
-      const typeStr = form.incomeType === "אחר" ? form.customIncomeType : form.incomeType;
-      const amtUsd = parseFloat(form.amountUSD) || 0;
-      const amtIlsX = amtUsd * liveRate;
+      const typeStr = form.incomeType === "__other__" ? form.customIncomeType : form.incomeType;
+
+      const rate = liveRate || 3.08;
+      const inputILS = +form.amountILS || 0;
+      const inputUSD = +form.amountUSD || 0;
+      const combinedILS = inputILS + Math.round(inputUSD * rate);
 
       const newInc = {
         date: new Date(form.date).toISOString(),
         hour: form.hour,
         chatterName: form.chatterName,
         modelName: form.modelName,
+        clientName: "",
+        usdRate: rate,
         platform: form.platform,
         incomeType: typeStr,
         shiftLocation: form.shiftLocation,
-        amountUSD: amtUsd,
-        amountILS: Math.round(amtIlsX),
-        originalAmount: Math.round(amtIlsX),
-        rawILS: Math.round(amtIlsX),
+        amountUSD: inputUSD,
+        amountILS: combinedILS,
+        originalAmount: combinedILS,
+        rawILS: inputILS,
+        originalRawILS: inputILS,
+        originalRawUSD: inputUSD,
+        notes: form.notes,
+        verified: "V", // Already verified if Admin adds it
         paidToClient: false,
         cancelled: false,
         source: "ידני ממשק מנהל",
         submittedAt: new Date().toISOString(),
       };
 
-      // Since firebase.js might not expose "addIncome", we'll use approvePending trick, or just direct Firestore.
-      // Wait, let's look at firebase.js. Actually we can just use the writeBatch here or let me check if addIncome exists
-      // I'll call a helper here
       const res = await IncSvc.addDirect(newInc);
 
       setIncome(prev => [res, ...prev]);
@@ -1254,62 +1267,84 @@ function RecordIncomeAdmin({ onClose }) {
     }
   };
 
-  const inputStyle = { width: "100%", padding: "10px 12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 12 };
-  const labelStyle = { color: C.dim, fontSize: 13, display: "block", marginBottom: 6, fontWeight: 500 };
+  const inputStyle = { width: "100%", padding: "10px 12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 10, color: C.txt, fontSize: 14, outline: "none", boxSizing: "border-box" };
 
   return <div>
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
-      <div><label style={labelStyle}>צ'אטר *</label>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>צ'אטר *</label>
         <select value={form.chatterName} onChange={e => upd("chatterName", e.target.value)} style={inputStyle}>
           <option value="">בחר צ'אטר...</option>
           {(chatters || []).map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
-      <div><label style={labelStyle}>דוגמנית *</label>
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>לקוחה *</label>
         <select value={form.modelName} onChange={e => upd("modelName", e.target.value)} style={inputStyle}>
-          <option value="">בחר דוגמנית...</option>
+          <option value="">בחר לקוחה...</option>
           {(clients || []).map(m => <option key={m} value={m}>{m}</option>)}
         </select>
       </div>
-    </div>
 
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
-      <div><label style={labelStyle}>פלטפורמה *</label>
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>פלטפורמה</label>
         <select value={form.platform} onChange={e => upd("platform", e.target.value)} style={inputStyle}>
-          <option value="">בחר פלטפורמה...</option>
-          {(platforms || []).map(p => <option key={p} value={p}>{p}</option>)}
+          <option value="">בחר...</option>
+          {["טלגרם", "אונליפאנס"].map(p => <option key={p} value={p}>{p}</option>)}
         </select>
       </div>
-      <div><label style={labelStyle}>מיקום המשמרת *</label>
-        <select value={form.shiftLocation} onChange={e => upd("shiftLocation", e.target.value)} style={inputStyle}>
-          {locations.map(p => <option key={p} value={p}>{p}</option>)}
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סוג הכנסה</label>
+        <select value={form.incomeType} onChange={e => upd("incomeType", e.target.value)} style={inputStyle}>
+          <option value="">בחר...</option>
+          {incomeTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          <option value="__other__">אחר (רשום ידנית)</option>
         </select>
+        {form.incomeType === "__other__" && <input type="text" value={form.customIncomeType} onChange={e => upd("customIncomeType", e.target.value)} placeholder="רשום סוג הכנסה..." style={{ ...inputStyle, marginTop: 6 }} />}
+      </div>
+
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סכום (₪)</label>
+        <input type="number" value={form.amountILS} onChange={e => upd("amountILS", e.target.value)} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
+      </div>
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סכום ($)</label>
+        <input type="number" value={form.amountUSD} onChange={e => upd("amountUSD", e.target.value)} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
+      </div>
+
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
+        <input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} />
+      </div>
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
+        <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={inputStyle} />
+      </div>
+
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>מיקום</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          {["משרד", "חוץ"].map(loc => (
+            <button key={loc} onClick={() => upd("shiftLocation", loc)} style={{
+              flex: 1, padding: "10px", borderRadius: 8, fontSize: 14, fontWeight: 600,
+              cursor: "pointer", background: form.shiftLocation === loc ? C.pri : C.card,
+              color: form.shiftLocation === loc ? "#fff" : C.dim,
+              border: `2px solid ${form.shiftLocation === loc ? C.pri : C.bdr}`, transition: "all .15s"
+            }}>{loc}</button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>הערות</label>
+        <input value={form.notes} onChange={e => upd("notes", e.target.value)} placeholder="אופציונלי" style={inputStyle} />
       </div>
     </div>
 
-    <div><label style={labelStyle}>סוג הכנסה *</label>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-        {commonIncomeTypes.map(t => (
-          <button key={t} onClick={() => upd("incomeType", t)} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${form.incomeType === t ? C.pri : C.bdr}`, background: form.incomeType === t ? C.pri : C.card, color: form.incomeType === t ? "#fff" : C.txt, cursor: "pointer", fontSize: 13, flex: 1 }}>{t}</button>
-        ))}
-      </div>
-      {form.incomeType === "אחר" && <input value={form.customIncomeType} onChange={e => upd("customIncomeType", e.target.value)} placeholder="הזן סוג הכנסה..." style={inputStyle} />}
-    </div>
+    {err && <div style={{ color: C.red, fontSize: 12, marginTop: 8 }}>{err}</div>}
 
-    <div><label style={labelStyle}>סכום עמלה נטו ($) - לאחר ניכוי אתר *</label>
-      <input type="number" value={form.amountUSD} onChange={e => upd("amountUSD", e.target.value)} placeholder="לדוגמה: 12.50" style={{ ...inputStyle, directon: "ltr" }} />
-    </div>
-
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 12px" }}>
-      <div><label style={labelStyle}>תאריך</label><input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} /></div>
-      <div><label style={labelStyle}>שעה</label><input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={inputStyle} /></div>
-    </div>
-
-    {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 12 }}>{err}</div>}
-
-    <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-      <Btn variant="success" size="lg" style={{ flex: 1 }} onClick={save} disabled={saving}>{saving ? "⏳ שומר..." : "💾 שמור הכנסה"}</Btn>
-    </div>
+    <Btn onClick={save} variant="success" size="lg" style={{ width: "100%", marginTop: 14 }} disabled={saving}>
+      {saving ? "⏳ שומר..." : "💾 שמור הכנסה"}
+    </Btn>
   </div>;
 }
 
