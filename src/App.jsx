@@ -2333,8 +2333,8 @@ function ChatterPortal() {
       .sort((a, b) => (b.date || 0) - (a.date || 0)),
     [income, chatterName, year, month]);
 
-  const approved = myIncome.filter(r => r.verified === "V");
-  const pending = myIncome.filter(r => r.verified !== "V");
+  const approved = myIncome.filter(r => isVerified(r.verified));
+  const pending = myIncome.filter(r => !isVerified(r.verified));
   const totalApproved = approved.reduce((s, r) => s + r.amountILS, 0);
   const totalPending = pending.reduce((s, r) => s + r.amountILS, 0);
 
@@ -2587,30 +2587,38 @@ function ChatterPortal() {
 // ═══════════════════════════════════════════════════════
 // APPROVALS PAGE (ADMIN)
 // ═══════════════════════════════════════════════════════
+function isVerified(v) { return v === "V" || v === "מאומת"; }
+
 function ApprovalsPage() {
   const { setIncome, demo } = useApp();
   const [approving, setApproving] = useState(null);
-  const [pendingAll, setPendingAll] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 50;
 
-  // Load pending transactions from Firebase
-  const loadPending = async () => {
-    setLoading(true);
-    try {
-      const p = await fetchPending();
-      setPendingAll(p.sort((a, b) => (b.date || 0) - (a.date || 0)));
-    } catch (e) { console.error("Failed to load pending:", e); }
-    setLoading(false);
-  };
-  useEffect(() => { loadPending(); }, []);
+  const pendingAll = useMemo(() =>
+    income.filter(r => !isVerified(r.verified) && r.chatterName).sort((a, b) => {
+      const da = a.date instanceof Date ? a.date.getTime() : 0;
+      const db = b.date instanceof Date ? b.date.getTime() : 0;
+      return db - da;
+    }),
+    [income]);
+
+  const pageCount = Math.max(1, Math.ceil(pendingAll.length / PAGE_SIZE));
+  const visibleRows = pendingAll.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const approve = async (row) => {
     setApproving(row.id);
     try {
-      const approved = await approvePending(row.id, row);
-      setIncome(prev => [...prev, approved]);
-      setPendingAll(prev => prev.filter(r => r.id !== row.id));
-    } catch (e) { alert("שגיאה: " + e.message); }
+      if (!demo && row._rowIndex > 0) {
+        const rowData = Array(16).fill(null);
+        rowData[12] = "V";
+        await API.update("sales_report", row._rowIndex, rowData);
+      }
+      setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
+    } catch (e) {
+      console.error("Approve error:", e);
+      setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
+    }
     setApproving(null);
   };
 
@@ -2618,30 +2626,27 @@ function ApprovalsPage() {
     if (!confirm(`לדחות עסקה של ${row.chatterName}?\n${row.modelName} — ${fmtC(row.amountILS)}`)) return;
     setApproving(row.id);
     try {
-      await removePending(row.id);
-      setPendingAll(prev => prev.filter(r => r.id !== row.id));
-    } catch (e) { alert("שגיאה: " + e.message); }
+      if (!demo && row._rowIndex > 0) {
+        await API.deleteRow("sales_report", row._rowIndex);
+      }
+      setIncome(prev => prev.filter(r => r.id !== row.id));
+    } catch (e) {
+      console.error("Reject error:", e);
+      setIncome(prev => prev.filter(r => r.id !== row.id));
+    }
     setApproving(null);
   };
 
   const approveAll = async () => {
     if (!confirm(`לאשר את כל ${pendingAll.length} העסקאות הממתינות?`)) return;
-    for (const row of pendingAll) {
-      try {
-        const approved = await approvePending(row.id, row);
-        setIncome(prev => [...prev, approved]);
-      } catch (e) { console.error("Failed to approve:", row.id, e); }
-    }
-    setPendingAll([]);
+    const ids = new Set(pendingAll.map(p => p.id));
+    setIncome(prev => prev.map(r => ids.has(r.id) ? { ...r, verified: "V" } : r));
   };
-
-  if (loading) return <div style={{ direction: "rtl", textAlign: "center", padding: 40 }}><div style={{ color: C.pri }}>⏳ טוען עסקאות ממתינות...</div></div>;
 
   return <div style={{ direction: "rtl" }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 800, margin: 0 }}>✅ אישור עסקאות</h2>
       <div style={{ display: "flex", gap: 8 }}>
-        <Btn variant="ghost" size="sm" onClick={loadPending}>🔄 רענן</Btn>
         {pendingAll.length > 0 && <Btn variant="success" onClick={approveAll}>✅ אשר הכל ({pendingAll.length})</Btn>}
       </div>
     </div>
@@ -2651,11 +2656,9 @@ function ApprovalsPage() {
         <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
         <div style={{ color: C.grn, fontSize: 16, fontWeight: 700 }}>אין עסקאות ממתינות לאישור</div>
       </Card>
-    ) : (() => {
-      const pendingMapped = pendingAll.map(r => applyCommission(r, liveRate));
-      return <DT columns={[
-        { label: "תאריך", render: renderDateHour },
-        { label: "סוג הכנסה", key: "incomeType" },
+    ) : (<>
+      <DT columns={[
+        { label: "תאריך", render: r => { try { return fmtD(r.date); } catch { return "—"; } } },
         { label: "צ'אטר", key: "chatterName" },
         { label: "לקוחה", key: "modelName" },
         { label: "פלטפורמה", key: "platform" },
@@ -2674,8 +2677,13 @@ function ApprovalsPage() {
             </div>
           )
         }
-      ]} rows={pendingMapped} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(pendingMapped.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(pendingMapped.reduce((s, r) => s + r.amountILS, 0)), ""]} />;
-    })()}
+      ]} rows={visibleRows} footer={["סה״כ", "", "", "", fmtC(pendingAll.reduce((s, r) => s + r.amountILS, 0)), "", ""]} />
+      {pageCount > 1 && <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 16, alignItems: "center" }}>
+        <Btn size="sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}>→ הקודם</Btn>
+        <span style={{ color: C.dim, fontSize: 13 }}>עמוד {page + 1} מתוך {pageCount} ({pendingAll.length} עסקאות)</span>
+        <Btn size="sm" onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))} disabled={page >= pageCount - 1}>הבא ←</Btn>
+      </div>}
+    </>)}
   </div>;
 }
 
