@@ -2671,7 +2671,7 @@ function ChatterPortal() {
 function isVerified(v) { return v === "V" || v === "מאומת"; }
 
 function ApprovalsPage() {
-  const { income, setIncome, demo } = useApp();
+  const { income, setIncome, demo, liveRate } = useApp();
   const [approving, setApproving] = useState(null);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
@@ -2681,8 +2681,8 @@ function ApprovalsPage() {
       const da = a.date instanceof Date ? a.date.getTime() : 0;
       const db = b.date instanceof Date ? b.date.getTime() : 0;
       return db - da;
-    }),
-    [income]);
+    }).map(r => applyCommission(r, liveRate)),
+    [income, liveRate]);
 
   const pageCount = Math.max(1, Math.ceil(pendingAll.length / PAGE_SIZE));
   const visibleRows = pendingAll.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
