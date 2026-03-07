@@ -852,6 +852,10 @@ function useFD() {
     return income.map(r => {
       const rate = parseFloat(r.usdRate) > 0 ? parseFloat(r.usdRate) : liveRate;
       const baseILS = r.rawILS !== undefined ? r.rawILS : (r.originalRawILS || 0);
+      // Preserve stored amountILS for records that already have commission calculated
+      if (r.commissionPct > 0 && r.preCommissionILS != null) {
+        return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : r.amountILS };
+      }
       const computedILS = baseILS + ((r.amountUSD || 0) > 0 ? Math.round(r.amountUSD * rate) : 0);
       return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : computedILS };
     });
@@ -1194,6 +1198,7 @@ function IncPage() {
   const [fP, setFP] = useState("all"), [fC, setFC] = useState("all"), [fCh, setFCh] = useState("all"), [fL, setFL] = useState("all"), [fT, setFT] = useState("all"), [xAxis, setXAxis] = useState("date");
   const [showIncForm, setShowIncForm] = useState(false);
   const data = (view === "monthly" ? iM : iY).filter(r => (fP === "all" || r.platform === fP) && (fC === "all" || r.modelName === fC) && (fCh === "all" || r.chatterName === fCh) && (fL === "all" || r.shiftLocation === fL) && (fT === "all" || r.incomeType === fT));
+  const displayData = useMemo(() => data.map(r => applyCommission(r, liveRate)), [data, liveRate]);
   const totalILS = data.reduce((s, r) => s + (r.rawILS || 0), 0);
   const totalUSD = data.reduce((s, r) => s + (r.amountUSD || 0), 0);
   const usdInILS = Math.round(totalUSD * liveRate);
@@ -1242,7 +1247,7 @@ function IncPage() {
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✅" : "☐"}</Btn> }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(totalILS), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✅" : "☐"}</Btn> }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.commissionPct > 0 ? r.amountILS : r.originalAmount)}</span> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={displayData.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(totalILS), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
 
     {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד הכנסה ידני" width={500}>
       <RecordIncomeAdmin onClose={() => setShowIncForm(false)} />
