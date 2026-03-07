@@ -627,8 +627,11 @@ function Prov({ children }) {
       setLoadStep("טוען הכנסות מ-Firebase...");
       const inc = await IncSvc.fetchAll();
       console.log("Loaded income from Firebase:", inc.length, "records");
-      setIncome(inc);
-      setLoadStep(`נטענו ${inc.length} שורות הכנסה`);
+      const pending = await fetchPending();
+      console.log("Loaded pending from Firebase:", pending.length, "records");
+      const pendingMarked = pending.map(r => ({ ...r, _fromPending: true }));
+      setIncome([...inc, ...pendingMarked]);
+      setLoadStep(`נטענו ${inc.length} שורות הכנסה + ${pending.length} ממתינות`);
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
       try { const sets = await fetchSettlements(); console.log("Fetched settlements:", sets); setSettlements(sets); } catch (e) { console.error("Error fetching settlements:", e); }
       setConnected(true);
@@ -2396,6 +2399,7 @@ function ChatterPortal() {
         paidToClient: false, cancelled: false
       };
       const saved = await addPending(newInc);
+      setIncome(prev => [{ ...saved, _fromPending: true }, ...prev]);
       setSaving(false); setSaved(true);
       setTimeout(() => setSaved(false), 3000);
       setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "", incomeType: "", customIncomeType: "", currency: "ILS" }));
@@ -2535,7 +2539,7 @@ function ChatterPortal() {
           </div>
           <div>
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
-            <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={inputStyle} />
+            <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={{ ...inputStyle, direction: "ltr", textAlign: "left" }} />
           </div>
           <div>
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>מיקום</label>
@@ -2623,12 +2627,22 @@ function ApprovalsPage() {
   const approve = async (row) => {
     setApproving(row.id);
     try {
-      if (!demo && row._rowIndex > 0) {
-        const rowData = Array(16).fill(null);
-        rowData[12] = "V";
-        await API.update("sales_report", row._rowIndex, rowData);
+      if (!demo) {
+        if (row._fromPending) {
+          // Move from pendingIncome → income in Firebase
+          const approved = await approvePending(row.id, row);
+          setIncome(prev => prev.map(r => r.id === row.id ? { ...approved, _fromPending: false, verified: "V" } : r));
+        } else if (row._rowIndex > 0) {
+          const rowData = Array(16).fill(null);
+          rowData[12] = "V";
+          await API.update("sales_report", row._rowIndex, rowData);
+          setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
+        } else {
+          setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
+        }
+      } else {
+        setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
       }
-      setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
     } catch (e) {
       console.error("Approve error:", e);
       setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
@@ -2640,8 +2654,12 @@ function ApprovalsPage() {
     if (!confirm(`לדחות עסקה של ${row.chatterName}?\n${row.modelName} — ${fmtC(row.amountILS)}`)) return;
     setApproving(row.id);
     try {
-      if (!demo && row._rowIndex > 0) {
-        await API.deleteRow("sales_report", row._rowIndex);
+      if (!demo) {
+        if (row._fromPending) {
+          await removePending(row.id);
+        } else if (row._rowIndex > 0) {
+          await API.deleteRow("sales_report", row._rowIndex);
+        }
       }
       setIncome(prev => prev.filter(r => r.id !== row.id));
     } catch (e) {
@@ -2654,7 +2672,16 @@ function ApprovalsPage() {
   const approveAll = async () => {
     if (!confirm(`לאשר את כל ${pendingAll.length} העסקאות הממתינות?`)) return;
     const ids = new Set(pendingAll.map(p => p.id));
-    setIncome(prev => prev.map(r => ids.has(r.id) ? { ...r, verified: "V" } : r));
+    if (!demo) {
+      for (const row of pendingAll) {
+        try {
+          if (row._fromPending) {
+            await approvePending(row.id, row);
+          }
+        } catch (e) { console.error("Approve all error:", e); }
+      }
+    }
+    setIncome(prev => prev.map(r => ids.has(r.id) ? { ...r, _fromPending: false, verified: "V" } : r));
   };
 
   return <div style={{ direction: "rtl" }}>
