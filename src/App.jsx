@@ -2590,7 +2590,7 @@ function ChatterPortal() {
 function isVerified(v) { return v === "V" || v === "מאומת"; }
 
 function ApprovalsPage() {
-  const { setIncome, demo } = useApp();
+  const { income, setIncome, demo } = useApp();
   const [approving, setApproving] = useState(null);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
