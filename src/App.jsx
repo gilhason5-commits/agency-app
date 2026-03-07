@@ -2316,7 +2316,7 @@ function ChatterPortal() {
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState("");
   const [form, setForm] = useState({
-    modelName: "", platform: "", amountILS: "", amountUSD: "", usdRate: "3.08",
+    modelName: "", platform: "", amountILS: "", amountUSD: "", usdRate: "3.08", currency: "ILS",
     date: new Date().toISOString().split("T")[0],
     hour: new Date().toTimeString().substring(0, 5),
     shiftLocation: "משרד", notes: "", incomeType: "", customIncomeType: ""
@@ -2398,7 +2398,7 @@ function ChatterPortal() {
       const saved = await addPending(newInc);
       setSaving(false); setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-      setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "", incomeType: "", customIncomeType: "" }));
+      setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "", incomeType: "", customIncomeType: "", currency: "ILS" }));
     } catch (e) { setErr(e.message); setSaving(false); }
   };
 
@@ -2508,12 +2508,26 @@ function ChatterPortal() {
             {form.incomeType === "__other__" && <input type="text" value={form.customIncomeType} onChange={e => upd("customIncomeType", e.target.value)} placeholder="רשום סוג הכנסה..." style={{ ...inputStyle, marginTop: 6 }} />}
           </div>
           <div>
-            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סכום (₪)</label>
-            <input type="number" value={form.amountILS} onChange={e => upd("amountILS", e.target.value)} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
-          </div>
-          <div>
-            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סכום ($)</label>
-            <input type="number" value={form.amountUSD} onChange={e => upd("amountUSD", e.target.value)} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>מטבע וסכום</label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              {[{ key: "ILS", label: "₪ שקל" }, { key: "USD", label: "$ דולר" }].map(({ key, label }) => (
+                <button key={key} type="button" onClick={() => { upd("currency", key); upd("amountILS", ""); upd("amountUSD", ""); }} style={{
+                  flex: 1, padding: "10px", borderRadius: 8, fontSize: 14, fontWeight: 700,
+                  cursor: "pointer",
+                  background: form.currency === key ? C.grn : C.card,
+                  color: form.currency === key ? "#fff" : C.dim,
+                  border: `2px solid ${form.currency === key ? C.grn : C.bdr}`,
+                  transition: "all .15s"
+                }}>{label}</button>
+              ))}
+            </div>
+            <input
+              type="number"
+              value={form.currency === "ILS" ? form.amountILS : form.amountUSD}
+              onChange={e => form.currency === "ILS" ? upd("amountILS", e.target.value) : upd("amountUSD", e.target.value)}
+              placeholder="0"
+              style={{ ...inputStyle, direction: "ltr" }}
+            />
           </div>
           <div>
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
