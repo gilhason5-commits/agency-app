@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, createContext, useContext, useMemo, u
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Area } from "recharts";
 import {
   fetchAllIncome, addIncome, updateIncome, removeIncome, saveAllIncome, clearAllIncome,
-  fetchPending, addPending, removePending, approvePending,
+  fetchPending, addPending, updatePending, removePending, approvePending,
   fetchUsers, addUser, removeUser, findUser, saveAllUsers,
   fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses,
   fetchSettlements, addSettlement, removeSettlement
@@ -14,6 +14,60 @@ import {
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || "";
 const EXPENSES_URL = import.meta.env.VITE_EXPENSES_URL || "";
 const GROK_API_KEY_DEFAULT = import.meta.env.VITE_GROK_API_KEY || "";
+
+// Platform commission rates (%)
+const PLATFORM_COMMISSIONS = { "אונלי": 20 };
+// Income type commission rates (%)
+const INCOME_TYPE_COMMISSIONS = { "ווישלי": 8 };
+
+// Resolve commission % for a given platform + incomeType
+function resolveCommissionPct(platform, incomeType) {
+  return PLATFORM_COMMISSIONS[platform] || INCOME_TYPE_COMMISSIONS[incomeType] || 0;
+}
+
+// Compute commission fields when saving income.
+// Returns fields to spread onto the saved record.
+function computeCommissionFields(platform, incomeType, inputILS, inputUSD, rate) {
+  const pct = resolveCommissionPct(platform, incomeType);
+  const combinedILS = inputILS + Math.round(inputUSD * rate);
+  if (!pct) {
+    return {
+      commissionPct: 0,
+      preCommissionILS: combinedILS,
+      preCommissionUSD: inputUSD,
+      amountILS: combinedILS,
+      amountUSD: inputUSD,
+    };
+  }
+  const factor = 1 - pct / 100;
+  return {
+    commissionPct: pct,
+    preCommissionILS: combinedILS,
+    preCommissionUSD: inputUSD,
+    amountILS: Math.round(combinedILS * factor),
+    amountUSD: inputUSD > 0 ? Math.round(inputUSD * factor * 100) / 100 : 0,
+  };
+}
+
+// Apply platform/income-type commission to a record (for display in ClientPortal for legacy records)
+function applyCommission(r, rate) {
+  // If commission was already calculated and stored, use stored values
+  if (r.commissionPct > 0 && r.preCommissionILS != null) return r;
+  const pct = resolveCommissionPct(r.platform, r.incomeType);
+  if (!pct) return r;
+  const factor = 1 - pct / 100;
+  const preILS = r.originalAmount || r.amountILS;
+  const preUSD = r.originalRawUSD || r.amountUSD || 0;
+  return {
+    ...r,
+    commissionPct: pct,
+    preCommissionILS: preILS,
+    preCommissionUSD: preUSD,
+    amountILS: Math.round(preILS * factor),
+    amountUSD: preUSD > 0 ? Math.round(preUSD * factor * 100) / 100 : 0,
+    originalAmount: preILS,
+  };
+}
 
 const EXPENSE_CATEGORIES = [
   "עלות רו״ח", "חיובי בנק", "Directors Pay", "Financing Costs", "ביטוח", "אחר", "שכירות",
@@ -326,12 +380,20 @@ const IncSvc = {
   },
   async cancelTransaction(incRow) {
     const updated = { ...incRow, cancelled: true, amountILS: 0, amountUSD: 0 };
-    await updateIncome(incRow.id, { cancelled: true, amountILS: 0, amountUSD: 0 });
+    if (incRow._fromPending) {
+      await updatePending(incRow.id, { cancelled: true, amountILS: 0, amountUSD: 0 });
+    } else {
+      await updateIncome(incRow.id, { cancelled: true, amountILS: 0, amountUSD: 0 });
+    }
     return updated;
   },
   async uncancelTransaction(incRow) {
     const updated = { ...incRow, cancelled: false, amountILS: incRow.originalAmount };
-    await updateIncome(incRow.id, { cancelled: false, amountILS: incRow.originalAmount });
+    if (incRow._fromPending) {
+      await updatePending(incRow.id, { cancelled: false, amountILS: incRow.originalAmount });
+    } else {
+      await updateIncome(incRow.id, { cancelled: false, amountILS: incRow.originalAmount });
+    }
     return updated;
   }
 };
@@ -1237,7 +1299,7 @@ function RecordIncomeAdmin({ onClose }) {
       const rate = liveRate || 3.08;
       const inputILS = +form.amountILS || 0;
       const inputUSD = +form.amountUSD || 0;
-      const combinedILS = inputILS + Math.round(inputUSD * rate);
+      const commFields = computeCommissionFields(form.platform, typeStr, inputILS, inputUSD, rate);
 
       const newInc = {
         date: new Date(form.date).toISOString(),
@@ -1249,12 +1311,11 @@ function RecordIncomeAdmin({ onClose }) {
         platform: form.platform,
         incomeType: typeStr,
         shiftLocation: form.shiftLocation,
-        amountUSD: inputUSD,
-        amountILS: combinedILS,
-        originalAmount: combinedILS,
         rawILS: inputILS,
         originalRawILS: inputILS,
         originalRawUSD: inputUSD,
+        originalAmount: commFields.preCommissionILS,
+        ...commFields,
         notes: form.notes,
         verified: "V", // Already verified if Admin adds it
         paidToClient: false,
@@ -2384,16 +2445,18 @@ function ChatterPortal() {
     const rate = +form.usdRate || 3.08;
     const inputILS = +form.amountILS || 0;
     const inputUSD = +form.amountUSD || 0;
-    const combinedILS = inputILS + Math.round(inputUSD * rate);
-
     const finalIncomeType = form.incomeType === "__other__" ? form.customIncomeType : form.incomeType;
+    const commFields = computeCommissionFields(form.platform, finalIncomeType, inputILS, inputUSD, rate);
+
     try {
       // Save to Firebase pendingIncome (awaits admin approval)
       const newInc = {
         chatterName, modelName: form.modelName,
-        clientName: "", usdRate: rate, amountUSD: inputUSD,
-        amountILS: combinedILS, originalAmount: combinedILS, rawILS: inputILS,
-        originalRawILS: inputILS, originalRawUSD: inputUSD, incomeType: finalIncomeType,
+        clientName: "", usdRate: rate,
+        rawILS: inputILS, originalRawILS: inputILS, originalRawUSD: inputUSD,
+        incomeType: finalIncomeType,
+        originalAmount: commFields.preCommissionILS,
+        ...commFields,
         platform: form.platform, date: new Date(form.date), hour: form.hour,
         notes: form.notes, verified: "", shiftLocation: form.shiftLocation,
         paidToClient: false, cancelled: false
