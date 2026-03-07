@@ -97,6 +97,16 @@ export async function addPending(record) {
     return { id: docRef.id, ...cleanRecord, date: record.date };
 }
 
+export async function updatePending(id, updates) {
+    const docRef = doc(db, "pendingIncome", id);
+    const cleanUpdates = { ...updates };
+    if (cleanUpdates.date instanceof Date) {
+        cleanUpdates.date = cleanUpdates.date.toISOString();
+    }
+    await updateDoc(docRef, cleanUpdates);
+    return { id, ...updates };
+}
+
 export async function removePending(id) {
     await deleteDoc(doc(db, "pendingIncome", id));
 }
