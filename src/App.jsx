@@ -2700,8 +2700,10 @@ function ApprovalsPage() {
     ) : (<>
       <DT columns={[
         { label: "תאריך", render: r => { try { return fmtD(r.date); } catch { return "—"; } } },
+        { label: "שעה", render: r => r.hour || "—" },
         { label: "צ'אטר", key: "chatterName" },
         { label: "לקוחה", key: "modelName" },
+        { label: "סוג הכנסה", render: r => r.incomeType || "—" },
         { label: "פלטפורמה", key: "platform" },
         { label: "מיקום", key: "shiftLocation" },
         { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" },
