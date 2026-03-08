@@ -71,28 +71,30 @@ export async function saveAllIncome(records, onProgress) {
 
 
 
-// Retroactively apply 20% commission to all אונלי records that don't have it yet.
+// Retroactively apply platform commissions to all records that don't have it yet.
 // Returns the count of updated records.
+const PLATFORM_COMMISSIONS_MAP = { "אונלי": 20, "קארדקום": 13 };
 export async function migrateCommissions() {
-    const PCT = 20;
-    const factor = 1 - PCT / 100;
     const colNames = ["income", "pendingIncome"];
     let updated = 0;
     for (const colName of colNames) {
         const snapshot = await getDocs(collection(db, colName));
         const toUpdate = snapshot.docs.filter(d => {
             const r = d.data();
-            return r.platform === "אונלי" && !r.cancelled && !(r.commissionPct > 0 && r.preCommissionILS != null);
+            const pct = PLATFORM_COMMISSIONS_MAP[r.platform];
+            return pct && !r.cancelled && !(r.commissionPct > 0 && r.preCommissionILS != null);
         });
         for (let i = 0; i < toUpdate.length; i += 490) {
             const chunk = toUpdate.slice(i, i + 490);
             const batch = writeBatch(db);
             for (const docSnap of chunk) {
                 const r = docSnap.data();
+                const pct = PLATFORM_COMMISSIONS_MAP[r.platform];
+                const factor = 1 - pct / 100;
                 const preILS = r.amountILS || 0;
                 const preUSD = r.originalRawUSD || r.amountUSD || 0;
                 batch.update(docSnap.ref, {
-                    commissionPct: PCT,
+                    commissionPct: pct,
                     preCommissionILS: preILS,
                     preCommissionUSD: preUSD,
                     amountILS: Math.round(preILS * factor),
