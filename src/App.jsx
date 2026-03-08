@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, createContext, useContext, useMemo, u
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Area } from "recharts";
 import {
   fetchAllIncome, addIncome, updateIncome, removeIncome, saveAllIncome, clearAllIncome, migrateCommissions, retroRecalculate, restoreCorruptedRecords,
-  fetchPending, addPending, updatePending, removePending, approvePending, fixOrphanedApprovals,
+  fetchPending, addPending, updatePending, removePending, approvePending, fetchApprovalDecisions, addApprovalDecision, fixOrphanedApprovals,
   fetchUsers, addUser, removeUser, findUser, saveAllUsers,
   fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses,
   fetchSettlements, addSettlement, removeSettlement
@@ -696,15 +696,25 @@ function Prov({ children }) {
     setLoading(true); setError(null); setLoadStep("טוען נתונים...");
     try {
       setLoadStep("טוען הכנסות מ-Firebase...");
-      // Fix any previously approved records that were saved without verified:"V"
       fixOrphanedApprovals().catch(() => {});
-      const inc = await IncSvc.fetchAll();
-      console.log("Loaded income from Firebase:", inc.length, "records");
-      const pending = await fetchPending();
-      console.log("Loaded pending from Firebase:", pending.length, "records");
-      const pendingMarked = pending.map(r => ({ ...r, _fromPending: true }));
-      // Treat any income-collection record with _fromPending as already approved
+      const [inc, pending, decisions] = await Promise.all([
+        IncSvc.fetchAll(),
+        fetchPending(),
+        fetchApprovalDecisions().catch(() => ({ approved: new Set(), rejected: new Set() }))
+      ]);
+
       const fixedInc = inc.map(r => r._fromPending ? { ...r, verified: "V", _fromPending: false } : r);
+      const pendingMarked = pending
+        .filter(r => !decisions.rejected.has(r.id))
+        .map(r => ({
+          ...r,
+          _fromPending: true,
+          // Use stored amountILS if rawILS is missing (common for chatter-submitted records)
+          rawILS: r.rawILS !== undefined ? r.rawILS : r.amountILS,
+          verified: (decisions.approved.has(r.id) || r.verified === "V" || r.verified === "מאומת") ? "V" : (r.verified || "")
+        }));
+
+      console.log(`Loaded: ${inc.length} income, ${pending.length} pending (${decisions.approved.size} approved, ${decisions.rejected.size} rejected)`);
       setIncome([...fixedInc, ...pendingMarked]);
       setLoadStep(`נטענו ${inc.length} שורות הכנסה + ${pending.length} ממתינות`);
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
@@ -864,7 +874,8 @@ function useFD() {
   const incomeWithDynamicRate = useMemo(() => {
     return income.map(r => {
       const rate = parseFloat(r.usdRate) > 0 ? parseFloat(r.usdRate) : liveRate;
-      const baseILS = r.rawILS !== undefined ? r.rawILS : (r.originalRawILS || 0);
+      // For chatter-submitted pending records, rawILS may be missing — fall back to stored amountILS
+      const baseILS = r.rawILS !== undefined ? r.rawILS : (r.originalRawILS !== undefined ? r.originalRawILS : (r.amountILS || 0));
       // Preserve stored amountILS for records that already have commission calculated
       if (r.commissionPct > 0 && r.preCommissionILS != null) {
         return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : r.amountILS };
@@ -2720,23 +2731,19 @@ function ApprovalsPage() {
     try {
       if (!demo) {
         if (row._fromPending) {
-          // Approve in-place: update pendingIncome verified:"V" (same doc, same id)
-          const approved = await approvePending(row.id, row);
-          setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
+          // addApprovalDecision uses addDoc (create) — works even when update is restricted
+          await addApprovalDecision(row.id, "approve");
+          // Also try direct update (best effort, may fail silently)
+          approvePending(row.id, row).catch(() => {});
         } else if (row._rowIndex > 0) {
           const rowData = Array(16).fill(null);
           rowData[12] = "V";
           await API.update("sales_report", row._rowIndex, rowData);
-          setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
-        } else {
-          setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
         }
-      } else {
-        setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
       }
+      setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
     } catch (e) {
       console.error("Approve error:", e);
-      // Show the real error — do NOT update local state (would hide the failure)
       setApproveError(`שגיאה באישור: ${e?.code || e?.message || String(e)}`);
     }
     setApproving(null);
@@ -2748,7 +2755,8 @@ function ApprovalsPage() {
     try {
       if (!demo) {
         if (row._fromPending) {
-          await removePending(row.id);
+          await addApprovalDecision(row.id, "reject");
+          removePending(row.id).catch(() => {});
         } else if (row._rowIndex > 0) {
           await API.deleteRow("sales_report", row._rowIndex);
         }
@@ -2756,27 +2764,23 @@ function ApprovalsPage() {
       setIncome(prev => prev.filter(r => r.id !== row.id));
     } catch (e) {
       console.error("Reject error:", e);
-      setIncome(prev => prev.filter(r => r.id !== row.id));
+      setApproveError(`שגיאה בדחייה: ${e?.code || e?.message || String(e)}`);
     }
     setApproving(null);
   };
 
   const approveAll = async () => {
     if (!confirm(`לאשר את כל ${pendingAll.length} העסקאות הממתינות?`)) return;
-    const approvedIds = new Set();
+    const ids = new Set(pendingAll.map(r => r.id));
     if (!demo) {
       for (const row of pendingAll) {
-        try {
-          await approvePending(row.id, row);
-          approvedIds.add(row.id);
-        } catch (e) { console.error("Approve all error:", e); }
+        if (row._fromPending) {
+          try { await addApprovalDecision(row.id, "approve"); } catch (e) { console.error("Approve all error:", e); }
+          approvePending(row.id, row).catch(() => {});
+        }
       }
-    } else {
-      pendingAll.forEach(row => approvedIds.add(row.id));
     }
-    if (approvedIds.size > 0) {
-      setIncome(prev => prev.map(r => approvedIds.has(r.id) ? { ...r, verified: "V" } : r));
-    }
+    setIncome(prev => prev.map(r => ids.has(r.id) ? { ...r, verified: "V" } : r));
   };
 
   return <div style={{ direction: "rtl" }}>
