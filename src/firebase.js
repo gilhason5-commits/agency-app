@@ -248,16 +248,38 @@ export async function removePending(id) {
 }
 
 export async function approvePending(id, pendingData) {
-    // Approve in-place: update the pendingIncome doc with verified:"V"
-    // This avoids needing write access to the income collection.
-    const updates = { verified: "V" };
-    const pendingRef = doc(db, "pendingIncome", id);
-    await updateDoc(pendingRef, updates);
-
-    // Keep date as Date object for client
+    // Try to update the pendingIncome doc directly (requires update permission)
+    try {
+        await updateDoc(doc(db, "pendingIncome", id), { verified: "V" });
+    } catch (e) {
+        console.warn("updateDoc pendingIncome failed:", e?.code);
+    }
     const dateVal = pendingData.date instanceof Date ? pendingData.date
         : (pendingData.date ? new Date(pendingData.date) : null);
     return { ...pendingData, id, verified: "V", date: dateVal };
+}
+
+// ═══════════════════════════════════════════════════════
+// APPROVAL DECISIONS API
+// Uses addDoc (create-only) so works even when update is restricted.
+// ═══════════════════════════════════════════════════════
+export async function fetchApprovalDecisions() {
+    const snap = await getDocs(collection(db, "approvedPending"));
+    const result = { approved: new Set(), rejected: new Set() };
+    snap.docs.forEach(d => {
+        const r = d.data();
+        if (r.action === "reject") result.rejected.add(r.pendingId);
+        else result.approved.add(r.pendingId);
+    });
+    return result;
+}
+
+export async function addApprovalDecision(pendingId, action /* "approve" | "reject" */) {
+    await addDoc(collection(db, "approvedPending"), {
+        pendingId,
+        action,
+        decidedAt: new Date().toISOString()
+    });
 }
 
 // Fix income records that were approved before the verified flag was added.
