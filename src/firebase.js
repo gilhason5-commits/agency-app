@@ -114,6 +114,50 @@ export async function migrateCommissions() {
     return updated;
 }
 
+// Retroactively recalculate all stored amounts with full decimal precision (no Math.round).
+// Uses the raw stored components (rawILS, originalRawUSD, usdRate) to recompute exact values.
+export async function retroRecalculate() {
+    const colNames = ["income", "pendingIncome"];
+    let updated = 0;
+    for (const colName of colNames) {
+        const snapshot = await getDocs(collection(db, colName));
+        for (let i = 0; i < snapshot.docs.length; i += 490) {
+            const chunk = snapshot.docs.slice(i, i + 490);
+            const batch = writeBatch(db);
+            for (const docSnap of chunk) {
+                const r = docSnap.data();
+                if (r.cancelled) continue;
+
+                const rawILS = r.rawILS !== undefined ? r.rawILS : (r.originalRawILS || 0);
+                const rawUSD = r.originalRawUSD !== undefined ? r.originalRawUSD
+                             : (r.preCommissionUSD > 0 ? r.preCommissionUSD : (r.amountUSD || 0));
+                const rate = parseFloat(r.usdRate) || 0;
+
+                // Compute exact combined pre-commission ILS
+                const combinedILS = rawILS + rawUSD * rate;
+
+                const pct = resolveCommissionPct(r.platform, r.incomeType);
+                const factor = pct > 0 ? 1 - pct / 100 : 1;
+
+                const updates = {
+                    amountILS: combinedILS * factor,
+                };
+                if (rawUSD > 0) updates.amountUSD = rawUSD * factor;
+                if (pct > 0) {
+                    updates.preCommissionILS = combinedILS;
+                    updates.preCommissionUSD = rawUSD;
+                    updates.originalAmount = combinedILS;
+                    updates.commissionPct = pct;
+                }
+                batch.update(docSnap.ref, updates);
+                updated++;
+            }
+            await batch.commit();
+        }
+    }
+    return updated;
+}
+
 export async function clearAllIncome() {
     const querySnapshot = await getDocs(collection(db, "income"));
     const batch = writeBatch(db);
