@@ -71,6 +71,42 @@ export async function saveAllIncome(records, onProgress) {
 
 
 
+// Retroactively apply 20% commission to all אונלי records that don't have it yet.
+// Returns the count of updated records.
+export async function migrateCommissions() {
+    const PCT = 20;
+    const factor = 1 - PCT / 100;
+    const colNames = ["income", "pendingIncome"];
+    let updated = 0;
+    for (const colName of colNames) {
+        const snapshot = await getDocs(collection(db, colName));
+        const toUpdate = snapshot.docs.filter(d => {
+            const r = d.data();
+            return r.platform === "אונלי" && !r.cancelled && !(r.commissionPct > 0 && r.preCommissionILS != null);
+        });
+        for (let i = 0; i < toUpdate.length; i += 490) {
+            const chunk = toUpdate.slice(i, i + 490);
+            const batch = writeBatch(db);
+            for (const docSnap of chunk) {
+                const r = docSnap.data();
+                const preILS = r.amountILS || 0;
+                const preUSD = r.originalRawUSD || r.amountUSD || 0;
+                batch.update(docSnap.ref, {
+                    commissionPct: PCT,
+                    preCommissionILS: preILS,
+                    preCommissionUSD: preUSD,
+                    amountILS: Math.round(preILS * factor),
+                    amountUSD: preUSD > 0 ? Math.round(preUSD * factor * 100) / 100 : (r.amountUSD || 0),
+                    originalAmount: preILS,
+                });
+            }
+            await batch.commit();
+            updated += chunk.length;
+        }
+    }
+    return updated;
+}
+
 export async function clearAllIncome() {
     const querySnapshot = await getDocs(collection(db, "income"));
     const batch = writeBatch(db);
