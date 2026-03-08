@@ -248,15 +248,20 @@ export async function removePending(id) {
 }
 
 export async function approvePending(id, pendingData) {
-    const cleanData = { ...pendingData };
-    delete cleanData.id;
-    delete cleanData.submittedAt;
-    delete cleanData._fromPending;
+    const cleanData = {};
+    // Only copy serializable primitive/plain fields — skip React internals and class instances
+    const allowedTypes = new Set(["string", "number", "boolean"]);
+    for (const [k, v] of Object.entries(pendingData)) {
+        if (k === "id" || k === "submittedAt" || k === "_fromPending") continue;
+        if (v === null || v === undefined) { cleanData[k] = null; continue; }
+        if (allowedTypes.has(typeof v)) { cleanData[k] = v; continue; }
+        if (v instanceof Date) { cleanData[k] = v.toISOString(); continue; }
+        if (Array.isArray(v)) { cleanData[k] = v; continue; }
+        if (typeof v === "object") { cleanData[k] = v; continue; }
+    }
     cleanData.verified = "V";
 
-    if (cleanData.date instanceof Date) {
-        cleanData.date = cleanData.date.toISOString();
-    }
+    console.log("approvePending: saving to income:", { id, cleanData });
 
     const batch = writeBatch(db);
     const newIncomeRef = doc(collection(db, "income"));
@@ -266,8 +271,12 @@ export async function approvePending(id, pendingData) {
     batch.delete(pendingRef);
 
     await batch.commit();
-    // Return cleanData (which has verified:"V", no _fromPending) with the NEW income doc ID
-    return { id: newIncomeRef.id, ...cleanData };
+    console.log("approvePending: batch committed, new income id:", newIncomeRef.id);
+
+    // Restore date as Date object for client use
+    const dateVal = pendingData.date instanceof Date ? pendingData.date
+        : (cleanData.date ? new Date(cleanData.date) : null);
+    return { id: newIncomeRef.id, ...cleanData, date: dateVal };
 }
 
 // Fix income records that were approved before the verified flag was added.

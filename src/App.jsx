@@ -2699,6 +2699,7 @@ function isVerified(v) { return v === "V" || v === "מאומת"; }
 function ApprovalsPage() {
   const { income, setIncome, demo, liveRate } = useApp();
   const [approving, setApproving] = useState(null);
+  const [approveError, setApproveError] = useState(null);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
 
@@ -2715,11 +2716,14 @@ function ApprovalsPage() {
 
   const approve = async (row) => {
     setApproving(row.id);
+    setApproveError(null);
     try {
       if (!demo) {
         if (row._fromPending) {
           // Move from pendingIncome → income in Firebase
+          console.log("Approving pending record:", row.id, row);
           const approved = await approvePending(row.id, row);
+          console.log("approvePending succeeded:", approved);
           // Replace old pending record (by old id) with new income record (new id, verified:"V")
           setIncome(prev => [...prev.filter(r => r.id !== row.id), approved]);
         } else if (row._rowIndex > 0) {
@@ -2735,7 +2739,8 @@ function ApprovalsPage() {
       }
     } catch (e) {
       console.error("Approve error:", e);
-      setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
+      // Show the real error — do NOT update local state (would hide the failure)
+      setApproveError(`שגיאה באישור: ${e?.code || e?.message || String(e)}`);
     }
     setApproving(null);
   };
@@ -2787,6 +2792,13 @@ function ApprovalsPage() {
         {pendingAll.length > 0 && <Btn variant="success" onClick={approveAll}>✅ אשר הכל ({pendingAll.length})</Btn>}
       </div>
     </div>
+
+    {approveError && (
+      <div style={{ background: "#3a1a1a", border: `1px solid ${C.red}`, borderRadius: 8, padding: "12px 16px", marginBottom: 16, color: C.red, fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>⚠️ {approveError}</span>
+        <button onClick={() => setApproveError(null)} style={{ background: "none", border: "none", color: C.mut, cursor: "pointer", fontSize: 16 }}>✕</button>
+      </div>
+    )}
 
     {pendingAll.length === 0 ? (
       <Card style={{ textAlign: "center", padding: 40 }}>
