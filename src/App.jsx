@@ -3238,7 +3238,7 @@ function Content() {
   if (import.meta.env.VITE_USE_AUTH === "true" && !user) return <LoginPage />;
   if (user?.role === "chatter") return <ChatterPortal />;
   if (user?.role === "client") return <ClientPortal />;
-  if (!connected) return <SetupPage />;
+  // SetupPage disabled — connection is managed automatically
   const P = PAGES[page] || DashPage;
   return <div style={{ display: "flex", minHeight: "100vh", background: C.bg }}><Sidebar current={page} onNav={setPage} /><div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}><TopBar /><div style={{ flex: 1, padding: w < 768 ? "14px 10px 80px" : "24px", overflowY: "auto" }}><P /></div></div><MobileNav current={page} onNav={setPage} /></div>;
 }
