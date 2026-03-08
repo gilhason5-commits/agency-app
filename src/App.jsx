@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, createContext, useContext, useMemo, useRef } from "react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Area } from "recharts";
 import {
-  fetchAllIncome, addIncome, updateIncome, removeIncome, saveAllIncome, clearAllIncome,
+  fetchAllIncome, addIncome, updateIncome, removeIncome, saveAllIncome, clearAllIncome, migrateCommissions,
   fetchPending, addPending, updatePending, removePending, approvePending,
   fetchUsers, addUser, removeUser, findUser, saveAllUsers,
   fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses,
@@ -18,7 +18,7 @@ const GROK_API_KEY_DEFAULT = import.meta.env.VITE_GROK_API_KEY || "";
 // Platform commission rates (%)
 const PLATFORM_COMMISSIONS = { "אונלי": 20 };
 // Income type commission rates (%)
-const INCOME_TYPE_COMMISSIONS = { "ווישלי": 8 };
+const INCOME_TYPE_COMMISSIONS = { "ווישלי": 8, "קארדקום": 13 };
 
 // Resolve commission % for a given platform + incomeType
 function resolveCommissionPct(platform, incomeType) {
@@ -395,6 +395,9 @@ const IncSvc = {
       await updateIncome(incRow.id, { cancelled: false, amountILS: incRow.originalAmount });
     }
     return updated;
+  },
+  async retroApplyCommissions() {
+    return await migrateCommissions();
   }
 };
 const ExpSvc = {
@@ -852,6 +855,10 @@ function useFD() {
     return income.map(r => {
       const rate = parseFloat(r.usdRate) > 0 ? parseFloat(r.usdRate) : liveRate;
       const baseILS = r.rawILS !== undefined ? r.rawILS : (r.originalRawILS || 0);
+      // Preserve stored amountILS for records that already have commission calculated
+      if (r.commissionPct > 0 && r.preCommissionILS != null) {
+        return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : r.amountILS };
+      }
       const computedILS = baseILS + ((r.amountUSD || 0) > 0 ? Math.round(r.amountUSD * rate) : 0);
       return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : computedILS };
     });
@@ -1193,7 +1200,25 @@ function IncPage() {
   const incTypes = useMemo(() => [...new Set((view === "monthly" ? iM : iY).map(r => r.incomeType).filter(Boolean))].sort(), [iM, iY, view]);
   const [fP, setFP] = useState("all"), [fC, setFC] = useState("all"), [fCh, setFCh] = useState("all"), [fL, setFL] = useState("all"), [fT, setFT] = useState("all"), [xAxis, setXAxis] = useState("date");
   const [showIncForm, setShowIncForm] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+
+  const runCommissionMigration = async () => {
+    if (!confirm("זה יחיל עמלה של 20% רטרואקטיבית על כל עסקאות אונלי שאין להן עמלה מחושבת. הפעולה תעדכן את Firebase ובלתי הפיכה. להמשיך?")) return;
+    setMigrating(true);
+    try {
+      const count = await IncSvc.retroApplyCommissions();
+      const inc = await IncSvc.fetchAll();
+      setIncome(inc);
+      alert(`✅ עודכנו ${count} עסקאות אונלי עם עמלה של 20%`);
+    } catch (e) {
+      alert("שגיאה במיגרציה: " + e.message);
+    } finally {
+      setMigrating(false);
+    }
+  };
+
   const data = (view === "monthly" ? iM : iY).filter(r => (fP === "all" || r.platform === fP) && (fC === "all" || r.modelName === fC) && (fCh === "all" || r.chatterName === fCh) && (fL === "all" || r.shiftLocation === fL) && (fT === "all" || r.incomeType === fT));
+  const displayData = useMemo(() => data.map(r => applyCommission(r, liveRate)), [data, liveRate]);
   const totalILS = data.reduce((s, r) => s + (r.rawILS || 0), 0);
   const totalUSD = data.reduce((s, r) => s + (r.amountUSD || 0), 0);
   const usdInILS = Math.round(totalUSD * liveRate);
@@ -1229,7 +1254,12 @@ function IncPage() {
   return <div style={{ direction: "rtl" }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, margin: 0 }}>💰 פירוט הכנסות</h2>
-      <Btn variant="success" size="sm" onClick={() => setShowIncForm(true)}>➕ הוסף הכנסה ידנית</Btn>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn variant="ghost" size="sm" onClick={runCommissionMigration} disabled={migrating} style={{ color: C.ylw, borderColor: C.ylw }}>
+          {migrating ? "⏳ מעדכן..." : "🔄 החל עמלות אונלי רטרואקטיבית"}
+        </Btn>
+        <Btn variant="success" size="sm" onClick={() => setShowIncForm(true)}>➕ הוסף הכנסה ידנית</Btn>
+      </div>
     </div>
     <FB><Sel label="תצוגה:" value={view} onChange={setView} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />{view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}</FB>
     <FB><Sel label="פלטפורמה:" value={fP} onChange={setFP} options={[{ value: "all", label: "הכל" }, ...platforms.map(p => ({ value: p, label: p }))]} /><Sel label="סוג הכנסה:" value={fT} onChange={setFT} options={[{ value: "all", label: "הכל" }, ...incTypes.map(t => ({ value: t, label: t }))]} /><Sel label="לקוחה:" value={fC} onChange={setFC} options={[{ value: "all", label: "הכל" }, ...clients.map(c => ({ value: c, label: c }))]} /><Sel label="צ'אטר:" value={fCh} onChange={setFCh} options={[{ value: "all", label: "הכל" }, ...chatters.map(c => ({ value: c, label: c }))]} /><Sel label="מיקום:" value={fL} onChange={setFL} options={[{ value: "all", label: "הכל" }, { value: "משרד", label: "משרד" }, { value: "חוץ", label: "חוץ" }]} /></FB>
@@ -1242,7 +1272,7 @@ function IncPage() {
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✅" : "☐"}</Btn> }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(totalILS), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✅" : "☐"}</Btn> }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.commissionPct > 0 ? r.amountILS : r.originalAmount)}</span> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={displayData.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(totalILS), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
 
     {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד הכנסה ידני" width={500}>
       <RecordIncomeAdmin onClose={() => setShowIncForm(false)} />
@@ -2394,6 +2424,7 @@ function ChatterPortal() {
   // Income filtered to this chatter
   const myIncome = useMemo(() =>
     income.filter(r => r.chatterName === chatterName && r.date && r.date.getFullYear() === year && r.date.getMonth() === month)
+      .map(r => applyCommission(r, 1))
       .sort((a, b) => (b.date || 0) - (a.date || 0)),
     [income, chatterName, year, month]);
 
@@ -2639,10 +2670,12 @@ function ChatterPortal() {
             { label: "דוגמנית", key: "modelName" },
             { label: "פלטפורמה", key: "platform" },
             { label: "מיקום", key: "shiftLocation" },
+            { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" },
+            { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" },
             { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
-            { label: "סכום ₪", render: r => <span style={{ color: C.ylw }}>{fmtC(r.originalAmount)}</span> },
+            { label: "סכום ₪", render: r => <span style={{ color: C.ylw }}>{fmtC(r.commissionPct > 0 ? r.amountILS : r.originalAmount)}</span> },
             { label: "ביטול", render: () => <span style={{ color: C.ylw }}>⏳ ממתין</span> }
-          ]} rows={pending} footer={["סה״כ", "", "", "", "", "", fmtUSD(pending.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalPending), ""]} />
+          ]} rows={pending} footer={["סה״כ", "", "", "", "", "", "", "", fmtUSD(pending.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalPending), ""]} />
         </div>
       </>}
 
@@ -2656,10 +2689,12 @@ function ChatterPortal() {
           { label: "דוגמנית", key: "modelName" },
           { label: "פלטפורמה", key: "platform" },
           { label: "מיקום", key: "shiftLocation" },
+          { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" },
+          { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" },
           { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
-          { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.originalAmount)}</span> },
+          { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.commissionPct > 0 ? r.amountILS : r.originalAmount)}</span> },
           { label: "ביטול", render: r => <span style={{ color: r.cancelled ? C.ylw : C.dim }}>{r.cancelled ? "בוטל" : "❌"}</span> }
-        ]} rows={approved} footer={["סה״כ", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved), ""]} />
+        ]} rows={approved} footer={["סה״כ", "", "", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved), ""]} />
       }
     </div>
   </div>;
@@ -2671,7 +2706,7 @@ function ChatterPortal() {
 function isVerified(v) { return v === "V" || v === "מאומת"; }
 
 function ApprovalsPage() {
-  const { income, setIncome, demo } = useApp();
+  const { income, setIncome, demo, liveRate } = useApp();
   const [approving, setApproving] = useState(null);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
@@ -2681,8 +2716,8 @@ function ApprovalsPage() {
       const da = a.date instanceof Date ? a.date.getTime() : 0;
       const db = b.date instanceof Date ? b.date.getTime() : 0;
       return db - da;
-    }),
-    [income]);
+    }).map(r => applyCommission(r, liveRate)),
+    [income, liveRate]);
 
   const pageCount = Math.max(1, Math.ceil(pendingAll.length / PAGE_SIZE));
   const visibleRows = pendingAll.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);

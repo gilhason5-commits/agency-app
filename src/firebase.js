@@ -71,6 +71,49 @@ export async function saveAllIncome(records, onProgress) {
 
 
 
+// Retroactively apply commissions to all records that don't have it yet.
+// Mirrors the logic of resolveCommissionPct in App.jsx.
+// Returns the count of updated records.
+const PLATFORM_COMMISSIONS_MAP = { "אונלי": 20 };
+const INCOME_TYPE_COMMISSIONS_MAP = { "ווישלי": 8, "קארדקום": 13 };
+function resolveCommissionPct(platform, incomeType) {
+    return PLATFORM_COMMISSIONS_MAP[platform] || INCOME_TYPE_COMMISSIONS_MAP[incomeType] || 0;
+}
+export async function migrateCommissions() {
+    const colNames = ["income", "pendingIncome"];
+    let updated = 0;
+    for (const colName of colNames) {
+        const snapshot = await getDocs(collection(db, colName));
+        const toUpdate = snapshot.docs.filter(d => {
+            const r = d.data();
+            const pct = resolveCommissionPct(r.platform, r.incomeType);
+            return pct && !r.cancelled && !(r.commissionPct > 0 && r.preCommissionILS != null);
+        });
+        for (let i = 0; i < toUpdate.length; i += 490) {
+            const chunk = toUpdate.slice(i, i + 490);
+            const batch = writeBatch(db);
+            for (const docSnap of chunk) {
+                const r = docSnap.data();
+                const pct = resolveCommissionPct(r.platform, r.incomeType);
+                const factor = 1 - pct / 100;
+                const preILS = r.amountILS || 0;
+                const preUSD = r.originalRawUSD || r.amountUSD || 0;
+                batch.update(docSnap.ref, {
+                    commissionPct: pct,
+                    preCommissionILS: preILS,
+                    preCommissionUSD: preUSD,
+                    amountILS: Math.round(preILS * factor),
+                    amountUSD: preUSD > 0 ? Math.round(preUSD * factor * 100) / 100 : (r.amountUSD || 0),
+                    originalAmount: preILS,
+                });
+            }
+            await batch.commit();
+            updated += chunk.length;
+        }
+    }
+    return updated;
+}
+
 export async function clearAllIncome() {
     const querySnapshot = await getDocs(collection(db, "income"));
     const batch = writeBatch(db);
