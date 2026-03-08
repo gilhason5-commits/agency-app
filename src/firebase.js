@@ -114,8 +114,54 @@ export async function migrateCommissions() {
     return updated;
 }
 
+// Restore records corrupted by a previous retroRecalculate run that used rate=0 for USD records.
+// For commission records: restore preCommissionILS = rawILS + rawUSD * fallbackRate, then re-apply commission.
+// For non-commission records: restore originalAmount = rawILS + rawUSD * fallbackRate and amountILS = same.
+export async function restoreCorruptedRecords(fallbackRate) {
+    const colNames = ["income", "pendingIncome"];
+    let fixed = 0;
+    for (const colName of colNames) {
+        const snapshot = await getDocs(collection(db, colName));
+        const toFix = snapshot.docs.filter(d => {
+            const r = d.data();
+            if (r.cancelled) return false;
+            const rawUSD = r.originalRawUSD !== undefined ? r.originalRawUSD : (r.amountUSD || 0);
+            const rate = parseFloat(r.usdRate) || 0;
+            // Only fix records where USD exists but rate was 0 (USD portion was zeroed out)
+            return rawUSD > 0 && rate === 0;
+        });
+        for (let i = 0; i < toFix.length; i += 490) {
+            const chunk = toFix.slice(i, i + 490);
+            const batch = writeBatch(db);
+            for (const docSnap of chunk) {
+                const r = docSnap.data();
+                const rawILS = r.rawILS !== undefined ? r.rawILS : (r.originalRawILS || 0);
+                const rawUSD = r.originalRawUSD !== undefined ? r.originalRawUSD : (r.amountUSD || 0);
+                const combinedILS = rawILS + rawUSD * fallbackRate;
+                const pct = resolveCommissionPct(r.platform, r.incomeType);
+                const factor = pct > 0 ? 1 - pct / 100 : 1;
+                const updates = {
+                    amountILS: combinedILS * factor,
+                    originalAmount: combinedILS,
+                };
+                if (rawUSD > 0) updates.amountUSD = rawUSD * factor;
+                if (pct > 0) {
+                    updates.preCommissionILS = combinedILS;
+                    updates.preCommissionUSD = rawUSD;
+                    updates.commissionPct = pct;
+                }
+                batch.update(docSnap.ref, updates);
+                fixed++;
+            }
+            await batch.commit();
+        }
+    }
+    return fixed;
+}
+
 // Retroactively recalculate all stored amounts with full decimal precision (no Math.round).
 // Uses the raw stored components (rawILS, originalRawUSD, usdRate) to recompute exact values.
+// Records with rawUSD > 0 but usdRate = 0 are skipped (cannot compute without rate).
 export async function retroRecalculate() {
     const colNames = ["income", "pendingIncome"];
     let updated = 0;
@@ -133,6 +179,9 @@ export async function retroRecalculate() {
                              : (r.preCommissionUSD > 0 ? r.preCommissionUSD : (r.amountUSD || 0));
                 const rate = parseFloat(r.usdRate) || 0;
 
+                // Skip records with USD but no stored rate — would zero out the USD portion
+                if (rawUSD > 0 && rate === 0) continue;
+
                 // Compute exact combined pre-commission ILS
                 const combinedILS = rawILS + rawUSD * rate;
 
@@ -141,12 +190,12 @@ export async function retroRecalculate() {
 
                 const updates = {
                     amountILS: combinedILS * factor,
+                    originalAmount: combinedILS,
                 };
                 if (rawUSD > 0) updates.amountUSD = rawUSD * factor;
                 if (pct > 0) {
                     updates.preCommissionILS = combinedILS;
                     updates.preCommissionUSD = rawUSD;
-                    updates.originalAmount = combinedILS;
                     updates.commissionPct = pct;
                 }
                 batch.update(docSnap.ref, updates);
