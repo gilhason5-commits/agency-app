@@ -266,7 +266,27 @@ export async function approvePending(id, pendingData) {
     batch.delete(pendingRef);
 
     await batch.commit();
-    return { id: newIncomeRef.id, ...pendingData };
+    // Return cleanData (which has verified:"V", no _fromPending) with the NEW income doc ID
+    return { id: newIncomeRef.id, ...cleanData };
+}
+
+// Fix income records that were approved before the verified flag was added.
+// Any record in the income collection with _fromPending=true is already approved.
+export async function fixOrphanedApprovals() {
+    const snapshot = await getDocs(collection(db, "income"));
+    const corrupted = snapshot.docs.filter(d => {
+        const r = d.data();
+        return r._fromPending === true && r.verified !== "V" && r.verified !== "מאומת";
+    });
+    if (corrupted.length === 0) return 0;
+    for (let i = 0; i < corrupted.length; i += 490) {
+        const batch = writeBatch(db);
+        corrupted.slice(i, i + 490).forEach(d => {
+            batch.update(d.ref, { verified: "V", _fromPending: false });
+        });
+        await batch.commit();
+    }
+    return corrupted.length;
 }
 
 // ═══════════════════════════════════════════════════════

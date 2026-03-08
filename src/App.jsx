@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, createContext, useContext, useMemo, u
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Area } from "recharts";
 import {
   fetchAllIncome, addIncome, updateIncome, removeIncome, saveAllIncome, clearAllIncome, migrateCommissions, retroRecalculate, restoreCorruptedRecords,
-  fetchPending, addPending, updatePending, removePending, approvePending,
+  fetchPending, addPending, updatePending, removePending, approvePending, fixOrphanedApprovals,
   fetchUsers, addUser, removeUser, findUser, saveAllUsers,
   fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses,
   fetchSettlements, addSettlement, removeSettlement
@@ -696,12 +696,16 @@ function Prov({ children }) {
     setLoading(true); setError(null); setLoadStep("טוען נתונים...");
     try {
       setLoadStep("טוען הכנסות מ-Firebase...");
+      // Fix any previously approved records that were saved without verified:"V"
+      fixOrphanedApprovals().catch(() => {});
       const inc = await IncSvc.fetchAll();
       console.log("Loaded income from Firebase:", inc.length, "records");
       const pending = await fetchPending();
       console.log("Loaded pending from Firebase:", pending.length, "records");
       const pendingMarked = pending.map(r => ({ ...r, _fromPending: true }));
-      setIncome([...inc, ...pendingMarked]);
+      // Treat any income-collection record with _fromPending as already approved
+      const fixedInc = inc.map(r => r._fromPending ? { ...r, verified: "V", _fromPending: false } : r);
+      setIncome([...fixedInc, ...pendingMarked]);
       setLoadStep(`נטענו ${inc.length} שורות הכנסה + ${pending.length} ממתינות`);
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
       try { const sets = await fetchSettlements(); console.log("Fetched settlements:", sets); setSettlements(sets); } catch (e) { console.error("Error fetching settlements:", e); }
@@ -2716,7 +2720,8 @@ function ApprovalsPage() {
         if (row._fromPending) {
           // Move from pendingIncome → income in Firebase
           const approved = await approvePending(row.id, row);
-          setIncome(prev => prev.map(r => r.id === row.id ? { ...approved, _fromPending: false, verified: "V" } : r));
+          // Replace old pending record (by old id) with new income record (new id, verified:"V")
+          setIncome(prev => [...prev.filter(r => r.id !== row.id), approved]);
         } else if (row._rowIndex > 0) {
           const rowData = Array(16).fill(null);
           rowData[12] = "V";
@@ -2756,17 +2761,23 @@ function ApprovalsPage() {
 
   const approveAll = async () => {
     if (!confirm(`לאשר את כל ${pendingAll.length} העסקאות הממתינות?`)) return;
-    const ids = new Set(pendingAll.map(p => p.id));
+    const oldIds = new Set(pendingAll.map(p => p.id));
+    const newRecords = [];
     if (!demo) {
       for (const row of pendingAll) {
         try {
           if (row._fromPending) {
-            await approvePending(row.id, row);
+            const approved = await approvePending(row.id, row);
+            newRecords.push(approved);
+          } else {
+            newRecords.push({ ...row, _fromPending: false, verified: "V" });
           }
         } catch (e) { console.error("Approve all error:", e); }
       }
+    } else {
+      pendingAll.forEach(row => newRecords.push({ ...row, _fromPending: false, verified: "V" }));
     }
-    setIncome(prev => prev.map(r => ids.has(r.id) ? { ...r, _fromPending: false, verified: "V" } : r));
+    setIncome(prev => [...prev.filter(r => !oldIds.has(r.id)), ...newRecords]);
   };
 
   return <div style={{ direction: "rtl" }}>
