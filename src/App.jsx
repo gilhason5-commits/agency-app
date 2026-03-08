@@ -29,7 +29,7 @@ function resolveCommissionPct(platform, incomeType) {
 // Returns fields to spread onto the saved record.
 function computeCommissionFields(platform, incomeType, inputILS, inputUSD, rate) {
   const pct = resolveCommissionPct(platform, incomeType);
-  const combinedILS = inputILS + Math.round(inputUSD * rate);
+  const combinedILS = inputILS + inputUSD * rate;
   if (!pct) {
     return {
       commissionPct: 0,
@@ -44,8 +44,8 @@ function computeCommissionFields(platform, incomeType, inputILS, inputUSD, rate)
     commissionPct: pct,
     preCommissionILS: combinedILS,
     preCommissionUSD: inputUSD,
-    amountILS: Math.round(combinedILS * factor),
-    amountUSD: inputUSD > 0 ? Math.round(inputUSD * factor * 100) / 100 : 0,
+    amountILS: combinedILS * factor,
+    amountUSD: inputUSD > 0 ? inputUSD * factor : 0,
   };
 }
 
@@ -63,8 +63,8 @@ function applyCommission(r, rate) {
     commissionPct: pct,
     preCommissionILS: preILS,
     preCommissionUSD: preUSD,
-    amountILS: Math.round(preILS * factor),
-    amountUSD: preUSD > 0 ? Math.round(preUSD * factor * 100) / 100 : 0,
+    amountILS: preILS * factor,
+    amountUSD: preUSD > 0 ? preUSD * factor : 0,
     originalAmount: preILS,
   };
 }
@@ -290,7 +290,7 @@ function mapInc(row, i) {
   const rawUSD = +row[4] || 0;
   const rate = +row[3] || 0;
   const activeRate = rate > 0 ? rate : ExRate.get();
-  const computedILS = rawILS + (rawUSD > 0 ? Math.round(rawUSD * activeRate) : 0);
+  const computedILS = rawILS + rawUSD * activeRate;
 
   return {
     id: `I-${i}-${Date.now()}`,
@@ -859,7 +859,7 @@ function useFD() {
       if (r.commissionPct > 0 && r.preCommissionILS != null) {
         return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : r.amountILS };
       }
-      const computedILS = baseILS + ((r.amountUSD || 0) > 0 ? Math.round(r.amountUSD * rate) : 0);
+      const computedILS = baseILS + (r.amountUSD || 0) * rate;
       return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : computedILS };
     });
   }, [income, liveRate]);
@@ -1205,7 +1205,7 @@ function IncPage() {
   const data = (view === "monthly" ? iM : iY).filter(r => (fP === "all" || r.platform === fP) && (fC === "all" || r.modelName === fC) && (fCh === "all" || r.chatterName === fCh) && (fL === "all" || r.shiftLocation === fL) && (fT === "all" || r.incomeType === fT));
   const totalILS = data.reduce((s, r) => s + (r.rawILS || 0), 0);
   const totalUSD = data.reduce((s, r) => s + (r.amountUSD || 0), 0);
-  const usdInILS = Math.round(totalUSD * liveRate);
+  const usdInILS = totalUSD * liveRate;
   const grandTotal = data.reduce((s, r) => s + r.amountILS, 0);
 
   const togglePaid = async (r) => {
@@ -1243,15 +1243,14 @@ function IncPage() {
     <FB><Sel label="תצוגה:" value={view} onChange={setView} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />{view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}</FB>
     <FB><Sel label="פלטפורמה:" value={fP} onChange={setFP} options={[{ value: "all", label: "הכל" }, ...platforms.map(p => ({ value: p, label: p }))]} /><Sel label="סוג הכנסה:" value={fT} onChange={setFT} options={[{ value: "all", label: "הכל" }, ...incTypes.map(t => ({ value: t, label: t }))]} /><Sel label="לקוחה:" value={fC} onChange={setFC} options={[{ value: "all", label: "הכל" }, ...clients.map(c => ({ value: c, label: c }))]} /><Sel label="צ'אטר:" value={fCh} onChange={setFCh} options={[{ value: "all", label: "הכל" }, ...chatters.map(c => ({ value: c, label: c }))]} /><Sel label="מיקום:" value={fL} onChange={setFL} options={[{ value: "all", label: "הכל" }, { value: "משרד", label: "משרד" }, { value: "חוץ", label: "חוץ" }]} /></FB>
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-      <Stat icon="🏦" title="סה״כ כולל" value={fmtC(grandTotal)} color={C.grn} sub={`${data.length} עסקאות • שער $: ₪${liveRate.toFixed(2)}`} />
-      <Stat icon="💰" title="סה״כ ₪" value={fmtC(totalILS)} color={C.dim} />
-      <Stat icon="💵" title="סה״כ $" value={fmtUSD(totalUSD)} color={C.pri} sub={`≈ ${fmtC(usdInILS)}`} />
+      <Stat icon="💰" title="סה״כ ₪" value={fmtC(grandTotal)} color={C.grn} sub={`${data.length} עסקאות • שער $: ₪${liveRate.toFixed(2)}`} />
+      <Stat icon="💵" title="סה״כ $" value={fmtUSD(totalUSD)} color={C.pri} sub={`≈ ${fmtC(usdInILS)} (תצוגה בלבד)`} />
     </div>
     <Card style={{ marginBottom: 16 }}>
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✅" : "☐"}</Btn> }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.commissionPct > 0 ? r.amountILS : r.originalAmount)}</span> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(totalILS), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✅" : "☐"}</Btn> }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.commissionPct > 0 ? r.amountILS : r.originalAmount)}</span> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(grandTotal), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
 
     {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד הכנסה ידני" width={500}>
       <RecordIncomeAdmin onClose={() => setShowIncForm(false)} />
