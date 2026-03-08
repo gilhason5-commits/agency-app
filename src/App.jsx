@@ -29,7 +29,7 @@ function resolveCommissionPct(platform, incomeType) {
 // Returns fields to spread onto the saved record.
 function computeCommissionFields(platform, incomeType, inputILS, inputUSD, rate) {
   const pct = resolveCommissionPct(platform, incomeType);
-  const combinedILS = inputILS + Math.round(inputUSD * rate);
+  const combinedILS = inputILS + inputUSD * rate;
   if (!pct) {
     return {
       commissionPct: 0,
@@ -44,8 +44,8 @@ function computeCommissionFields(platform, incomeType, inputILS, inputUSD, rate)
     commissionPct: pct,
     preCommissionILS: combinedILS,
     preCommissionUSD: inputUSD,
-    amountILS: Math.round(combinedILS * factor),
-    amountUSD: inputUSD > 0 ? Math.round(inputUSD * factor * 100) / 100 : 0,
+    amountILS: combinedILS * factor,
+    amountUSD: inputUSD > 0 ? inputUSD * factor : 0,
   };
 }
 
@@ -63,8 +63,8 @@ function applyCommission(r, rate) {
     commissionPct: pct,
     preCommissionILS: preILS,
     preCommissionUSD: preUSD,
-    amountILS: Math.round(preILS * factor),
-    amountUSD: preUSD > 0 ? Math.round(preUSD * factor * 100) / 100 : 0,
+    amountILS: preILS * factor,
+    amountUSD: preUSD > 0 ? preUSD * factor : 0,
     originalAmount: preILS,
   };
 }
@@ -290,7 +290,7 @@ function mapInc(row, i) {
   const rawUSD = +row[4] || 0;
   const rate = +row[3] || 0;
   const activeRate = rate > 0 ? rate : ExRate.get();
-  const computedILS = rawILS + (rawUSD > 0 ? Math.round(rawUSD * activeRate) : 0);
+  const computedILS = rawILS + rawUSD * activeRate;
 
   return {
     id: `I-${i}-${Date.now()}`,
@@ -859,7 +859,7 @@ function useFD() {
       if (r.commissionPct > 0 && r.preCommissionILS != null) {
         return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : r.amountILS };
       }
-      const computedILS = baseILS + ((r.amountUSD || 0) > 0 ? Math.round(r.amountUSD * rate) : 0);
+      const computedILS = baseILS + (r.amountUSD || 0) * rate;
       return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : computedILS };
     });
   }, [income, liveRate]);
@@ -1205,7 +1205,7 @@ function IncPage() {
   const data = (view === "monthly" ? iM : iY).filter(r => (fP === "all" || r.platform === fP) && (fC === "all" || r.modelName === fC) && (fCh === "all" || r.chatterName === fCh) && (fL === "all" || r.shiftLocation === fL) && (fT === "all" || r.incomeType === fT));
   const totalILS = data.reduce((s, r) => s + (r.rawILS || 0), 0);
   const totalUSD = data.reduce((s, r) => s + (r.amountUSD || 0), 0);
-  const usdInILS = Math.round(totalUSD * liveRate);
+  const usdInILS = totalUSD * liveRate;
   const grandTotal = data.reduce((s, r) => s + r.amountILS, 0);
 
   const togglePaid = async (r) => {
