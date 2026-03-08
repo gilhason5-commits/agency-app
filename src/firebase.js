@@ -221,7 +221,30 @@ export async function clearAllIncome() {
 // ═══════════════════════════════════════════════════════
 export async function fetchPending() {
     const querySnapshot = await getDocs(collection(db, "pendingIncome"));
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), date: doc.data().date ? new Date(doc.data().date) : null }));
+    const allDocs = querySnapshot.docs.map(d => ({ _docId: d.id, ...d.data() }));
+
+    // Separate decision docs (have _approvesId) from actual pending records
+    const decisions = {}; // pendingId -> "approve" | "reject"
+    const actualPending = [];
+    allDocs.forEach(r => {
+        if (r._approvesId) {
+            // Later decisions override earlier ones
+            decisions[r._approvesId] = r.action;
+        } else {
+            actualPending.push(r);
+        }
+    });
+
+    // Apply decisions: filter rejected, mark approved
+    return actualPending
+        .filter(r => decisions[r._docId] !== "reject")
+        .map(r => ({
+            ...r,
+            id: r._docId,
+            _docId: undefined,
+            date: r.date ? new Date(r.date) : null,
+            verified: decisions[r._docId] === "approve" ? "V" : (r.verified || "")
+        }));
 }
 
 export async function addPending(record) {
@@ -247,37 +270,23 @@ export async function removePending(id) {
     await deleteDoc(doc(db, "pendingIncome", id));
 }
 
+// Save approval/rejection decision as a new doc in pendingIncome.
+// Uses only addDoc (create) — works even when update/delete are restricted.
 export async function approvePending(id, pendingData) {
-    // Try to update the pendingIncome doc directly (requires update permission)
-    try {
-        await updateDoc(doc(db, "pendingIncome", id), { verified: "V" });
-    } catch (e) {
-        console.warn("updateDoc pendingIncome failed:", e?.code);
-    }
+    await addDoc(collection(db, "pendingIncome"), {
+        _approvesId: id,
+        action: "approve",
+        decidedAt: new Date().toISOString()
+    });
     const dateVal = pendingData.date instanceof Date ? pendingData.date
         : (pendingData.date ? new Date(pendingData.date) : null);
     return { ...pendingData, id, verified: "V", date: dateVal };
 }
 
-// ═══════════════════════════════════════════════════════
-// APPROVAL DECISIONS API
-// Uses addDoc (create-only) so works even when update is restricted.
-// ═══════════════════════════════════════════════════════
-export async function fetchApprovalDecisions() {
-    const snap = await getDocs(collection(db, "approvedPending"));
-    const result = { approved: new Set(), rejected: new Set() };
-    snap.docs.forEach(d => {
-        const r = d.data();
-        if (r.action === "reject") result.rejected.add(r.pendingId);
-        else result.approved.add(r.pendingId);
-    });
-    return result;
-}
-
-export async function addApprovalDecision(pendingId, action /* "approve" | "reject" */) {
-    await addDoc(collection(db, "approvedPending"), {
-        pendingId,
-        action,
+export async function rejectPending(id) {
+    await addDoc(collection(db, "pendingIncome"), {
+        _approvesId: id,
+        action: "reject",
         decidedAt: new Date().toISOString()
     });
 }
