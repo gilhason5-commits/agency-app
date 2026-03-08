@@ -1207,43 +1207,13 @@ function IncPage() {
   const incTypes = useMemo(() => [...new Set((view === "monthly" ? iM : iY).map(r => r.incomeType).filter(Boolean))].sort(), [iM, iY, view]);
   const [fP, setFP] = useState("all"), [fC, setFC] = useState("all"), [fCh, setFCh] = useState("all"), [fL, setFL] = useState("all"), [fT, setFT] = useState("all"), [xAxis, setXAxis] = useState("date");
   const [showIncForm, setShowIncForm] = useState(false);
-  const [recalculating, setRecalculating] = useState(false);
-
-  const runRestore = async () => {
-    if (!confirm(`שחזור רשומות USD שנפגעו (rate=0).\nישתמש בשער הנוכחי ₪${liveRate.toFixed(2)} כ-fallback. להמשיך?`)) return;
-    setRecalculating(true);
-    try {
-      const count = await IncSvc.restoreCorruptedRecords(liveRate);
-      const inc = await IncSvc.fetchAll();
-      setIncome(inc);
-      alert(count > 0 ? `✅ שוחזרו ${count} רשומות` : "לא נמצאו רשומות לשחזור");
-    } catch (e) {
-      alert("שגיאה: " + e.message);
-    } finally {
-      setRecalculating(false);
-    }
-  };
-
-  const runRetroRecalculate = async () => {
-    if (!confirm("זה יחשב מחדש את כל הסכומים ללא עיגול. הפעולה תעדכן את Firebase ובלתי הפיכה. להמשיך?")) return;
-    setRecalculating(true);
-    try {
-      const count = await IncSvc.retroRecalculate();
-      const inc = await IncSvc.fetchAll();
-      setIncome(inc);
-      alert(`✅ עודכנו ${count} עסקאות ללא עיגול`);
-    } catch (e) {
-      alert("שגיאה: " + e.message);
-    } finally {
-      setRecalculating(false);
-    }
-  };
 
   const data = (view === "monthly" ? iM : iY).filter(r => (fP === "all" || r.platform === fP) && (fC === "all" || r.modelName === fC) && (fCh === "all" || r.chatterName === fCh) && (fL === "all" || r.shiftLocation === fL) && (fT === "all" || r.incomeType === fT));
   const totalILS = data.reduce((s, r) => s + (r.rawILS || 0), 0);
   const totalUSD = data.reduce((s, r) => s + (r.amountUSD || 0), 0);
   const usdInILS = totalUSD * liveRate;
   const grandTotal = data.reduce((s, r) => s + r.amountILS, 0);
+  const ilsOnlyTotal = data.reduce((s, r) => s + ((r.amountUSD || 0) > 0 ? 0 : r.amountILS), 0);
 
   const togglePaid = async (r) => {
     try {
@@ -1276,12 +1246,6 @@ function IncPage() {
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, margin: 0 }}>💰 פירוט הכנסות</h2>
       <div style={{ display: "flex", gap: 8 }}>
-        <Btn variant="ghost" size="sm" onClick={runRestore} disabled={recalculating} style={{ color: C.red, borderColor: C.red }}>
-          {recalculating ? "⏳..." : "🔧 שחזר USD שנפגע"}
-        </Btn>
-        <Btn variant="ghost" size="sm" onClick={runRetroRecalculate} disabled={recalculating} style={{ color: C.ylw, borderColor: C.ylw }}>
-          {recalculating ? "⏳ מחשב..." : "🔢 חשב מחדש ללא עיגול"}
-        </Btn>
         <Btn variant="success" size="sm" onClick={() => setShowIncForm(true)}>➕ הוסף הכנסה ידנית</Btn>
       </div>
     </div>
@@ -1289,7 +1253,8 @@ function IncPage() {
     <FB><Sel label="פלטפורמה:" value={fP} onChange={setFP} options={[{ value: "all", label: "הכל" }, ...platforms.map(p => ({ value: p, label: p }))]} /><Sel label="סוג הכנסה:" value={fT} onChange={setFT} options={[{ value: "all", label: "הכל" }, ...incTypes.map(t => ({ value: t, label: t }))]} /><Sel label="לקוחה:" value={fC} onChange={setFC} options={[{ value: "all", label: "הכל" }, ...clients.map(c => ({ value: c, label: c }))]} /><Sel label="צ'אטר:" value={fCh} onChange={setFCh} options={[{ value: "all", label: "הכל" }, ...chatters.map(c => ({ value: c, label: c }))]} /><Sel label="מיקום:" value={fL} onChange={setFL} options={[{ value: "all", label: "הכל" }, { value: "משרד", label: "משרד" }, { value: "חוץ", label: "חוץ" }]} /></FB>
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
       <Stat icon="💰" title="סה״כ ₪" value={fmtC(grandTotal)} color={C.grn} sub={`${data.length} עסקאות • שער $: ₪${liveRate.toFixed(2)}`} />
-      <Stat icon="💵" title="סה״כ $" value={fmtUSD(totalUSD)} color={C.pri} sub={`≈ ${fmtC(usdInILS)} (תצוגה בלבד)`} />
+      <Stat icon="🏦" title='סה״כ ₪ (שקל)' value={fmtC(ilsOnlyTotal)} color={C.grn} sub="עסקאות שנכנסו בשקל" />
+      <Stat icon="💵" title='סה״כ $' value={fmtUSD(totalUSD)} color={C.pri} sub={`≈ ${fmtC(grandTotal - ilsOnlyTotal)} (מומר לשקל)`} />
     </div>
     <Card style={{ marginBottom: 16 }}>
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
