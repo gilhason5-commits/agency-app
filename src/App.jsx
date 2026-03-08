@@ -2720,12 +2720,9 @@ function ApprovalsPage() {
     try {
       if (!demo) {
         if (row._fromPending) {
-          // Move from pendingIncome → income in Firebase
-          console.log("Approving pending record:", row.id, row);
+          // Approve in-place: update pendingIncome verified:"V" (same doc, same id)
           const approved = await approvePending(row.id, row);
-          console.log("approvePending succeeded:", approved);
-          // Replace old pending record (by old id) with new income record (new id, verified:"V")
-          setIncome(prev => [...prev.filter(r => r.id !== row.id), approved]);
+          setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
         } else if (row._rowIndex > 0) {
           const rowData = Array(16).fill(null);
           rowData[12] = "V";
@@ -2766,23 +2763,20 @@ function ApprovalsPage() {
 
   const approveAll = async () => {
     if (!confirm(`לאשר את כל ${pendingAll.length} העסקאות הממתינות?`)) return;
-    const oldIds = new Set(pendingAll.map(p => p.id));
-    const newRecords = [];
+    const approvedIds = new Set();
     if (!demo) {
       for (const row of pendingAll) {
         try {
-          if (row._fromPending) {
-            const approved = await approvePending(row.id, row);
-            newRecords.push(approved);
-          } else {
-            newRecords.push({ ...row, _fromPending: false, verified: "V" });
-          }
+          await approvePending(row.id, row);
+          approvedIds.add(row.id);
         } catch (e) { console.error("Approve all error:", e); }
       }
     } else {
-      pendingAll.forEach(row => newRecords.push({ ...row, _fromPending: false, verified: "V" }));
+      pendingAll.forEach(row => approvedIds.add(row.id));
     }
-    setIncome(prev => [...prev.filter(r => !oldIds.has(r.id)), ...newRecords]);
+    if (approvedIds.size > 0) {
+      setIncome(prev => prev.map(r => approvedIds.has(r.id) ? { ...r, verified: "V" } : r));
+    }
   };
 
   return <div style={{ direction: "rtl" }}>
