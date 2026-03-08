@@ -74,8 +74,8 @@ export async function saveAllIncome(records, onProgress) {
 // Retroactively apply commissions to all records that don't have it yet.
 // Mirrors the logic of resolveCommissionPct in App.jsx.
 // Returns the count of updated records.
-const PLATFORM_COMMISSIONS_MAP = { "אונלי": 20, "קארדקום": 13 };
-const INCOME_TYPE_COMMISSIONS_MAP = { "ווישלי": 8 };
+const PLATFORM_COMMISSIONS_MAP = { "אונלי": 20 };
+const INCOME_TYPE_COMMISSIONS_MAP = { "ווישלי": 8, "קארדקום": 13 };
 function resolveCommissionPct(platform, incomeType) {
     return PLATFORM_COMMISSIONS_MAP[platform] || INCOME_TYPE_COMMISSIONS_MAP[incomeType] || 0;
 }

@@ -16,9 +16,9 @@ const EXPENSES_URL = import.meta.env.VITE_EXPENSES_URL || "";
 const GROK_API_KEY_DEFAULT = import.meta.env.VITE_GROK_API_KEY || "";
 
 // Platform commission rates (%)
-const PLATFORM_COMMISSIONS = { "אונלי": 20, "קארדקום": 13 };
+const PLATFORM_COMMISSIONS = { "אונלי": 20 };
 // Income type commission rates (%)
-const INCOME_TYPE_COMMISSIONS = { "ווישלי": 8 };
+const INCOME_TYPE_COMMISSIONS = { "ווישלי": 8, "קארדקום": 13 };
 
 // Resolve commission % for a given platform + incomeType
 function resolveCommissionPct(platform, incomeType) {
