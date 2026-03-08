@@ -71,9 +71,14 @@ export async function saveAllIncome(records, onProgress) {
 
 
 
-// Retroactively apply platform commissions to all records that don't have it yet.
+// Retroactively apply commissions to all records that don't have it yet.
+// Mirrors the logic of resolveCommissionPct in App.jsx.
 // Returns the count of updated records.
 const PLATFORM_COMMISSIONS_MAP = { "אונלי": 20, "קארדקום": 13 };
+const INCOME_TYPE_COMMISSIONS_MAP = { "ווישלי": 8 };
+function resolveCommissionPct(platform, incomeType) {
+    return PLATFORM_COMMISSIONS_MAP[platform] || INCOME_TYPE_COMMISSIONS_MAP[incomeType] || 0;
+}
 export async function migrateCommissions() {
     const colNames = ["income", "pendingIncome"];
     let updated = 0;
@@ -81,7 +86,7 @@ export async function migrateCommissions() {
         const snapshot = await getDocs(collection(db, colName));
         const toUpdate = snapshot.docs.filter(d => {
             const r = d.data();
-            const pct = PLATFORM_COMMISSIONS_MAP[r.platform];
+            const pct = resolveCommissionPct(r.platform, r.incomeType);
             return pct && !r.cancelled && !(r.commissionPct > 0 && r.preCommissionILS != null);
         });
         for (let i = 0; i < toUpdate.length; i += 490) {
@@ -89,7 +94,7 @@ export async function migrateCommissions() {
             const batch = writeBatch(db);
             for (const docSnap of chunk) {
                 const r = docSnap.data();
-                const pct = PLATFORM_COMMISSIONS_MAP[r.platform];
+                const pct = resolveCommissionPct(r.platform, r.incomeType);
                 const factor = 1 - pct / 100;
                 const preILS = r.amountILS || 0;
                 const preUSD = r.originalRawUSD || r.amountUSD || 0;
