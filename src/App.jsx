@@ -1406,12 +1406,12 @@ function RecordIncomeAdmin({ onClose }) {
       </div>
 
       <div>
-        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
-        <input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} />
-      </div>
-      <div>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
         <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={inputStyle} />
+      </div>
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
+        <input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} />
       </div>
 
       <div>
@@ -1439,36 +1439,6 @@ function RecordIncomeAdmin({ onClose }) {
       {saving ? "⏳ שומר..." : "💾 שמור הכנסה"}
     </Btn>
 
-    <div style={{ marginTop: 20, paddingTop: 10, borderTop: `1px solid ${C.bdr}`, textAlign: "center" }}>
-      <Btn variant="warning" size="sm" onClick={async () => {
-        if (!confirm("האם אתה בטוח שברצונך לעדכן את כל עסקאות 'אונליפאנס/אולני' ל-'אונלי' ו-'טלגקם' ל-'טלגרם'? פעולה זו בלתי הפיכה.")) return;
-        try {
-          let count = 0;
-
-          const processDocs = async (collectionName) => {
-            const snap = await getDocs(collection(db, collectionName));
-            for (const d of snap.docs) {
-              const data = d.data();
-              const p = data.platform;
-              if (p === "אונליפאנס" || p === "אולני") {
-                await updateDoc(doc(db, collectionName, d.id), { platform: "אונלי" });
-                count++;
-              } else if (p === "טלגקם") {
-                await updateDoc(doc(db, collectionName, d.id), { platform: "טלגרם" });
-                count++;
-              }
-            }
-          };
-
-          await processDocs("income");
-          await processDocs("pendingIncome");
-
-          alert(`בוצע בהצלחה! תוקנו ${count} רשומות.`);
-        } catch (e) {
-          alert("שגיאה בהגירה: " + e.message);
-        }
-      }}>🛠️ מיגרציית חירום - תיקון פלטפורמות אונלי וטלגרם</Btn>
-    </div>
   </div>;
 }
 
@@ -2730,6 +2700,9 @@ function ApprovalsPage() {
           const rowData = Array(16).fill(null);
           rowData[12] = "V";
           await API.update("sales_report", row._rowIndex, rowData);
+        } else {
+          // Regular income record (from 'income' collection) — update verified field
+          await updateIncome(row.id, { verified: "V" });
         }
       }
       setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
@@ -2749,6 +2722,9 @@ function ApprovalsPage() {
           await rejectPending(row.id);
         } else if (row._rowIndex > 0) {
           await API.deleteRow("sales_report", row._rowIndex);
+        } else {
+          // Regular income record — mark as cancelled (soft delete)
+          await updateIncome(row.id, { cancelled: true });
         }
       }
       setIncome(prev => prev.filter(r => r.id !== row.id));
@@ -3232,7 +3208,7 @@ function Content() {
   if (import.meta.env.VITE_USE_AUTH === "true" && !user) return <LoginPage />;
   if (user?.role === "chatter") return <ChatterPortal />;
   if (user?.role === "client") return <ClientPortal />;
-  if (!connected) return <SetupPage />;
+  // SetupPage disabled — connection is managed automatically
   const P = PAGES[page] || DashPage;
   return <div style={{ display: "flex", minHeight: "100vh", background: C.bg }}><Sidebar current={page} onNav={setPage} /><div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}><TopBar /><div style={{ flex: 1, padding: w < 768 ? "14px 10px 80px" : "24px", overflowY: "auto" }}><P /></div></div><MobileNav current={page} onNav={setPage} /></div>;
 }
