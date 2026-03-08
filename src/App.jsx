@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, createContext, useContext, useMemo, u
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Area } from "recharts";
 import {
   fetchAllIncome, addIncome, updateIncome, removeIncome, saveAllIncome, clearAllIncome, migrateCommissions, retroRecalculate, restoreCorruptedRecords,
-  fetchPending, addPending, updatePending, removePending, approvePending, fetchApprovalDecisions, addApprovalDecision, fixOrphanedApprovals,
+  fetchPending, addPending, updatePending, removePending, approvePending, rejectPending, fixOrphanedApprovals,
   fetchUsers, addUser, removeUser, findUser, saveAllUsers,
   fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses,
   fetchSettlements, addSettlement, removeSettlement
@@ -697,24 +697,17 @@ function Prov({ children }) {
     try {
       setLoadStep("טוען הכנסות מ-Firebase...");
       fixOrphanedApprovals().catch(() => {});
-      const [inc, pending, decisions] = await Promise.all([
-        IncSvc.fetchAll(),
-        fetchPending(),
-        fetchApprovalDecisions().catch(() => ({ approved: new Set(), rejected: new Set() }))
-      ]);
-
+      const [inc, pending] = await Promise.all([IncSvc.fetchAll(), fetchPending()]);
+      // fetchPending already applies approval decisions stored inside pendingIncome collection
       const fixedInc = inc.map(r => r._fromPending ? { ...r, verified: "V", _fromPending: false } : r);
-      const pendingMarked = pending
-        .filter(r => !decisions.rejected.has(r.id))
-        .map(r => ({
-          ...r,
-          _fromPending: true,
-          // Use stored amountILS if rawILS is missing (common for chatter-submitted records)
-          rawILS: r.rawILS !== undefined ? r.rawILS : r.amountILS,
-          verified: (decisions.approved.has(r.id) || r.verified === "V" || r.verified === "מאומת") ? "V" : (r.verified || "")
-        }));
+      const pendingMarked = pending.map(r => ({
+        ...r,
+        _fromPending: true,
+        // Use stored amountILS if rawILS is missing (chatter-submitted records)
+        rawILS: r.rawILS !== undefined ? r.rawILS : r.amountILS,
+      }));
 
-      console.log(`Loaded: ${inc.length} income, ${pending.length} pending (${decisions.approved.size} approved, ${decisions.rejected.size} rejected)`);
+      console.log(`Loaded: ${inc.length} income, ${pending.length} pending`);
       setIncome([...fixedInc, ...pendingMarked]);
       setLoadStep(`נטענו ${inc.length} שורות הכנסה + ${pending.length} ממתינות`);
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
@@ -2731,10 +2724,8 @@ function ApprovalsPage() {
     try {
       if (!demo) {
         if (row._fromPending) {
-          // addApprovalDecision uses addDoc (create) — works even when update is restricted
-          await addApprovalDecision(row.id, "approve");
-          // Also try direct update (best effort, may fail silently)
-          approvePending(row.id, row).catch(() => {});
+          // approvePending writes a decision doc inside pendingIncome (addDoc only)
+          await approvePending(row.id, row);
         } else if (row._rowIndex > 0) {
           const rowData = Array(16).fill(null);
           rowData[12] = "V";
@@ -2755,8 +2746,7 @@ function ApprovalsPage() {
     try {
       if (!demo) {
         if (row._fromPending) {
-          await addApprovalDecision(row.id, "reject");
-          removePending(row.id).catch(() => {});
+          await rejectPending(row.id);
         } else if (row._rowIndex > 0) {
           await API.deleteRow("sales_report", row._rowIndex);
         }
@@ -2775,8 +2765,7 @@ function ApprovalsPage() {
     if (!demo) {
       for (const row of pendingAll) {
         if (row._fromPending) {
-          try { await addApprovalDecision(row.id, "approve"); } catch (e) { console.error("Approve all error:", e); }
-          approvePending(row.id, row).catch(() => {});
+          try { await approvePending(row.id, row); } catch (e) { console.error("Approve all error:", e); }
         }
       }
     }
