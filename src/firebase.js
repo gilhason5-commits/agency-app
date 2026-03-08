@@ -33,7 +33,7 @@ export async function addIncome(record) {
         cleanRecord.date = cleanRecord.date.toISOString();
     }
     const docRef = await addDoc(collection(db, "income"), cleanRecord);
-    return { id: docRef.id, ...cleanRecord, date: record.date };
+    return { id: docRef.id, ...cleanRecord, date: cleanRecord.date ? new Date(cleanRecord.date) : null };
 }
 
 export async function updateIncome(id, updates) {
