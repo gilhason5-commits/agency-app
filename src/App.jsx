@@ -1294,6 +1294,8 @@ function RecordIncomeAdmin({ onClose }) {
     customIncomeType: "",
     amountILS: "",
     amountUSD: "",
+    currency: "ILS",
+    amount: "",
     shiftLocation: "משרד",
     notes: "",
     date: new Date().toISOString().split("T")[0],
@@ -1312,7 +1314,7 @@ function RecordIncomeAdmin({ onClose }) {
   }, [income]);
 
   const save = async () => {
-    if (!form.chatterName || !form.modelName || (!form.amountILS && !form.amountUSD)) {
+    if (!form.chatterName || !form.modelName || !form.amount) {
       setErr("נא למלא צ'אטר, לקוחה וסכום");
       return;
     }
@@ -1323,8 +1325,8 @@ function RecordIncomeAdmin({ onClose }) {
       const typeStr = form.incomeType === "__other__" ? form.customIncomeType : form.incomeType;
 
       const rate = liveRate || 3.08;
-      const inputILS = +form.amountILS || 0;
-      const inputUSD = +form.amountUSD || 0;
+      const inputILS = form.currency === "ILS" ? +form.amount || 0 : 0;
+      const inputUSD = form.currency === "USD" ? +form.amount || 0 : 0;
       const commFields = computeCommissionFields(form.platform, typeStr, inputILS, inputUSD, rate);
 
       const newInc = {
@@ -1396,18 +1398,24 @@ function RecordIncomeAdmin({ onClose }) {
         {form.incomeType === "__other__" && <input type="text" value={form.customIncomeType} onChange={e => upd("customIncomeType", e.target.value)} placeholder="רשום סוג הכנסה..." style={{ ...inputStyle, marginTop: 6 }} />}
       </div>
 
-      <div>
-        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סכום (₪)</label>
-        <input type="number" value={form.amountILS} onChange={e => upd("amountILS", e.target.value)} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
-      </div>
-      <div>
-        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סכום ($)</label>
-        <input type="number" value={form.amountUSD} onChange={e => upd("amountUSD", e.target.value)} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
+      <div style={{ gridColumn: "1 / -1" }}>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>סכום ומטבע</label>
+        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+          {[{ key: "ILS", label: "₪ שקל" }, { key: "USD", label: "$ דולר" }].map(({ key, label }) => (
+            <button key={key} onClick={() => upd("currency", key)} style={{
+              flex: 1, padding: "10px", borderRadius: 8, fontSize: 14, fontWeight: 600,
+              cursor: "pointer", background: form.currency === key ? C.pri : C.card,
+              color: form.currency === key ? "#fff" : C.dim,
+              border: `2px solid ${form.currency === key ? C.pri : C.bdr}`, transition: "all .15s"
+            }}>{label}</button>
+          ))}
+        </div>
+        <input type="number" value={form.amount} onChange={e => upd("amount", e.target.value)} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
       </div>
 
       <div>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
-        <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={inputStyle} />
+        <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={{ ...inputStyle, direction: "ltr" }} />
       </div>
       <div>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
