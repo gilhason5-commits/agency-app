@@ -2730,6 +2730,9 @@ function ApprovalsPage() {
           const rowData = Array(16).fill(null);
           rowData[12] = "V";
           await API.update("sales_report", row._rowIndex, rowData);
+        } else {
+          // Regular income record (from 'income' collection) — update verified field
+          await updateIncome(row.id, { verified: "V" });
         }
       }
       setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
@@ -2749,6 +2752,9 @@ function ApprovalsPage() {
           await rejectPending(row.id);
         } else if (row._rowIndex > 0) {
           await API.deleteRow("sales_report", row._rowIndex);
+        } else {
+          // Regular income record — mark as cancelled (soft delete)
+          await updateIncome(row.id, { cancelled: true });
         }
       }
       setIncome(prev => prev.filter(r => r.id !== row.id));

@@ -228,12 +228,25 @@ export async function fetchPending() {
     const actualPending = [];
     allDocs.forEach(r => {
         if (r._approvesId) {
-            // Later decisions override earlier ones
             decisions[r._approvesId] = r.action;
         } else {
             actualPending.push(r);
         }
     });
+
+    // Also read old-style approvals from the legacy approvedPending collection
+    // (records approved before the new system was deployed)
+    try {
+        const oldSnap = await getDocs(collection(db, "approvedPending"));
+        oldSnap.docs.forEach(d => {
+            const r = d.data();
+            if (r.pendingId && !decisions[r.pendingId]) {
+                decisions[r.pendingId] = r.action || "approve";
+            }
+        });
+    } catch (e) {
+        console.warn("approvedPending read failed (legacy):", e?.code);
+    }
 
     // Apply decisions: filter rejected, mark approved
     return actualPending
