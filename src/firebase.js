@@ -251,6 +251,8 @@ export async function approvePending(id, pendingData) {
     const cleanData = { ...pendingData };
     delete cleanData.id;
     delete cleanData.submittedAt;
+    delete cleanData._fromPending;
+    cleanData.verified = "V";
 
     if (cleanData.date instanceof Date) {
         cleanData.date = cleanData.date.toISOString();
