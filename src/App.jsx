@@ -1231,6 +1231,7 @@ function IncPage() {
   const incTypes = useMemo(() => [...new Set((view === "monthly" ? iM : iY).map(r => r.incomeType).filter(Boolean))].sort(), [iM, iY, view]);
   const [fP, setFP] = useState("all"), [fC, setFC] = useState("all"), [fCh, setFCh] = useState("all"), [fL, setFL] = useState("all"), [fT, setFT] = useState("all"), [xAxis, setXAxis] = useState("date");
   const [showIncForm, setShowIncForm] = useState(false);
+  const [editTx, setEditTx] = useState(null);
 
   const data = (view === "monthly" ? iM : iY).filter(r => (fP === "all" || r.platform === fP) && (fC === "all" || r.modelName === fC) && (fCh === "all" || r.chatterName === fCh) && (fL === "all" || r.shiftLocation === fL) && (fT === "all" || r.incomeType === fT));
   const totalILS = data.reduce((s, r) => s + (r.rawILS || 0), 0);
@@ -1284,11 +1285,101 @@ function IncPage() {
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✅" : "☐"}</Btn> }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(grandTotal), ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✅" : "☐"}</Btn> }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(grandTotal), "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
 
     {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד הכנסה ידני" width={500}>
       <RecordIncomeAdmin onClose={() => setShowIncForm(false)} />
     </Modal>}
+    {editTx && <Modal open={true} onClose={() => setEditTx(null)} title="✏️ עריכת עסקה" width={420}>
+      <EditIncomeModal record={editTx} onClose={() => setEditTx(null)} />
+    </Modal>}
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════
+// EDIT INCOME MODAL
+// ═══════════════════════════════════════════════════════
+function EditIncomeModal({ record, onClose }) {
+  const { setIncome, liveRate, income } = useApp();
+  const incomeTypes = useMemo(() => {
+    const fromData = income.map(r => r.incomeType).filter(Boolean);
+    const defaults = ["תוכן", "שיחה", "סקסטינג", "ביט", "העברה בנקאית", "פייבוקס", "וולט"];
+    return [...new Set([...defaults, ...fromData])].filter(t => !/[a-zA-Z]/.test(t)).sort();
+  }, [income]);
+
+  const isUSD = (record.amountUSD || 0) > 0;
+  const [currency, setCurrency] = useState(isUSD ? "USD" : "ILS");
+  const [amount, setAmount] = useState(isUSD ? String(record.amountUSD || "") : String(record.rawILS || record.amountILS || ""));
+  const [incomeType, setIncomeType] = useState(record.incomeType || "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const inputStyle = { width: "100%", padding: "10px 12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 10, color: C.txt, fontSize: 14, outline: "none", boxSizing: "border-box" };
+
+  const save = async () => {
+    if (!amount) { setErr("נא להזין סכום"); return; }
+    setSaving(true); setErr("");
+    try {
+      const rate = liveRate || 3.08;
+      const inputILS = currency === "ILS" ? +amount || 0 : 0;
+      const inputUSD = currency === "USD" ? +amount || 0 : 0;
+      const commFields = computeCommissionFields(record.platform, incomeType, inputILS, inputUSD, rate);
+      const updates = {
+        incomeType,
+        rawILS: inputILS,
+        originalRawILS: inputILS,
+        originalRawUSD: inputUSD,
+        usdRate: rate,
+        ...commFields,
+      };
+      if (record._fromPending) {
+        await updatePending(record.id, updates);
+      } else {
+        await updateIncome(record.id, updates);
+      }
+      setIncome(prev => prev.map(x => x.id === record.id ? { ...x, ...updates } : x));
+      onClose();
+    } catch (e) {
+      setErr("שגיאה: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <div style={{ direction: "rtl" }}>
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>
+        {record.chatterName} • {record.modelName} • {record.platform} • {record.date instanceof Date ? record.date.toLocaleDateString("he-IL") : ""}
+      </div>
+    </div>
+
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>סוג הכנסה</label>
+      <select value={incomeType} onChange={e => setIncomeType(e.target.value)} style={inputStyle}>
+        <option value="">בחר...</option>
+        {incomeTypes.map(t => <option key={t} value={t}>{t}</option>)}
+      </select>
+    </div>
+
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>סכום ומטבע</label>
+      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        {[{ key: "ILS", label: "₪ שקל" }, { key: "USD", label: "$ דולר" }].map(({ key, label }) => (
+          <button key={key} onClick={() => setCurrency(key)} style={{
+            flex: 1, padding: "10px", borderRadius: 8, fontSize: 14, fontWeight: 600,
+            cursor: "pointer", background: currency === key ? C.pri : C.card,
+            color: currency === key ? "#fff" : C.dim,
+            border: `2px solid ${currency === key ? C.pri : C.bdr}`, transition: "all .15s"
+          }}>{label}</button>
+        ))}
+      </div>
+      <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
+    </div>
+
+    {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+    <Btn onClick={save} variant="success" size="lg" style={{ width: "100%" }} disabled={saving}>
+      {saving ? "⏳ שומר..." : "💾 שמור שינויים"}
+    </Btn>
   </div>;
 }
 
