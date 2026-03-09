@@ -1696,7 +1696,7 @@ function ClientPage() {
           <div><div style={{ color: C.mut, fontSize: 11 }}>כבר שולם לה</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(bal.direct)}</div></div>
           <div style={{ borderRight: `2px solid ${C.bdr}`, paddingRight: 12 }}>
             <div style={{ color: C.dim, fontSize: 11, fontWeight: 700 }}>תשלום בפועל</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: bal.actualDue >= 0 ? C.grn : C.red }}>{fmtC(bal.actualDue)}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: bal.actualDue >= 0 ? C.grn : C.red }}>{fmtC(Math.abs(bal.actualDue))}</div>
             <div style={{ fontSize: 10, color: bal.actualDue >= 0 ? C.grn : C.red }}>{bal.actualDue >= 0 ? "הסוכנות חייבת ללקוחה" : "הלקוחה חייבת לסוכנות"}</div>
           </div>
         </div>
