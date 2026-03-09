@@ -1099,7 +1099,23 @@ function DashPage() {
         <Stat icon="📈" title="רווח" value={fmtC(Calc.profit(iY, eY).profit)} color={Calc.profit(iY, eY).profit >= 0 ? C.grn : C.red} />
       </div>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={240}><BarChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="inc" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Bar dataKey="exp" fill={C.red} radius={[4, 4, 0, 0]} name="הוצאות" /></BarChart></ResponsiveContainer></Card>
-      <DT columns={[{ label: "חודש", key: "month" }, { label: "ממוצע יומי", render: r => fmtC(r.dailyAvg) }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.inc)}</span> }, { label: "יעד 1 (+5%)", render: r => fmtC(r.tgt1) }, { label: "יעד 2 (+10%)", render: r => fmtC(r.tgt2) }, { label: "יעד 3 (+15%)", render: r => fmtC(r.tgt3) }]} rows={mbd} footer={["סה״כ", "", fmtC(mbd.reduce((s, r) => s + r.inc, 0)), "", "", ""]} />
+      <DT columns={[
+        { label: "חודש", key: "month" },
+        { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.inc)}</span> },
+        { label: "הוצאות", render: r => <span style={{ color: C.red }}>{fmtC(r.exp)}</span> },
+        { label: "ל.מ", render: () => <span style={{ color: C.dim }}>—</span> },
+        { label: "צפי מע״מ", render: r => <span style={{ color: C.ylw }}>{fmtC(r.inc * 0.17)}</span> },
+        { label: "צפי מס", render: r => { const profit = r.inc - r.exp; const tax = profit > 0 ? profit * 0.23 : 0; return <span style={{ color: C.ylw }}>{fmtC(tax)}</span>; } },
+        { label: "רווח נטו", render: r => { const profit = r.inc - r.exp; const vat = r.inc * 0.17; const tax = profit > 0 ? profit * 0.23 : 0; const net = profit - vat - tax; return <span style={{ color: net >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(net)}</span>; } },
+      ]} rows={mbd} footer={(() => {
+        const totInc = mbd.reduce((s, r) => s + r.inc, 0);
+        const totExp = mbd.reduce((s, r) => s + r.exp, 0);
+        const totVat = totInc * 0.17;
+        const totProfit = totInc - totExp;
+        const totTax = totProfit > 0 ? totProfit * 0.23 : 0;
+        const totNet = totProfit - totVat - totTax;
+        return ["סה״כ", fmtC(totInc), fmtC(totExp), "—", fmtC(totVat), fmtC(totTax), fmtC(totNet)];
+      })()} />
     </>}
 
     {/* Rankings */}
