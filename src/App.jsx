@@ -378,6 +378,11 @@ const IncSvc = {
     await updateIncome(incRow.id, { paidToClient: updated.paidToClient });
     return updated;
   },
+  async setPaymentTarget(incRow, target) {
+    const updated = { ...incRow, paymentTarget: target };
+    await updateIncome(incRow.id, { paymentTarget: target });
+    return updated;
+  },
   async cancelTransaction(incRow) {
     const updated = { ...incRow, cancelled: true, amountILS: 0, amountUSD: 0 };
     if (incRow._fromPending) {
@@ -636,7 +641,7 @@ const Calc = {
   clientBal(rows, cn, pct, settlements = []) {
     const clRows = rows.filter(r => r.modelName === cn);
     const tot = clRows.reduce((s, r) => s + r.amountILS, 0);
-    const direct = clRows.filter(r => r.incomeType === cn || r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
+    const direct = clRows.filter(r => r.paymentTarget === "client" || (!r.paymentTarget && r.paidToClient)).reduce((s, r) => s + r.amountILS, 0);
     const ent = tot * (pct / 100);
 
     // settlements logic: 
@@ -933,10 +938,11 @@ function MobileNav({ current, onNav }) {
   const { logout } = useApp();
   const w = useWin();
   if (w >= 768) return null;
-  return <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.card, borderTop: `1px solid ${C.bdr}`, display: "flex", justifyContent: "space-around", padding: "6px 0", zIndex: 900 }}>
-    {NAV.slice(0, 4).map(it => <button key={it.key} onClick={() => onNav(it.key)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "transparent", border: "none", color: current === it.key ? C.pri : C.mut, cursor: "pointer", padding: "4px 6px", fontSize: 9, fontWeight: current === it.key ? 700 : 400 }}><span style={{ fontSize: 18 }}>{it.icon}</span>{it.label}</button>)}
-    <button onClick={() => onNav("record")} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "transparent", border: "none", color: current === "record" ? C.pri : C.mut, cursor: "pointer", padding: "4px 6px", fontSize: 9 }}><span style={{ fontSize: 18 }}>📱</span>תיעוד</button>
-    <button onClick={logout} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "transparent", border: "none", color: C.red, cursor: "pointer", padding: "4px 6px", fontSize: 9 }}><span style={{ fontSize: 18 }}>🚪</span>צא</button>
+  return <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.card, borderTop: `1px solid ${C.bdr}`, zIndex: 900 }}>
+    <div style={{ display: "flex", overflowX: "auto", padding: "6px 4px", WebkitOverflowScrolling: "touch", scrollbarWidth: "none", msOverflowStyle: "none" }}>
+      {NAV.map(it => <button key={it.key} onClick={() => onNav(it.key)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "transparent", border: "none", color: current === it.key ? C.pri : C.mut, cursor: "pointer", padding: "4px 10px", fontSize: 9, fontWeight: current === it.key ? 700 : 400, flexShrink: 0, minWidth: 52 }}><span style={{ fontSize: 18 }}>{it.icon}</span>{it.label}</button>)}
+      <button onClick={logout} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "transparent", border: "none", color: C.red, cursor: "pointer", padding: "4px 10px", fontSize: 9, flexShrink: 0, minWidth: 52 }}><span style={{ fontSize: 18 }}>🚪</span>צא</button>
+    </div>
   </div>;
 }
 function TopBar() {
@@ -1172,7 +1178,7 @@ function TierCubes({ income }) {
   const chatterTotals = useMemo(() => {
     const map = {};
     income.forEach(r => { if (r.chatterName) map[r.chatterName] = (map[r.chatterName] || 0) + r.amountILS; });
-    return Object.entries(map).sort((a, b) => a[1] - b[1]);
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
   }, [income]);
 
   const bronze = chatterTotals.filter(([, v]) => v <= thresholds.bronze);
@@ -1240,9 +1246,9 @@ function IncPage() {
   const grandTotal = data.reduce((s, r) => s + r.amountILS, 0);
   const ilsOnlyTotal = data.reduce((s, r) => s + ((r.amountUSD || 0) > 0 ? 0 : r.amountILS), 0);
 
-  const togglePaid = async (r) => {
+  const setPayment = async (r, target) => {
     try {
-      const nr = await IncSvc.togglePaidToClient(r);
+      const nr = await IncSvc.setPaymentTarget(r, target);
       setIncome(prev => prev.map(x => x.id === r.id ? nr : x));
     } catch (e) { alert("שגיאה: " + e.message); }
   };
@@ -1285,7 +1291,7 @@ function IncPage() {
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם ללקוחה", render: r => <Btn size="sm" variant="ghost" onClick={() => togglePaid(r)}>{r.paidToClient ? "✅" : "☐"}</Btn> }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(grandTotal), "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(grandTotal), "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
 
     {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד הכנסה ידני" width={500}>
       <RecordIncomeAdmin onClose={() => setShowIncForm(false)} />
@@ -1455,6 +1461,7 @@ function RecordIncomeAdmin({ onClose }) {
         notes: form.notes,
         buyerName: form.buyerName || "",
         verified: "V", // Already verified if Admin adds it
+        paymentTarget: "agency",
         paidToClient: false,
         cancelled: false,
         source: "ידני ממשק מנהל",
@@ -1652,12 +1659,26 @@ function ChatterPage() {
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👥 צ'אטרים</h2>
     <FB><Sel label="צ'אטר:" value={sel} onChange={setSel} options={chatters.map(c => ({ value: c, label: c }))} /><Sel label="תצוגה:" value={view} onChange={setView} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />{view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}</FB>
     {!sel ? <p style={{ color: C.mut }}>בחר צ'אטר</p> : view === "monthly" ? <>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}><Stat icon="💰" title="מכירות" value={fmtC(tot)} color={C.grn} /><Stat icon="🏢" title="משרד" value={fmtC(sal.oSales)} sub={`שכר: ${fmtC(sal.oSal)}`} /><Stat icon="🏠" title="חוץ" value={fmtC(sal.rSales)} sub={`שכר: ${fmtC(sal.rSal)}`} /><Stat icon="💵" title="משכורת" value={fmtC(sal.total)} color={C.pri} /></div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+        <Stat icon="💰" title="מכירות" value={fmtC(tot)} color={C.grn} sub={`${rows.length} עסקאות`} /><Stat icon="🏢" title="משרד" value={fmtC(sal.oSales)} sub={`שכר: ${fmtC(sal.oSal)}`} /><Stat icon="🏠" title="חוץ" value={fmtC(sal.rSales)} sub={`שכר: ${fmtC(sal.rSal)}`} /><Stat icon="💵" title="משכורת" value={fmtC(sal.total)} color={C.pri} /></div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
         <Card><div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>מכירות לפי לקוחה</div><div style={{ width: "100%", direction: "ltr" }}><ResponsiveContainer width="100%" height={180}><BarChart data={byCl} layout="vertical" margin={{ top: 5, right: 150, bottom: 5, left: 20 }}><XAxis type="number" reversed={true} tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={150} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 0, 0, 4]} name="מכירות" /></BarChart></ResponsiveContainer></div></Card>
         {byType.length > 0 && <Card><div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>מכירות לפי סוג הכנסה</div><div style={{ width: "100%", direction: "ltr" }}><ResponsiveContainer width="100%" height={180}><BarChart data={byType} layout="vertical" margin={{ top: 5, right: 150, bottom: 5, left: 20 }}><XAxis type="number" reversed={true} tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={150} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.priL} radius={[4, 0, 0, 4]} name="מכירות" /></BarChart></ResponsiveContainer></div></Card>}
       </div>
       <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }]} rows={rows.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(rows.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(tot)]} />
+      {/* Chatter reconciliation */}
+      {(() => {
+        const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+        const balance = sal.total - paidDirect;
+        return <Card style={{ marginTop: 16 }}>
+          <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 14 }}>⚖️ התחשבנות צ'אטר — {MONTHS_HE[month]}</h3>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Stat icon="💵" title="שכר מגיע לצ'אטר" value={fmtC(sal.total)} color={C.pri} />
+            <Stat icon="✅" title="שולם ישירות לצ'אטר" value={fmtC(paidDirect)} color={C.grn} />
+            <Stat icon={balance > 0 ? "🔴" : balance < 0 ? "🟢" : "⚪"} title={balance > 0 ? "אנחנו חייבים לו" : balance < 0 ? "הוא חייב לנו" : "מאוזן"} value={fmtC(Math.abs(balance))} color={balance > 0 ? C.red : balance < 0 ? C.grn : C.mut} />
+          </div>
+        </Card>;
+      })()}
     </> : <>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><ComposedChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="sales" fill={C.pri} radius={[4, 4, 0, 0]} name="מכירות" /><Line type="monotone" dataKey="total" stroke={C.ylw} strokeWidth={2} dot={{ r: 3 }} name="משכורת" /></ComposedChart></ResponsiveContainer></Card>
       <DT columns={[{ label: "חודש", key: "month" }, { label: "מכירות", render: r => fmtC(r.sales) }, { label: "משרד", render: r => fmtC(r.oSales) }, { label: "חוץ", render: r => fmtC(r.rSales) }, { label: "שכר", render: r => <strong style={{ color: C.pri }}>{fmtC(r.total)}</strong> }]} rows={mbd} footer={["סה״כ", fmtC(mbd.reduce((s, r) => s + r.sales, 0)), "", "", fmtC(mbd.reduce((s, r) => s + r.total, 0))]} />
@@ -1672,7 +1693,7 @@ function ClientPage() {
   const { year, month, setMonth, view, setView, rv, updRate, setIncome } = useApp(); const { iM, iY, clients } = useFD();
   const [sel, setSel] = useState(""), [editPct, setEditPct] = useState(false), [pv, setPv] = useState(0);
   useEffect(() => { if (clients.length && !sel) setSel(clients[0]); }, [clients, sel]);
-  const ymi = ym(year, month), pct = getRate(sel, ymi); const incD = view === "monthly" ? iM : iY; const bal = Calc.clientBal(incD, sel, pct);
+  const ymi = ym(year, month), pct = getRate(sel, ymi); const incD = view === "monthly" ? iM : iY; const bal = Calc.clientBal(incD, sel, pct); const clientTxCount = incD.filter(r => r.modelName === sel).length;
 
   const togglePaid = async (r) => {
     try {
@@ -1688,7 +1709,7 @@ function ClientPage() {
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👩 לקוחות</h2>
     <FB><Sel label="לקוחה:" value={sel} onChange={setSel} options={clients.map(c => ({ value: c, label: c }))} /><Sel label="תצוגה:" value={view} onChange={setView} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />{view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}</FB>
     {!sel ? <p style={{ color: C.mut }}>בחר לקוחה</p> : view === "monthly" ? <>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}><Stat icon="💰" title="הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} /><Stat icon="🏢" title="דרך סוכנות" value={fmtC(bal.through)} /><Stat icon="👩" title="ישירות" value={fmtC(bal.direct)} /><Stat icon="💵" title="זכאות (שכר צפוי)" value={fmtC(bal.ent)} color={C.pri} /></div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}><Stat icon="💰" title="הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} sub={`${clientTxCount} עסקאות`} /><Stat icon="🏢" title="דרך סוכנות" value={fmtC(bal.through)} /><Stat icon="👩" title="ישירות" value={fmtC(bal.direct)} /><Stat icon="💵" title="זכאות (שכר צפוי)" value={fmtC(bal.ent)} color={C.pri} /></div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 16, marginBottom: 16 }}>
         <Card><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={[{ name: "סוכנות", value: bal.through || 1 }, { name: "ישירות", value: bal.direct || 1 }]} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} fontSize={11}><Cell fill={C.pri} /><Cell fill={C.org} /></Pie><Tooltip formatter={v => fmtC(v)} /></PieChart></ResponsiveContainer></Card>
         {byCh.length > 0 && <Card><div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>לפי צ'אטר</div><div style={{ width: "100%", direction: "ltr" }}><ResponsiveContainer width="100%" height={180}><BarChart data={byCh} layout="vertical" margin={{ top: 5, right: 150, bottom: 5, left: 20 }}><XAxis type="number" reversed={true} tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={150} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 0, 0, 4]} name="הכנסות" /></BarChart></ResponsiveContainer></div></Card>}
@@ -2516,6 +2537,17 @@ function ChatterPortal() {
 
   const approved = myIncome.filter(r => isVerified(r.verified));
   const pending = myIncome.filter(r => !isVerified(r.verified));
+
+  const byClient = useMemo(() => {
+    const m = {};
+    myIncome.forEach(r => {
+      if (!r.modelName) return;
+      if (!m[r.modelName]) m[r.modelName] = { name: r.modelName, total: 0, count: 0 };
+      m[r.modelName].total += r.amountILS;
+      m[r.modelName].count += 1;
+    });
+    return Object.values(m).sort((a, b) => b.total - a.total);
+  }, [myIncome]);
   const totalApproved = approved.reduce((s, r) => s + r.amountILS, 0);
   const totalPending = pending.reduce((s, r) => s + r.amountILS, 0);
 
@@ -2577,7 +2609,7 @@ function ChatterPortal() {
         platform: form.platform, date: new Date(form.date), hour: form.hour,
         notes: form.notes, verified: "", shiftLocation: form.shiftLocation,
         buyerName: form.buyerName || "",
-        paidToClient: false, cancelled: false
+        paymentTarget: "agency", paidToClient: false, cancelled: false
       };
       const saved = await addPending(newInc);
       setIncome(prev => [{ ...saved, _fromPending: true }, ...prev]);
@@ -2789,6 +2821,16 @@ function ChatterPortal() {
           { label: "ביטול", render: r => <span style={{ color: r.cancelled ? C.ylw : C.dim }}>{r.cancelled ? "בוטל" : "❌"}</span> }
         ]} rows={approved} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved), ""]} />
       }
+
+      {/* Per-client breakdown */}
+      {byClient.length > 0 && <>
+        <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginTop: 24, marginBottom: 10 }}>👩 הכנסות לפי לקוחה</h3>
+        <DT textSm columns={[
+          { label: "לקוחה", key: "name" },
+          { label: "עסקאות", render: r => <span style={{ color: C.dim }}>{r.count}</span> },
+          { label: "סכום ₪", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(r.total)}</span> },
+        ]} rows={byClient} footer={["סה״כ", myIncome.length, fmtC(myIncome.reduce((s, r) => s + r.amountILS, 0))]} />
+      </>}
     </div>
   </div>;
 }
@@ -2946,8 +2988,8 @@ function ClientPortal() {
   const data = view === "monthly" ? monthData : allData;
 
   const totalIncome = data.reduce((s, r) => s + r.amountILS, 0);
-  const throughAgency = data.filter(r => !r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
-  const direct = data.filter(r => r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
+  const throughAgency = data.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) !== "client").reduce((s, r) => s + r.amountILS, 0);
+  const direct = data.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "client").reduce((s, r) => s + r.amountILS, 0);
   const txCount = data.length;
 
   // Targets: based on previous month's performance
@@ -3219,6 +3261,16 @@ function DebtsPage() {
   const [form, setForm] = useState({ amount: "", direction: "AgencyToClient", notes: "" });
   const [saving, setSaving] = useState(false);
 
+  const chatterDebtRows = useMemo(() => {
+    const names = [...new Set(income.map(r => r.chatterName).filter(Boolean))];
+    return names.map(name => {
+      const rows = income.filter(r => r.chatterName === name && new Date(r.date || 0).getMonth() === month && new Date(r.date || 0).getFullYear() === year);
+      const sal = Calc.chatterSalary(rows);
+      const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+      return { name, sales: rows.reduce((s, r) => s + r.amountILS, 0), salary: sal.total, paidDirect, balance: sal.total - paidDirect };
+    }).sort((a, b) => b.sales - a.sales);
+  }, [income, month, year]);
+
   // Group data by client for the current month
   const monthData = useMemo(() => income.filter(r => new Date(r.date || 0).getMonth() === month && new Date(r.date || 0).getFullYear() === year), [income, month, year]);
 
@@ -3301,6 +3353,26 @@ function DebtsPage() {
         rows={debtRows}
         footer={null} // Omitting total footer for now for simplicity
       />
+    </Card>
+
+    {/* Chatters reconciliation table */}
+    <h3 style={{ color: C.txt, fontSize: 17, fontWeight: 700, marginTop: 32, marginBottom: 12 }}>👥 התחשבנות צ'אטרים — {MONTHS_HE[month]}</h3>
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+      <Stat icon="🔴" title="אנחנו חייבים לצ'אטרים" value={fmtC(chatterDebtRows.filter(r => r.balance > 0).reduce((s, r) => s + r.balance, 0))} color={C.red} />
+      <Stat icon="🟢" title="צ'אטרים חייבים לנו" value={fmtC(Math.abs(chatterDebtRows.filter(r => r.balance < 0).reduce((s, r) => s + r.balance, 0)))} color={C.grn} />
+    </div>
+    <Card style={{ padding: 0, marginBottom: 32 }}>
+      <DT columns={[
+        { label: "צ'אטר", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
+        { label: "מכירות", render: r => <span style={{ color: C.dim }}>{fmtC(r.sales)}</span> },
+        { label: "שכר מגיע", render: r => <span style={{ color: C.pri }}>{fmtC(r.salary)}</span> },
+        { label: "שולם ישירות", render: r => <span style={{ color: C.grn }}>{fmtC(r.paidDirect)}</span> },
+        { label: "יתרה", render: r => {
+          const col = Math.abs(r.balance) < 1 ? C.mut : r.balance > 0 ? C.red : C.grn;
+          const txt = Math.abs(r.balance) < 1 ? "מאוזן" : r.balance > 0 ? "אנחנו חייבים" : "הוא חייב לנו";
+          return <div style={{ color: col, fontWeight: 700 }}><div>{fmtC(Math.abs(r.balance))}</div><div style={{ fontSize: 10 }}>{txt}</div></div>;
+        }}
+      ]} rows={chatterDebtRows} footer={["סה״כ", fmtC(chatterDebtRows.reduce((s,r)=>s+r.sales,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.salary,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.paidDirect,0)), ""]} />
     </Card>
 
     {modalClient && <Modal open={true} onClose={() => setModalClient(null)} title={`תיעוד העברה לקיזוז חוב: ${modalClient.name}`} width={400}>
