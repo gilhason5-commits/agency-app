@@ -382,7 +382,7 @@ const IncSvc = {
     const updated = { ...incRow, paymentTarget: target };
     if (incRow._fromPending) {
       await updatePending(incRow.id, { paymentTarget: target });
-    } else if (!incRow._rowIndex) {
+    } else {
       await updateIncome(incRow.id, { paymentTarget: target });
     }
     return updated;
