@@ -2517,6 +2517,17 @@ function ChatterPortal() {
 
   const approved = myIncome.filter(r => isVerified(r.verified));
   const pending = myIncome.filter(r => !isVerified(r.verified));
+
+  const byClient = useMemo(() => {
+    const m = {};
+    myIncome.forEach(r => {
+      if (!r.modelName) return;
+      if (!m[r.modelName]) m[r.modelName] = { name: r.modelName, total: 0, count: 0 };
+      m[r.modelName].total += r.amountILS;
+      m[r.modelName].count += 1;
+    });
+    return Object.values(m).sort((a, b) => b.total - a.total);
+  }, [myIncome]);
   const totalApproved = approved.reduce((s, r) => s + r.amountILS, 0);
   const totalPending = pending.reduce((s, r) => s + r.amountILS, 0);
 
@@ -2790,6 +2801,16 @@ function ChatterPortal() {
           { label: "ביטול", render: r => <span style={{ color: r.cancelled ? C.ylw : C.dim }}>{r.cancelled ? "בוטל" : "❌"}</span> }
         ]} rows={approved} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved), ""]} />
       }
+
+      {/* Per-client breakdown */}
+      {byClient.length > 0 && <>
+        <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginTop: 24, marginBottom: 10 }}>👩 הכנסות לפי לקוחה</h3>
+        <DT textSm columns={[
+          { label: "לקוחה", key: "name" },
+          { label: "עסקאות", render: r => <span style={{ color: C.dim }}>{r.count}</span> },
+          { label: "סכום ₪", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(r.total)}</span> },
+        ]} rows={byClient} footer={["סה״כ", myIncome.length, fmtC(myIncome.reduce((s, r) => s + r.amountILS, 0))]} />
+      </>}
     </div>
   </div>;
 }
