@@ -933,10 +933,11 @@ function MobileNav({ current, onNav }) {
   const { logout } = useApp();
   const w = useWin();
   if (w >= 768) return null;
-  return <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.card, borderTop: `1px solid ${C.bdr}`, display: "flex", justifyContent: "space-around", padding: "6px 0", zIndex: 900 }}>
-    {NAV.slice(0, 4).map(it => <button key={it.key} onClick={() => onNav(it.key)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "transparent", border: "none", color: current === it.key ? C.pri : C.mut, cursor: "pointer", padding: "4px 6px", fontSize: 9, fontWeight: current === it.key ? 700 : 400 }}><span style={{ fontSize: 18 }}>{it.icon}</span>{it.label}</button>)}
-    <button onClick={() => onNav("record")} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "transparent", border: "none", color: current === "record" ? C.pri : C.mut, cursor: "pointer", padding: "4px 6px", fontSize: 9 }}><span style={{ fontSize: 18 }}>📱</span>תיעוד</button>
-    <button onClick={logout} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "transparent", border: "none", color: C.red, cursor: "pointer", padding: "4px 6px", fontSize: 9 }}><span style={{ fontSize: 18 }}>🚪</span>צא</button>
+  return <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.card, borderTop: `1px solid ${C.bdr}`, zIndex: 900 }}>
+    <div style={{ display: "flex", overflowX: "auto", padding: "6px 4px", WebkitOverflowScrolling: "touch", scrollbarWidth: "none", msOverflowStyle: "none" }}>
+      {NAV.map(it => <button key={it.key} onClick={() => onNav(it.key)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "transparent", border: "none", color: current === it.key ? C.pri : C.mut, cursor: "pointer", padding: "4px 10px", fontSize: 9, fontWeight: current === it.key ? 700 : 400, flexShrink: 0, minWidth: 52 }}><span style={{ fontSize: 18 }}>{it.icon}</span>{it.label}</button>)}
+      <button onClick={logout} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "transparent", border: "none", color: C.red, cursor: "pointer", padding: "4px 10px", fontSize: 9, flexShrink: 0, minWidth: 52 }}><span style={{ fontSize: 18 }}>🚪</span>צא</button>
+    </div>
   </div>;
 }
 function TopBar() {
