@@ -1172,7 +1172,7 @@ function TierCubes({ income }) {
   const chatterTotals = useMemo(() => {
     const map = {};
     income.forEach(r => { if (r.chatterName) map[r.chatterName] = (map[r.chatterName] || 0) + r.amountILS; });
-    return Object.entries(map).sort((a, b) => a[1] - b[1]);
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
   }, [income]);
 
   const bronze = chatterTotals.filter(([, v]) => v <= thresholds.bronze);
