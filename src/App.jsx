@@ -380,7 +380,11 @@ const IncSvc = {
   },
   async setPaymentTarget(incRow, target) {
     const updated = { ...incRow, paymentTarget: target };
-    await updateIncome(incRow.id, { paymentTarget: target });
+    if (incRow._fromPending) {
+      await updatePending(incRow.id, { paymentTarget: target });
+    } else {
+      await updateIncome(incRow.id, { paymentTarget: target });
+    }
     return updated;
   },
   async cancelTransaction(incRow) {
