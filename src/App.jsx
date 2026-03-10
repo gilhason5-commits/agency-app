@@ -5,7 +5,8 @@ import {
   fetchPending, addPending, updatePending, removePending, approvePending, rejectPending, fixOrphanedApprovals,
   fetchUsers, addUser, removeUser, findUser, saveAllUsers,
   fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses,
-  fetchSettlements, addSettlement, removeSettlement
+  fetchSettlements, addSettlement, removeSettlement,
+  fetchChatterTargets, setChatterTarget
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -682,10 +683,12 @@ function Prov({ children }) {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [view, setView] = useState("monthly");
+  const [dateRange, setDateRange] = useState({ from: "", to: "" });
   const [page, setPage] = useState("dashboard");
   const [income, setIncome] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [settlements, setSettlements] = useState([]);
+  const [chatterTargets, setChatterTargets] = useState({});
   const [models, setModels] = useState([]);
   const [history, setHistory] = useState([]);
   const [genParams, setGenParams] = useState(DEFAULT_PARAMS);
@@ -721,6 +724,7 @@ function Prov({ children }) {
       setLoadStep(`נטענו ${inc.length} שורות הכנסה + ${pending.length} ממתינות`);
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
       try { const sets = await fetchSettlements(); console.log("Fetched settlements:", sets); setSettlements(sets); } catch (e) { console.error("Error fetching settlements:", e); }
+      try { const ct = await fetchChatterTargets(); setChatterTargets(ct); } catch (e) { console.error("Error fetching chatterTargets:", e); }
       setConnected(true);
       setTimeout(() => setLoadStep(""), 3000);
     } catch (e) {
@@ -812,11 +816,16 @@ function Prov({ children }) {
   const logout = () => { setUser(null); localStorage.removeItem("AGENCY_USER"); };
 
   const val = useMemo(() => ({
-    year, setYear, month, setMonth, view, setView, page, setPage,
+    year, setYear, month, setMonth, view, setView, dateRange, setDateRange, page, setPage,
     income, setIncome, expenses, setExpenses, settlements, setSettlements, models, setModels,
     history, setHistory, genParams, setGenParams, loading, error,
     connected, setConnected, demo, setDemo, load, loadDemo, rv, updRate,
     loadStep, user, login, logout, sheetUsers, loadSheetUsers, liveRate,
+    chatterTargets, setChatterTargets,
+    saveChatterTarget: async (name, targets) => {
+      await setChatterTarget(name, targets);
+      setChatterTargets(prev => ({ ...prev, [name]: targets }));
+    },
     addSettlement: async (s) => {
       if (demo) {
         const d = { id: `S-${Date.now()}`, ...s, timestamp: Date.now() };
@@ -827,7 +836,7 @@ function Prov({ children }) {
       setSettlements(prev => [...prev, saved]);
       return saved;
     }
-  }), [year, month, view, page, income, expenses, settlements, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate]);
+  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
@@ -870,7 +879,7 @@ function LoginPage() {
 function useApp() { return useContext(Ctx); }
 
 function useFD() {
-  const { year, month, view, income, expenses, models, genParams, liveRate } = useApp();
+  const { year, month, view, dateRange, income, expenses, models, genParams, liveRate } = useApp();
   const dM = useMemo(() => new Date(year, month, 1), [year, month]);
 
   const incomeWithDynamicRate = useMemo(() => {
@@ -892,10 +901,32 @@ function useFD() {
   const iM = useMemo(() => iY.filter(r => r.date.getMonth() === month), [iY, month]);
   const eY = useMemo(() => expenses.filter(r => r.date && r.date.getFullYear() === year), [expenses, year]);
   const eM = useMemo(() => eY.filter(r => r.date.getMonth() === month), [eY, month]);
+  const iRange = useMemo(() => {
+    if (!dateRange.from && !dateRange.to) return [];
+    const from = dateRange.from ? new Date(dateRange.from) : null;
+    const to = dateRange.to ? new Date(dateRange.to + "T23:59:59") : null;
+    return incomeWithCommission.filter(r => {
+      if (!r.date) return false;
+      if (from && r.date < from) return false;
+      if (to && r.date > to) return false;
+      return true;
+    });
+  }, [incomeWithCommission, dateRange]);
+  const eRange = useMemo(() => {
+    if (!dateRange.from && !dateRange.to) return [];
+    const from = dateRange.from ? new Date(dateRange.from) : null;
+    const to = dateRange.to ? new Date(dateRange.to + "T23:59:59") : null;
+    return expenses.filter(r => {
+      if (!r.date) return false;
+      if (from && r.date < from) return false;
+      if (to && r.date > to) return false;
+      return true;
+    });
+  }, [expenses, dateRange]);
   const chatters = useMemo(() => [...new Set(iY.map(r => r.chatterName).filter(Boolean))].sort(), [iY]);
   const platforms = useMemo(() => [...new Set(iY.map(r => r.platform).filter(Boolean))].sort(), [iY]);
   const clients = useMemo(() => [...new Set(iY.map(r => r.modelName).filter(Boolean))].sort(), [iY]);
-  return { dM, iY, iM, eY, eM, chatters, clients, platforms, models, genParams };
+  return { dM, iY, iM, iRange, eY, eM, eRange, chatters, clients, platforms, models, genParams };
 }
 
 // ═══════════════════════════════════════════════════════
@@ -904,6 +935,24 @@ function useFD() {
 function Card({ children, style: s = {}, onClick }) { return <div onClick={onClick} style={{ background: C.card, borderRadius: 12, padding: "16px 20px", border: `1px solid ${C.bdr}`, ...s, ...(onClick ? { cursor: "pointer" } : {}) }}>{children}</div>; }
 function Stat({ title, value, sub, color, icon }) { return <Card style={{ flex: 1, minWidth: 140 }}><div style={{ color: C.dim, fontSize: 12, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>{icon && <span style={{ fontSize: 16 }}>{icon}</span>}{title}</div><div style={{ fontSize: 24, fontWeight: 700, color: color || C.txt }}>{value}</div>{sub && <div style={{ color: C.mut, fontSize: 11, marginTop: 4 }}>{sub}</div>}</Card>; }
 function FB({ children }) { return <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 16, direction: "rtl" }}>{children}</div>; }
+const VIEW_OPTIONS = [{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }, { value: "range", label: "טווח תאריכים" }];
+function ViewFilter({ extraBefore } = {}) {
+  const { view, setView, month, setMonth, dateRange, setDateRange } = useApp();
+  const inp = { background: "var(--c-card,#1e2130)", border: "1px solid #2a2f45", borderRadius: 8, color: "#e2e8f0", padding: "5px 8px", fontSize: 12, outline: "none", cursor: "pointer" };
+  return <>
+    {extraBefore}
+    <Sel label="תצוגה:" value={view} onChange={v => setView(v)} options={VIEW_OPTIONS} />
+    {view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}
+    {view === "range" && <>
+      <label style={{ display: "flex", alignItems: "center", gap: 5, color: "#94a3b8", fontSize: 12 }}>
+        מ-<input type="date" value={dateRange.from} onChange={e => setDateRange(p => ({ ...p, from: e.target.value }))} style={inp} />
+      </label>
+      <label style={{ display: "flex", alignItems: "center", gap: 5, color: "#94a3b8", fontSize: 12 }}>
+        עד<input type="date" value={dateRange.to} onChange={e => setDateRange(p => ({ ...p, to: e.target.value }))} style={inp} />
+      </label>
+    </>}
+  </>;
+}
 function Sel({ label, value, onChange, options, style: s = {} }) { return <label style={{ display: "flex", alignItems: "center", gap: 5, color: C.dim, fontSize: 12, ...s }}>{label}<select value={value} onChange={e => onChange(e.target.value)} style={{ background: C.card, color: C.txt, border: `1px solid ${C.bdr}`, borderRadius: 8, padding: "6px 10px", fontSize: 12, outline: "none" }}>{options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>; }
 function Btn({ children, onClick, variant = "primary", size = "md", style: s = {}, disabled }) { const base = { border: "none", borderRadius: 8, cursor: disabled ? "not-allowed" : "pointer", fontWeight: 600, transition: "all 0.2s", opacity: disabled ? .5 : 1 }; const sz = { sm: { padding: "5px 10px", fontSize: 11 }, md: { padding: "8px 16px", fontSize: 12 }, lg: { padding: "12px 22px", fontSize: 14 } }; const vr = { primary: { background: C.pri, color: "#fff" }, success: { background: C.grn, color: "#fff" }, danger: { background: C.red, color: "#fff" }, ghost: { background: "transparent", color: C.dim, border: `1px solid ${C.bdr}` }, warning: { background: C.ylw, color: "#000" } }; return <button onClick={disabled ? undefined : onClick} style={{ ...base, ...sz[size], ...vr[variant], ...s }}>{children}</button>; }
 function Modal({ open, onClose, title, children, width = 560 }) { if (!open) return null; return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000, padding: 16 }} onClick={onClose}><div onClick={e => e.stopPropagation()} style={{ background: C.bg, borderRadius: 16, padding: 24, maxWidth: width, width: "100%", maxHeight: "85vh", overflowY: "auto", border: `1px solid ${C.bdr}`, direction: "rtl" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}><h3 style={{ color: C.txt, margin: 0, fontSize: 16 }}>{title}</h3><Btn variant="ghost" size="sm" onClick={onClose}>✕</Btn></div>{children}</div></div>; }
@@ -1050,9 +1099,11 @@ function SetupPage() {
 // ═══════════════════════════════════════════════════════
 function DashPage() {
   const { year, month, setMonth, view, setView, liveRate } = useApp();
-  const { iM, iY, eM, eY, targets } = useFD();
+  const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
-  const mp = Calc.profit(iM, eM);
+  const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
+  const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
+  const mp = Calc.profit(activeI, activeE);
   const mbd = useMemo(() => {
     let lastDays = 31, lastInc = 0;
     return MONTHS_HE.map((m, i) => {
@@ -1098,7 +1149,7 @@ function DashPage() {
         </Card>;
       })}
     </div>
-    <FB><Sel label="תצוגה:" value={view} onChange={setView} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />{view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}</FB>
+    <FB><ViewFilter /></FB>
     {view === "monthly" ? <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
       <Stat icon="💰" title={`צפי הכנסות — ${MONTHS_HE[month]}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iM.length} עסקאות`} />
       <Stat icon="📈" title="צפי רווח לפני מיסים" value={fmtC(mp.profit)} color={mp.profit >= 0 ? C.grn : C.red} sub={`הוצאות: ${fmtC(mp.exp)}`} />
@@ -1237,13 +1288,14 @@ function TierCubes({ income }) {
 // ═══════════════════════════════════════════════════════
 function IncPage() {
   const { year, month, setMonth, view, setView, setIncome, liveRate } = useApp();
-  const { iM, iY, chatters, clients, platforms } = useFD();
-  const incTypes = useMemo(() => [...new Set((view === "monthly" ? iM : iY).map(r => r.incomeType).filter(Boolean))].sort(), [iM, iY, view]);
+  const { iM, iY, iRange, chatters, clients, platforms } = useFD();
+  const activeInc = view === "range" ? iRange : view === "monthly" ? iM : iY;
+  const incTypes = useMemo(() => [...new Set(activeInc.map(r => r.incomeType).filter(Boolean))].sort(), [activeInc]);
   const [fP, setFP] = useState("all"), [fC, setFC] = useState("all"), [fCh, setFCh] = useState("all"), [fL, setFL] = useState("all"), [fT, setFT] = useState("all"), [xAxis, setXAxis] = useState("date");
   const [showIncForm, setShowIncForm] = useState(false);
   const [editTx, setEditTx] = useState(null);
 
-  const data = (view === "monthly" ? iM : iY).filter(r => (fP === "all" || r.platform === fP) && (fC === "all" || r.modelName === fC) && (fCh === "all" || r.chatterName === fCh) && (fL === "all" || r.shiftLocation === fL) && (fT === "all" || r.incomeType === fT));
+  const data = activeInc.filter(r => (fP === "all" || r.platform === fP) && (fC === "all" || r.modelName === fC) && (fCh === "all" || r.chatterName === fCh) && (fL === "all" || r.shiftLocation === fL) && (fT === "all" || r.incomeType === fT));
   const totalILS = data.reduce((s, r) => s + (r.rawILS || 0), 0);
   const totalUSD = data.reduce((s, r) => s + (r.amountUSD || 0), 0);
   const usdInILS = totalUSD * liveRate;
@@ -1284,7 +1336,7 @@ function IncPage() {
         <Btn variant="success" size="sm" onClick={() => setShowIncForm(true)}>➕ הוסף הכנסה ידנית</Btn>
       </div>
     </div>
-    <FB><Sel label="תצוגה:" value={view} onChange={setView} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />{view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}</FB>
+    <FB><ViewFilter /></FB>
     <FB><Sel label="פלטפורמה:" value={fP} onChange={setFP} options={[{ value: "all", label: "הכל" }, ...platforms.map(p => ({ value: p, label: p }))]} /><Sel label="סוג הכנסה:" value={fT} onChange={setFT} options={[{ value: "all", label: "הכל" }, ...incTypes.map(t => ({ value: t, label: t }))]} /><Sel label="לקוחה:" value={fC} onChange={setFC} options={[{ value: "all", label: "הכל" }, ...clients.map(c => ({ value: c, label: c }))]} /><Sel label="צ'אטר:" value={fCh} onChange={setFCh} options={[{ value: "all", label: "הכל" }, ...chatters.map(c => ({ value: c, label: c }))]} /><Sel label="מיקום:" value={fL} onChange={setFL} options={[{ value: "all", label: "הכל" }, { value: "משרד", label: "משרד" }, { value: "חוץ", label: "חוץ" }]} /></FB>
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
       <Stat icon="💰" title="סה״כ ₪" value={fmtC(grandTotal)} color={C.grn} sub={`${data.length} עסקאות • שער $: ₪${liveRate.toFixed(2)}`} />
@@ -1610,7 +1662,7 @@ function ExpPage() {
       <div style={{ color: C.dim, fontSize: 14, marginBottom: 8 }}>גיליון הוצאות עדיין לא מחובר</div>
       <div style={{ color: C.mut, fontSize: 12 }}>כשתוסיף את גיליון "הוצאות כולל" ל-Sheets, הנתונים יופיעו כאן</div>
     </Card> : <>
-      <FB><Sel label="תצוגה:" value={view} onChange={setView} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />{view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}</FB>
+      <FB><ViewFilter /></FB>
       {view === "monthly" ? <>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 16 }}>
           <Stat icon="💳" title={`סה״כ — ${MONTHS_HE[month]}`} value={fmtC(total)} color={C.red} style={{ flex: 1, minWidth: 200 }} />
@@ -1652,17 +1704,17 @@ function ExpPage() {
 // PAGE: CHATTERS
 // ═══════════════════════════════════════════════════════
 function ChatterPage() {
-  const { year, month, setMonth, view, setView } = useApp(); const { iM, iY, chatters } = useFD(); const [sel, setSel] = useState("");
+  const { year, month, setMonth, view, setView } = useApp(); const { iM, iY, iRange, chatters } = useFD(); const [sel, setSel] = useState("");
   useEffect(() => { if (chatters.length && !sel) setSel(chatters[0]); }, [chatters, sel]);
-  const incD = view === "monthly" ? iM : iY; const rows = incD.filter(r => r.chatterName === sel); const sal = Calc.chatterSalary(rows); const tot = rows.reduce((s, r) => s + r.amountILS, 0);
+  const incD = view === "range" ? iRange : view === "monthly" ? iM : iY; const rows = incD.filter(r => r.chatterName === sel); const sal = Calc.chatterSalary(rows); const tot = rows.reduce((s, r) => s + r.amountILS, 0);
   const byCl = useMemo(() => { const m = {}; rows.forEach(r => { m[r.modelName] = (m[r.modelName] || 0) + r.amountILS; }); return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value })); }, [rows]);
   const byType = useMemo(() => { const m = {}; rows.forEach(r => { if (r.incomeType) { m[r.incomeType] = (m[r.incomeType] || 0) + r.amountILS; } }); return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value })); }, [rows]);
   const mbd = useMemo(() => { if (view !== "yearly") return []; return MONTHS_HE.map((m, i) => { const mr = iY.filter(r => r.chatterName === sel && r.date && r.date.getMonth() === i); const s = Calc.chatterSalary(mr); return { month: m, ms: MONTHS_SHORT[i], sales: mr.reduce((sum, r) => sum + r.amountILS, 0), ...s }; }); }, [iY, sel, view]);
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👥 צ'אטרים</h2>
-    <FB><Sel label="צ'אטר:" value={sel} onChange={setSel} options={chatters.map(c => ({ value: c, label: c }))} /><Sel label="תצוגה:" value={view} onChange={setView} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />{view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}</FB>
-    {!sel ? <p style={{ color: C.mut }}>בחר צ'אטר</p> : view === "monthly" ? <>
+    <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value={sel} onChange={setSel} options={chatters.map(c => ({ value: c, label: c }))} />} /></FB>
+    {!sel ? <p style={{ color: C.mut }}>בחר צ'אטר</p> : (view === "monthly" || view === "range") ? <>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <Stat icon="💰" title="מכירות" value={fmtC(tot)} color={C.grn} sub={`${rows.length} עסקאות`} /><Stat icon="🏢" title="משרד" value={fmtC(sal.oSales)} sub={`שכר: ${fmtC(sal.oSal)}`} /><Stat icon="🏠" title="חוץ" value={fmtC(sal.rSales)} sub={`שכר: ${fmtC(sal.rSal)}`} /><Stat icon="💵" title="משכורת" value={fmtC(sal.total)} color={C.pri} /></div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
@@ -1694,10 +1746,10 @@ function ChatterPage() {
 // PAGE: CLIENTS
 // ═══════════════════════════════════════════════════════
 function ClientPage() {
-  const { year, month, setMonth, view, setView, rv, updRate, setIncome } = useApp(); const { iM, iY, clients } = useFD();
+  const { year, month, setMonth, view, setView, rv, updRate, setIncome } = useApp(); const { iM, iY, iRange, clients } = useFD();
   const [sel, setSel] = useState(""), [editPct, setEditPct] = useState(false), [pv, setPv] = useState(0);
   useEffect(() => { if (clients.length && !sel) setSel(clients[0]); }, [clients, sel]);
-  const ymi = ym(year, month), pct = getRate(sel, ymi); const incD = view === "monthly" ? iM : iY; const bal = Calc.clientBal(incD, sel, pct); const clientTxCount = incD.filter(r => r.modelName === sel).length;
+  const ymi = ym(year, month), pct = getRate(sel, ymi); const incD = view === "range" ? iRange : view === "monthly" ? iM : iY; const bal = Calc.clientBal(incD, sel, pct); const clientTxCount = incD.filter(r => r.modelName === sel).length;
 
   const togglePaid = async (r) => {
     try {
@@ -1711,8 +1763,8 @@ function ClientPage() {
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👩 לקוחות</h2>
-    <FB><Sel label="לקוחה:" value={sel} onChange={setSel} options={clients.map(c => ({ value: c, label: c }))} /><Sel label="תצוגה:" value={view} onChange={setView} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />{view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}</FB>
-    {!sel ? <p style={{ color: C.mut }}>בחר לקוחה</p> : view === "monthly" ? <>
+    <FB><ViewFilter extraBefore={<Sel label="לקוחה:" value={sel} onChange={setSel} options={clients.map(c => ({ value: c, label: c }))} />} /></FB>
+    {!sel ? <p style={{ color: C.mut }}>בחר לקוחה</p> : (view === "monthly" || view === "range") ? <>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}><Stat icon="💰" title="הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} sub={`${clientTxCount} עסקאות`} /><Stat icon="🏢" title="דרך סוכנות" value={fmtC(bal.through)} /><Stat icon="👩" title="ישירות" value={fmtC(bal.direct)} /><Stat icon="💵" title="זכאות (שכר צפוי)" value={fmtC(bal.ent)} color={C.pri} /></div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 16, marginBottom: 16 }}>
         <Card><ResponsiveContainer width="100%" height={180}><PieChart><Pie data={[{ name: "סוכנות", value: bal.through || 1 }, { name: "ישירות", value: bal.direct || 1 }]} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} fontSize={11}><Cell fill={C.pri} /><Cell fill={C.org} /></Pie><Tooltip formatter={v => fmtC(v)} /></PieChart></ResponsiveContainer></Card>
@@ -1746,9 +1798,11 @@ function ClientPage() {
 // PAGE: TARGETS
 // ═══════════════════════════════════════════════════════
 function TgtPage() {
-  const { year, month, liveRate } = useApp();
+  const { year, month, liveRate, chatterTargets, saveChatterTarget } = useApp();
   const { iY } = useFD();
   const [selMonth, setSelMonth] = useState(null);
+  const [editTarget, setEditTarget] = useState(null); // { name, t1, t2, t3 }
+  const [savingTarget, setSavingTarget] = useState(false);
 
   const mbd = useMemo(() => {
     let lastDays = 31, lastInc = 0;
@@ -1796,28 +1850,33 @@ function TgtPage() {
     };
   }, [iY, selMonth, year, month]);
 
-  const renderMiniCards = (title, icon, entities) => {
+  const renderMiniCards = (title, icon, entities, isChatter = false) => {
     if (!entities.length) return null;
     return <div style={{ marginBottom: 20 }}>
       <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{icon} {title}</h4>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
         {entities.map(e => {
-          const hit1 = e.curInc >= e.t1, hit2 = e.curInc >= e.t2, hit3 = e.curInc >= e.t3;
+          const custom = isChatter && chatterTargets[e.name];
+          const t1 = custom ? custom.t1 : e.t1;
+          const t2 = custom ? custom.t2 : e.t2;
+          const t3 = custom ? custom.t3 : e.t3;
+          const hit1 = e.curInc >= t1, hit2 = e.curInc >= t2, hit3 = e.curInc >= t3;
           const color = hit3 ? C.grn : hit2 ? C.ylw : hit1 ? C.pri : C.red;
-          return <div key={e.name} style={{
-            background: C.card, borderRadius: 10, padding: "10px 12px",
-            border: `1px solid ${color}44`
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+          return <div key={e.name} style={{ background: C.card, borderRadius: 10, padding: "10px 12px", border: `1px solid ${color}44` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: C.txt }}>{e.name}</span>
-              <span style={{ fontSize: 12, fontWeight: 600, color }}>{fmtC(e.daily)} /יום</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color }}>{fmtC(e.daily)} /יום</span>
+                {isChatter && <button onClick={() => setEditTarget({ name: e.name, t1: String(Math.round(t1)), t2: String(Math.round(t2)), t3: String(Math.round(t3)) })} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.dim, padding: "0 2px", lineHeight: 1 }} title="עריכת יעדים">✏️</button>}
+              </div>
             </div>
             <div style={{ fontSize: 11, color: C.dim, marginBottom: 6 }}>
               בפועל: <strong style={{ color: C.txt }}>{fmtC(e.curInc)}</strong>
               {e.prevInc > 0 && <> | חודש קודם: <strong>{fmtC(e.prevInc)}</strong></>}
+              {custom && <span style={{ color: C.ylw, marginRight: 4 }}> ✎ יעד ידני</span>}
             </div>
             <div style={{ display: "flex", gap: 4 }}>
-              {[{ label: "+5%", val: e.t1, hit: hit1 }, { label: "+10%", val: e.t2, hit: hit2 }, { label: "+15%", val: e.t3, hit: hit3 }].map(t => (
+              {[{ label: "+5%", val: t1, hit: hit1 }, { label: "+10%", val: t2, hit: hit2 }, { label: "+15%", val: t3, hit: hit3 }].map(t => (
                 <div key={t.label} style={{
                   flex: 1, textAlign: "center", padding: "4px 2px", borderRadius: 6, fontSize: 10,
                   background: t.hit ? `${C.grn}22` : `${C.bg}`,
@@ -1897,13 +1956,41 @@ function TgtPage() {
     {/* Drill-down Modal */}
     <Modal open={selMonth !== null} onClose={() => setSelMonth(null)} title={`📊 פירוט יעדים — ${selMonth !== null ? MONTHS_HE[selMonth] : ""}`} width={700}>
       {selMonth !== null && <>
-        {renderMiniCards("יעדים לפי צ'אטר", "👤", entityTargets.chatters)}
-        {renderMiniCards("יעדים לפי לקוחה", "👑", entityTargets.clients)}
+        {renderMiniCards("יעדים לפי צ'אטר", "👤", entityTargets.chatters, true)}
+        {renderMiniCards("יעדים לפי לקוחה", "👑", entityTargets.clients, false)}
         {entityTargets.chatters.length === 0 && entityTargets.clients.length === 0 && (
           <div style={{ color: C.mut, textAlign: "center", padding: 20 }}>אין נתונים לחודש זה</div>
         )}
       </>}
     </Modal>
+
+    {editTarget && <Modal open={true} onClose={() => setEditTarget(null)} title={`✏️ עריכת יעדים — ${editTarget.name}`} width={380}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <p style={{ color: C.dim, fontSize: 12, margin: 0 }}>הגדר יעדים ידניים לצ'אטר. יעדים אלו יוצגו גם בפורטל הפרטי שלו.</p>
+        {[{ key: "t1", label: "יעד 1 (קטן) ₪" }, { key: "t2", label: "יעד 2 (בינוני) ₪" }, { key: "t3", label: "יעד 3 (גדול) ₪" }].map(({ key, label }) => (
+          <div key={key}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>{label}</label>
+            <input type="number" value={editTarget[key]} onChange={e => setEditTarget(prev => ({ ...prev, [key]: e.target.value }))}
+              style={{ width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 16, outline: "none", boxSizing: "border-box" }} />
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+          <Btn variant="success" style={{ flex: 1 }} disabled={savingTarget} onClick={async () => {
+            setSavingTarget(true);
+            await saveChatterTarget(editTarget.name, { t1: +editTarget.t1, t2: +editTarget.t2, t3: +editTarget.t3 });
+            setSavingTarget(false);
+            setEditTarget(null);
+          }}>{savingTarget ? "⏳ שומר..." : "💾 שמור"}</Btn>
+          {chatterTargets[editTarget.name] && <Btn variant="ghost" disabled={savingTarget} onClick={async () => {
+            setSavingTarget(true);
+            await saveChatterTarget(editTarget.name, null);
+            setSavingTarget(false);
+            setEditTarget(null);
+          }}>🗑️ איפוס לאוטומטי</Btn>}
+          <Btn variant="ghost" onClick={() => setEditTarget(null)}>ביטול</Btn>
+        </div>
+      </div>
+    </Modal>}
   </div>;
 }
 
@@ -2515,7 +2602,7 @@ ${overridesText || "אין"}
 // CHATTER PORTAL
 // ═══════════════════════════════════════════════════════
 function ChatterPortal() {
-  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth } = useApp();
+  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets } = useApp();
   const { iM, iY } = useFD();
   const w = useWin();
   const chatterName = user?.name || "";
@@ -2570,13 +2657,22 @@ function ChatterPortal() {
   const daysInCurrentMonth = new Date(year, month + 1, 0).getDate();
   const daysSoFar = Math.min(new Date().getDate(), daysInCurrentMonth);
 
-  // Target goals based on last month 
-  const targets = [
-    { label: "יעד 10%", pct: 10, color: "#22c55e" },
-    { label: "יעד 20%", pct: 20, color: "#f59e0b" },
-    { label: "יעד 30%", pct: 30, color: "#ef4444" },
-  ].map(t => {
-    const goal = Math.round(lastMonthTotal * (1 + t.pct / 100));
+  // Target goals — use custom targets if set by admin, otherwise compute from last month
+  const customT = chatterTargets[chatterName];
+  const autoTargets = [
+    { label: "יעד 5%", val: Math.round(lastMonthTotal * 1.05), color: "#22c55e" },
+    { label: "יעד 10%", val: Math.round(lastMonthTotal * 1.10), color: "#f59e0b" },
+    { label: "יעד 15%", val: Math.round(lastMonthTotal * 1.15), color: "#ef4444" },
+  ];
+  const targets = customT
+    ? [
+        { label: "יעד 1", val: customT.t1, color: "#22c55e" },
+        { label: "יעד 2", val: customT.t2, color: "#f59e0b" },
+        { label: "יעד 3", val: customT.t3, color: "#ef4444" },
+      ]
+    : autoTargets;
+  const targetsWithProgress = targets.map(t => {
+    const goal = t.val;
     const progress = goal > 0 ? Math.min(Math.round((currentMonthTotal / goal) * 100), 100) : 0;
     return { ...t, goal, progress };
   });
@@ -2664,11 +2760,11 @@ function ChatterPortal() {
           </div>
         </div>
 
-        {lastMonthTotal === 0 ? (
+        {lastMonthTotal === 0 && !customT ? (
           <div style={{ color: C.mut, fontSize: 13, textAlign: "center", padding: 16 }}>אין נתונים מחודש קודם לחישוב יעדים</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {targets.map((t, i) => (
+            {targetsWithProgress.map((t, i) => (
               <div key={i}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
