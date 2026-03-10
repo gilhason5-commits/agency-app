@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase/app";
 import {
     getFirestore, collection, getDocs, addDoc, updateDoc,
-    deleteDoc, doc, writeBatch
+    deleteDoc, doc, writeBatch, setDoc
 } from "firebase/firestore";
 
 // Firebase configuration (hardcoded to work without env vars, as it was before)
@@ -426,4 +426,18 @@ export async function addSettlement(data) {
 
 export async function removeSettlement(id) {
     await deleteDoc(doc(db, "settlements", id));
+}
+
+// ═══════════════════════════════════════════════════════
+// CHATTER TARGETS API
+// ═══════════════════════════════════════════════════════
+export async function fetchChatterTargets() {
+    const snap = await getDocs(collection(db, "chatterTargets"));
+    const result = {};
+    snap.forEach(d => { result[d.id] = d.data(); });
+    return result;
+}
+
+export async function setChatterTarget(chatterName, targets) {
+    await setDoc(doc(db, "chatterTargets", chatterName), targets);
 }

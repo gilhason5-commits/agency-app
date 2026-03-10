@@ -5,7 +5,8 @@ import {
   fetchPending, addPending, updatePending, removePending, approvePending, rejectPending, fixOrphanedApprovals,
   fetchUsers, addUser, removeUser, findUser, saveAllUsers,
   fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses,
-  fetchSettlements, addSettlement, removeSettlement
+  fetchSettlements, addSettlement, removeSettlement,
+  fetchChatterTargets, setChatterTarget
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -686,6 +687,7 @@ function Prov({ children }) {
   const [income, setIncome] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [settlements, setSettlements] = useState([]);
+  const [chatterTargets, setChatterTargets] = useState({});
   const [models, setModels] = useState([]);
   const [history, setHistory] = useState([]);
   const [genParams, setGenParams] = useState(DEFAULT_PARAMS);
@@ -721,6 +723,7 @@ function Prov({ children }) {
       setLoadStep(`נטענו ${inc.length} שורות הכנסה + ${pending.length} ממתינות`);
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
       try { const sets = await fetchSettlements(); console.log("Fetched settlements:", sets); setSettlements(sets); } catch (e) { console.error("Error fetching settlements:", e); }
+      try { const ct = await fetchChatterTargets(); setChatterTargets(ct); } catch (e) { console.error("Error fetching chatterTargets:", e); }
       setConnected(true);
       setTimeout(() => setLoadStep(""), 3000);
     } catch (e) {
@@ -817,6 +820,11 @@ function Prov({ children }) {
     history, setHistory, genParams, setGenParams, loading, error,
     connected, setConnected, demo, setDemo, load, loadDemo, rv, updRate,
     loadStep, user, login, logout, sheetUsers, loadSheetUsers, liveRate,
+    chatterTargets, setChatterTargets,
+    saveChatterTarget: async (name, targets) => {
+      await setChatterTarget(name, targets);
+      setChatterTargets(prev => ({ ...prev, [name]: targets }));
+    },
     addSettlement: async (s) => {
       if (demo) {
         const d = { id: `S-${Date.now()}`, ...s, timestamp: Date.now() };
@@ -827,7 +835,7 @@ function Prov({ children }) {
       setSettlements(prev => [...prev, saved]);
       return saved;
     }
-  }), [year, month, view, page, income, expenses, settlements, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate]);
+  }), [year, month, view, page, income, expenses, settlements, chatterTargets, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
@@ -1746,9 +1754,11 @@ function ClientPage() {
 // PAGE: TARGETS
 // ═══════════════════════════════════════════════════════
 function TgtPage() {
-  const { year, month, liveRate } = useApp();
+  const { year, month, liveRate, chatterTargets, saveChatterTarget } = useApp();
   const { iY } = useFD();
   const [selMonth, setSelMonth] = useState(null);
+  const [editTarget, setEditTarget] = useState(null); // { name, t1, t2, t3 }
+  const [savingTarget, setSavingTarget] = useState(false);
 
   const mbd = useMemo(() => {
     let lastDays = 31, lastInc = 0;
@@ -1796,28 +1806,33 @@ function TgtPage() {
     };
   }, [iY, selMonth, year, month]);
 
-  const renderMiniCards = (title, icon, entities) => {
+  const renderMiniCards = (title, icon, entities, isChatter = false) => {
     if (!entities.length) return null;
     return <div style={{ marginBottom: 20 }}>
       <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{icon} {title}</h4>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
         {entities.map(e => {
-          const hit1 = e.curInc >= e.t1, hit2 = e.curInc >= e.t2, hit3 = e.curInc >= e.t3;
+          const custom = isChatter && chatterTargets[e.name];
+          const t1 = custom ? custom.t1 : e.t1;
+          const t2 = custom ? custom.t2 : e.t2;
+          const t3 = custom ? custom.t3 : e.t3;
+          const hit1 = e.curInc >= t1, hit2 = e.curInc >= t2, hit3 = e.curInc >= t3;
           const color = hit3 ? C.grn : hit2 ? C.ylw : hit1 ? C.pri : C.red;
-          return <div key={e.name} style={{
-            background: C.card, borderRadius: 10, padding: "10px 12px",
-            border: `1px solid ${color}44`
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+          return <div key={e.name} style={{ background: C.card, borderRadius: 10, padding: "10px 12px", border: `1px solid ${color}44` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: C.txt }}>{e.name}</span>
-              <span style={{ fontSize: 12, fontWeight: 600, color }}>{fmtC(e.daily)} /יום</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color }}>{fmtC(e.daily)} /יום</span>
+                {isChatter && <button onClick={() => setEditTarget({ name: e.name, t1: String(Math.round(t1)), t2: String(Math.round(t2)), t3: String(Math.round(t3)) })} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.dim, padding: "0 2px", lineHeight: 1 }} title="עריכת יעדים">✏️</button>}
+              </div>
             </div>
             <div style={{ fontSize: 11, color: C.dim, marginBottom: 6 }}>
               בפועל: <strong style={{ color: C.txt }}>{fmtC(e.curInc)}</strong>
               {e.prevInc > 0 && <> | חודש קודם: <strong>{fmtC(e.prevInc)}</strong></>}
+              {custom && <span style={{ color: C.ylw, marginRight: 4 }}> ✎ יעד ידני</span>}
             </div>
             <div style={{ display: "flex", gap: 4 }}>
-              {[{ label: "+5%", val: e.t1, hit: hit1 }, { label: "+10%", val: e.t2, hit: hit2 }, { label: "+15%", val: e.t3, hit: hit3 }].map(t => (
+              {[{ label: "+5%", val: t1, hit: hit1 }, { label: "+10%", val: t2, hit: hit2 }, { label: "+15%", val: t3, hit: hit3 }].map(t => (
                 <div key={t.label} style={{
                   flex: 1, textAlign: "center", padding: "4px 2px", borderRadius: 6, fontSize: 10,
                   background: t.hit ? `${C.grn}22` : `${C.bg}`,
@@ -1897,13 +1912,41 @@ function TgtPage() {
     {/* Drill-down Modal */}
     <Modal open={selMonth !== null} onClose={() => setSelMonth(null)} title={`📊 פירוט יעדים — ${selMonth !== null ? MONTHS_HE[selMonth] : ""}`} width={700}>
       {selMonth !== null && <>
-        {renderMiniCards("יעדים לפי צ'אטר", "👤", entityTargets.chatters)}
-        {renderMiniCards("יעדים לפי לקוחה", "👑", entityTargets.clients)}
+        {renderMiniCards("יעדים לפי צ'אטר", "👤", entityTargets.chatters, true)}
+        {renderMiniCards("יעדים לפי לקוחה", "👑", entityTargets.clients, false)}
         {entityTargets.chatters.length === 0 && entityTargets.clients.length === 0 && (
           <div style={{ color: C.mut, textAlign: "center", padding: 20 }}>אין נתונים לחודש זה</div>
         )}
       </>}
     </Modal>
+
+    {editTarget && <Modal open={true} onClose={() => setEditTarget(null)} title={`✏️ עריכת יעדים — ${editTarget.name}`} width={380}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <p style={{ color: C.dim, fontSize: 12, margin: 0 }}>הגדר יעדים ידניים לצ'אטר. יעדים אלו יוצגו גם בפורטל הפרטי שלו.</p>
+        {[{ key: "t1", label: "יעד 1 (קטן) ₪" }, { key: "t2", label: "יעד 2 (בינוני) ₪" }, { key: "t3", label: "יעד 3 (גדול) ₪" }].map(({ key, label }) => (
+          <div key={key}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>{label}</label>
+            <input type="number" value={editTarget[key]} onChange={e => setEditTarget(prev => ({ ...prev, [key]: e.target.value }))}
+              style={{ width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 16, outline: "none", boxSizing: "border-box" }} />
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+          <Btn variant="success" style={{ flex: 1 }} disabled={savingTarget} onClick={async () => {
+            setSavingTarget(true);
+            await saveChatterTarget(editTarget.name, { t1: +editTarget.t1, t2: +editTarget.t2, t3: +editTarget.t3 });
+            setSavingTarget(false);
+            setEditTarget(null);
+          }}>{savingTarget ? "⏳ שומר..." : "💾 שמור"}</Btn>
+          {chatterTargets[editTarget.name] && <Btn variant="ghost" disabled={savingTarget} onClick={async () => {
+            setSavingTarget(true);
+            await saveChatterTarget(editTarget.name, null);
+            setSavingTarget(false);
+            setEditTarget(null);
+          }}>🗑️ איפוס לאוטומטי</Btn>}
+          <Btn variant="ghost" onClick={() => setEditTarget(null)}>ביטול</Btn>
+        </div>
+      </div>
+    </Modal>}
   </div>;
 }
 
@@ -2515,7 +2558,7 @@ ${overridesText || "אין"}
 // CHATTER PORTAL
 // ═══════════════════════════════════════════════════════
 function ChatterPortal() {
-  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth } = useApp();
+  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets } = useApp();
   const { iM, iY } = useFD();
   const w = useWin();
   const chatterName = user?.name || "";
@@ -2570,13 +2613,22 @@ function ChatterPortal() {
   const daysInCurrentMonth = new Date(year, month + 1, 0).getDate();
   const daysSoFar = Math.min(new Date().getDate(), daysInCurrentMonth);
 
-  // Target goals based on last month 
-  const targets = [
-    { label: "יעד 10%", pct: 10, color: "#22c55e" },
-    { label: "יעד 20%", pct: 20, color: "#f59e0b" },
-    { label: "יעד 30%", pct: 30, color: "#ef4444" },
-  ].map(t => {
-    const goal = Math.round(lastMonthTotal * (1 + t.pct / 100));
+  // Target goals — use custom targets if set by admin, otherwise compute from last month
+  const customT = chatterTargets[chatterName];
+  const autoTargets = [
+    { label: "יעד 5%", val: Math.round(lastMonthTotal * 1.05), color: "#22c55e" },
+    { label: "יעד 10%", val: Math.round(lastMonthTotal * 1.10), color: "#f59e0b" },
+    { label: "יעד 15%", val: Math.round(lastMonthTotal * 1.15), color: "#ef4444" },
+  ];
+  const targets = customT
+    ? [
+        { label: "יעד 1", val: customT.t1, color: "#22c55e" },
+        { label: "יעד 2", val: customT.t2, color: "#f59e0b" },
+        { label: "יעד 3", val: customT.t3, color: "#ef4444" },
+      ]
+    : autoTargets;
+  const targetsWithProgress = targets.map(t => {
+    const goal = t.val;
     const progress = goal > 0 ? Math.min(Math.round((currentMonthTotal / goal) * 100), 100) : 0;
     return { ...t, goal, progress };
   });
@@ -2664,11 +2716,11 @@ function ChatterPortal() {
           </div>
         </div>
 
-        {lastMonthTotal === 0 ? (
+        {lastMonthTotal === 0 && !customT ? (
           <div style={{ color: C.mut, fontSize: 13, textAlign: "center", padding: 16 }}>אין נתונים מחודש קודם לחישוב יעדים</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {targets.map((t, i) => (
+            {targetsWithProgress.map((t, i) => (
               <div key={i}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
