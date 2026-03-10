@@ -3083,7 +3083,7 @@ function ClientPortal() {
   useEffect(() => { if (!connected && !demo) { load().then(() => setConnected(true)).catch(() => loadDemo()); } }, []);
 
   const clientName = user?.name;
-  const allData = useMemo(() => income.filter(r => r.date && r.date.getFullYear() === year && r.modelName === clientName).map(r => applyCommission(r, liveRate)), [income, year, clientName, liveRate]);
+  const allData = useMemo(() => income.filter(r => r.date && r.date.getFullYear() === year && r.modelName === clientName && !r.cancelled).map(r => applyCommission(r, liveRate)), [income, year, clientName, liveRate]);
   const monthData = useMemo(() => allData.filter(r => r.date.getMonth() === month), [allData, month]);
   const data = view === "monthly" ? monthData : allData;
 
