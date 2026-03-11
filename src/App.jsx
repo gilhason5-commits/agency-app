@@ -2981,7 +2981,7 @@ function ChatterPortal() {
       </div>
     </div>
 
-    <div style={{ maxWidth: 700, margin: "0 auto", padding: w < 768 ? "16px 10px" : "24px" }}>
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: w < 768 ? "16px 10px" : "24px" }}>
       {/* Summary Cards */}
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <Stat icon="✅" title="מאושרות" value={fmtC(totalApproved)} sub={`${approved.length} עסקאות`} color={C.grn} />
@@ -3387,7 +3387,7 @@ function ClientPortal() {
   if (loading) return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ color: C.pri, fontSize: 18 }}>⏳ טוען...</div></div>;
 
   return <div style={{ minHeight: "100vh", background: C.bg, padding: w < 768 ? 12 : 24 }}>
-    <div style={{ maxWidth: 800, margin: "0 auto", direction: "rtl" }}>
+    <div style={{ maxWidth: 1100, margin: "0 auto", direction: "rtl" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>👩 שלום, {clientName}</h2>
         <Btn variant="ghost" size="sm" onClick={logout}>🚪 יציאה</Btn>
