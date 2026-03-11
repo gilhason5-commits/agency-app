@@ -866,8 +866,8 @@ function Prov({ children }) {
     },
     chatterSettings, setChatterSettings,
     saveChatterSetting: async (name, settings) => {
-      await saveChatterSettings(name, settings);
       setChatterSettings(prev => ({ ...prev, [name]: { ...(prev[name] || {}), ...settings } }));
+      await saveChatterSettings(name, settings);
     },
     addSettlement: async (s) => {
       if (demo) {
@@ -3562,7 +3562,7 @@ function DebtsPage() {
       const finalBalance = Math.abs(balance) * (hasVat ? 1.18 : 1);
       return { name, sales: rows.reduce((s, r) => s + r.amountILS, 0), salary: sal.total, paidDirect, balance, hasVat, vatAmt, finalBalance };
     }).sort((a, b) => b.sales - a.sales);
-  }, [income, month, year]);
+  }, [income, month, year, chatterSettings]);
 
   // Group data by client for the current month
   const monthData = useMemo(() => income.filter(r => new Date(r.date || 0).getMonth() === month && new Date(r.date || 0).getFullYear() === year), [income, month, year]);
@@ -3651,8 +3651,8 @@ function DebtsPage() {
     {/* Chatters reconciliation table */}
     <h3 style={{ color: C.txt, fontSize: 17, fontWeight: 700, marginTop: 32, marginBottom: 12 }}>👥 התחשבנות צ'אטרים — {MONTHS_HE[month]}</h3>
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-      <Stat icon="🔴" title="אנחנו חייבים לצ'אטרים" value={fmtC(chatterDebtRows.filter(r => r.balance > 0).reduce((s, r) => s + r.balance, 0))} color={C.red} />
-      <Stat icon="🟢" title="צ'אטרים חייבים לנו" value={fmtC(Math.abs(chatterDebtRows.filter(r => r.balance < 0).reduce((s, r) => s + r.balance, 0)))} color={C.grn} />
+      <Stat icon="🔴" title="אנחנו חייבים לצ'אטרים" value={fmtC(chatterDebtRows.filter(r => r.balance > 0).reduce((s, r) => s + r.finalBalance, 0))} color={C.red} />
+      <Stat icon="🟢" title="צ'אטרים חייבים לנו" value={fmtC(chatterDebtRows.filter(r => r.balance < 0).reduce((s, r) => s + r.finalBalance, 0))} color={C.grn} />
     </div>
     <Card style={{ padding: 0, marginBottom: 32 }}>
       <DT columns={[
