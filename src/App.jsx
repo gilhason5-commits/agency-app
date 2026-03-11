@@ -1820,40 +1820,33 @@ function ChatterPage() {
         <Stat icon="💵" title="משכורת" value={fmtC(sal.total)} color={C.pri} sub={SALARY_TYPE_LABELS[sal.salaryType] || "מכירות"} />
       </div>
 
-      {/* Settings card */}
-      <Card style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <span style={{ color: C.dim, fontSize: 13, fontWeight: 600 }}>⚙️ הגדרות שכר — {sel}</span>
-          <div style={{ display: "flex", gap: 8 }}>
-            {sal.salaryType !== "sales" && <Btn variant="ghost" size="sm" onClick={openHours}>⏱️ שעות חודש זה</Btn>}
-            <Btn variant="ghost" size="sm" onClick={openSettings}>✏️ ערוך הגדרות</Btn>
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-          <div><div style={{ color: C.mut, fontSize: 11 }}>סוג שכר</div><div style={{ color: C.txt, fontWeight: 700 }}>{SALARY_TYPE_LABELS[cfg.salaryType || "sales"]}</div></div>
-          <div><div style={{ color: C.mut, fontSize: 11 }}>משרד</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.officePct ?? 17}%</div></div>
-          <div><div style={{ color: C.mut, fontSize: 11 }}>חוץ</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.fieldPct ?? 15}%</div></div>
-          {sal.salaryType !== "sales" && <>
-            <div><div style={{ color: C.mut, fontSize: 11 }}>שכר לשעה</div><div style={{ color: C.txt, fontWeight: 700 }}>₪{cfg.hourlyRate ?? 0}</div></div>
-            <div><div style={{ color: C.mut, fontSize: 11 }}>שעות החודש</div><div style={{ color: C.pri, fontWeight: 700 }}>{cfg.monthlyHours?.[ymi] ?? 0}</div></div>
-          </>}
-        </div>
-      </Card>
-
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
         <Card><div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>מכירות לפי לקוחה</div><div style={{ width: "100%", direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(180, byCl.length * 30)}><BarChart data={byCl} layout="vertical" margin={{ top: 5, right: 150, bottom: 5, left: 20 }}><XAxis type="number" reversed={true} tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={150} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 0, 0, 4]} name="מכירות"><LabelList dataKey="value" position="insideLeft" formatter={v => `₪${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} /></Bar></BarChart></ResponsiveContainer></div></Card>
         {byType.length > 0 && <Card><div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>מכירות לפי סוג הכנסה</div><div style={{ width: "100%", direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(180, byType.length * 30)}><BarChart data={byType} layout="vertical" margin={{ top: 5, right: 150, bottom: 5, left: 20 }}><XAxis type="number" reversed={true} tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={150} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.priL} radius={[4, 0, 0, 4]} name="מכירות"><LabelList dataKey="value" position="insideLeft" formatter={v => `₪${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} /></Bar></BarChart></ResponsiveContainer></div></Card>}
       </div>
 
-      {/* Reconciliation */}
+      {/* Salary + Reconciliation combined */}
       {(() => {
         const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
         const balance = sal.total - paidDirect;
         const finalBalance = Math.abs(balance) * (vatChatter ? 1.18 : 1);
         return <Card style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, margin: 0 }}>⚖️ התחשבנות צ'אטר — {MONTHS_HE[month]}</h3>
-            <Btn variant={vatChatter ? "warning" : "ghost"} size="sm" onClick={() => setVatChatter(v => !v)}>🧾 {vatChatter ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
+            <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, margin: 0 }}>💵 שכר צ'אטר — {MONTHS_HE[month]}</h3>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant={vatChatter ? "warning" : "ghost"} size="sm" onClick={() => setVatChatter(v => !v)}>🧾 {vatChatter ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
+              {sal.salaryType !== "sales" && <Btn variant="ghost" size="sm" onClick={openHours}>⏱️ שעות חודש זה</Btn>}
+              <Btn variant="ghost" size="sm" onClick={openSettings}>✏️ ערוך הגדרות</Btn>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${C.bdr}` }}>
+            <div><div style={{ color: C.mut, fontSize: 11 }}>סוג שכר</div><div style={{ color: C.txt, fontWeight: 700 }}>{SALARY_TYPE_LABELS[cfg.salaryType || "sales"]}</div></div>
+            <div><div style={{ color: C.mut, fontSize: 11 }}>משרד</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.officePct ?? 17}%</div></div>
+            <div><div style={{ color: C.mut, fontSize: 11 }}>חוץ</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.fieldPct ?? 15}%</div></div>
+            {sal.salaryType !== "sales" && <>
+              <div><div style={{ color: C.mut, fontSize: 11 }}>שכר לשעה</div><div style={{ color: C.txt, fontWeight: 700 }}>₪{cfg.hourlyRate ?? 0}</div></div>
+              <div><div style={{ color: C.mut, fontSize: 11 }}>שעות החודש</div><div style={{ color: C.pri, fontWeight: 700 }}>{cfg.monthlyHours?.[ymi] ?? 0}</div></div>
+            </>}
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Stat icon="💵" title="שכר מגיע לצ'אטר" value={fmtC(sal.total)} color={C.pri} />
