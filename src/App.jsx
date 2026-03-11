@@ -1798,6 +1798,7 @@ function ChatterPage() {
     setSaving(false);
     setEditSettings(false);
   };
+  useEffect(() => { setHoursVal(String(cfg.monthlyHours?.[ymi] ?? "")); }, [sel, ymi]);
   const openHours = () => { setHoursVal(String(cfg.monthlyHours?.[ymi] ?? "")); setEditHours(true); };
   const saveHours = async () => {
     setSaving(true);
@@ -1835,18 +1836,25 @@ function ChatterPage() {
             <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, margin: 0 }}>💵 שכר צ'אטר — {MONTHS_HE[month]}</h3>
             <div style={{ display: "flex", gap: 8 }}>
               <Btn variant={vatChatter ? "warning" : "ghost"} size="sm" onClick={() => setVatChatter(v => !v)}>🧾 {vatChatter ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
-              {sal.salaryType !== "sales" && <Btn variant="ghost" size="sm" onClick={openHours}>⏱️ שעות חודש זה</Btn>}
               <Btn variant="ghost" size="sm" onClick={openSettings}>✏️ ערוך הגדרות</Btn>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${C.bdr}` }}>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${C.bdr}`, alignItems: "flex-end" }}>
             <div><div style={{ color: C.mut, fontSize: 11 }}>סוג שכר</div><div style={{ color: C.txt, fontWeight: 700 }}>{SALARY_TYPE_LABELS[cfg.salaryType || "sales"]}</div></div>
             <div><div style={{ color: C.mut, fontSize: 11 }}>משרד</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.officePct ?? 17}%</div></div>
             <div><div style={{ color: C.mut, fontSize: 11 }}>חוץ</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.fieldPct ?? 15}%</div></div>
-            {sal.salaryType !== "sales" && <>
-              <div><div style={{ color: C.mut, fontSize: 11 }}>שכר לשעה</div><div style={{ color: C.txt, fontWeight: 700 }}>₪{cfg.hourlyRate ?? 0}</div></div>
-              <div><div style={{ color: C.mut, fontSize: 11 }}>שעות החודש</div><div style={{ color: C.pri, fontWeight: 700 }}>{cfg.monthlyHours?.[ymi] ?? 0}</div></div>
-            </>}
+            {sal.salaryType !== "sales" && <div><div style={{ color: C.mut, fontSize: 11 }}>שכר לשעה</div><div style={{ color: C.txt, fontWeight: 700 }}>₪{cfg.hourlyRate ?? 0}</div></div>}
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 6 }}>
+              <div>
+                <div style={{ color: C.mut, fontSize: 11, marginBottom: 4 }}>⏱️ שעות עבודה — {MONTHS_HE[month]}</div>
+                <input
+                  type="number" min="0" value={hoursVal}
+                  onChange={e => setHoursVal(e.target.value)}
+                  style={{ width: 80, padding: "5px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 15, fontWeight: 700, outline: "none", textAlign: "center" }}
+                />
+              </div>
+              <Btn variant="success" size="sm" onClick={saveHours} disabled={saving}>{saving ? "..." : "💾"}</Btn>
+            </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Stat icon="💵" title="שכר מגיע לצ'אטר" value={fmtC(sal.total)} color={C.pri} />
