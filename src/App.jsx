@@ -1764,6 +1764,7 @@ function ChatterPage() {
   const [editHours, setEditHours] = useState(false);
   const [settingsForm, setSettingsForm] = useState({ salaryType: "sales", officePct: 17, fieldPct: 15, hourlyRate: 0 });
   const [hoursVal, setHoursVal] = useState("");
+  const [vatChatter, setVatChatter] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { if (chatters.length && !sel) setSel(chatters[0]); }, [chatters, sel]);
@@ -1848,12 +1849,16 @@ function ChatterPage() {
       {(() => {
         const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
         const balance = sal.total - paidDirect;
+        const finalBalance = Math.abs(balance) * (vatChatter ? 1.18 : 1);
         return <Card style={{ marginBottom: 16 }}>
-          <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 14 }}>⚖️ התחשבנות צ'אטר — {MONTHS_HE[month]}</h3>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, margin: 0 }}>⚖️ התחשבנות צ'אטר — {MONTHS_HE[month]}</h3>
+            <Btn variant={vatChatter ? "warning" : "ghost"} size="sm" onClick={() => setVatChatter(v => !v)}>🧾 {vatChatter ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
+          </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Stat icon="💵" title="שכר מגיע לצ'אטר" value={fmtC(sal.total)} color={C.pri} />
             <Stat icon="✅" title="שולם ישירות לצ'אטר" value={fmtC(paidDirect)} color={C.grn} />
-            <Stat icon={balance > 0 ? "🔴" : balance < 0 ? "🟢" : "⚪"} title={balance > 0 ? "אנחנו חייבים לו" : balance < 0 ? "הוא חייב לנו" : "מאוזן"} value={fmtC(Math.abs(balance))} color={balance > 0 ? C.red : balance < 0 ? C.grn : C.mut} />
+            <Stat icon={balance > 0 ? "🔴" : balance < 0 ? "🟢" : "⚪"} title={`${balance > 0 ? "אנחנו חייבים לו" : balance < 0 ? "הוא חייב לנו" : "מאוזן"}${vatChatter ? " + מע״מ" : ""}`} value={fmtC(finalBalance)} color={balance > 0 ? C.red : balance < 0 ? C.grn : C.mut} sub={vatChatter ? "כולל מע״מ 18%" : undefined} />
           </div>
         </Card>;
       })()}
@@ -1913,7 +1918,7 @@ function ChatterPage() {
 // ═══════════════════════════════════════════════════════
 function ClientPage() {
   const { year, month, setMonth, view, setView, rv, updRate, setIncome } = useApp(); const { iM, iY, iRange, clients } = useFD();
-  const [sel, setSel] = useState(""), [editPct, setEditPct] = useState(false), [pv, setPv] = useState(0);
+  const [sel, setSel] = useState(""), [editPct, setEditPct] = useState(false), [pv, setPv] = useState(0), [vatClient, setVatClient] = useState(false);
   useEffect(() => { if (clients.length && !sel) setSel(clients[0]); }, [clients, sel]);
   const ymi = ym(year, month), pct = getRate(sel, ymi); const incD = view === "range" ? iRange : view === "monthly" ? iM : iY; const bal = Calc.clientBal(incD, sel, pct); const clientTxCount = incD.filter(r => r.modelName === sel).length;
 
@@ -1938,15 +1943,21 @@ function ClientPage() {
         {byType.length > 0 && <Card><div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>לפי סוג הכנסה</div><div style={{ width: "100%", direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(180, byType.length * 30)}><BarChart data={byType} layout="vertical" margin={{ top: 5, right: 150, bottom: 5, left: 20 }}><XAxis type="number" reversed={true} tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={150} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.priL} radius={[4, 0, 0, 4]} name="הכנסות"><LabelList dataKey="value" position="insideLeft" formatter={v => `₪${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} /></Bar></BarChart></ResponsiveContainer></div></Card>}
       </div>
       <Card style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}><span style={{ color: C.dim, fontSize: 13 }}>💵 משכורת — {MONTHS_HE[month]}</span><Btn variant="ghost" size="sm" onClick={() => { setPv(pct); setEditPct(true); }}>✏️ ערוך אחוז</Btn></div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <span style={{ color: C.dim, fontSize: 13 }}>💵 משכורת — {MONTHS_HE[month]}</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn variant={vatClient ? "warning" : "ghost"} size="sm" onClick={() => setVatClient(v => !v)}>🧾 {vatClient ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
+            <Btn variant="ghost" size="sm" onClick={() => { setPv(pct); setEditPct(true); }}>✏️ ערוך אחוז</Btn>
+          </div>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(100px,1fr))", gap: 12 }}>
           <div><div style={{ color: C.mut, fontSize: 11 }}>אחוז</div><div style={{ fontSize: 22, fontWeight: 700, color: C.pri }}>{pct}%</div></div>
           <div><div style={{ color: C.mut, fontSize: 11 }}>זכאות (שכר)</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(bal.ent)}</div></div>
           <div><div style={{ color: C.mut, fontSize: 11 }}>כבר שולם לה</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(bal.direct)}</div></div>
           <div style={{ borderRight: `2px solid ${C.bdr}`, paddingRight: 12 }}>
-            <div style={{ color: C.dim, fontSize: 11, fontWeight: 700 }}>תשלום בפועל</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: bal.actualDue >= 0 ? C.grn : C.red }}>{fmtC(Math.abs(bal.actualDue))}</div>
-            <div style={{ fontSize: 10, color: bal.actualDue >= 0 ? C.grn : C.red }}>{bal.actualDue >= 0 ? "הסוכנות חייבת ללקוחה" : "הלקוחה חייבת לסוכנות"}</div>
+            <div style={{ color: C.dim, fontSize: 11, fontWeight: 700 }}>תשלום בפועל{vatClient ? " + מע״מ" : ""}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: bal.actualDue >= 0 ? C.grn : C.red }}>{fmtC(Math.abs(bal.actualDue) * (vatClient ? 1.18 : 1))}</div>
+            <div style={{ fontSize: 10, color: bal.actualDue >= 0 ? C.grn : C.red }}>{bal.actualDue >= 0 ? "הסוכנות חייבת ללקוחה" : "הלקוחה חייבת לסוכנות"}{vatClient ? " (כולל מע״מ 18%)" : ""}</div>
           </div>
         </div>
       </Card>
