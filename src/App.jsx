@@ -3654,10 +3654,15 @@ function UserManagementPage() {
 // PAGE: DEBTS REPORT (דוח חובות)
 // ═══════════════════════════════════════════════════════
 function DebtsPage() {
-  const { models, income, settlements, month, year, addSettlement, chatterSettings, clientSettings } = useApp();
+  const { models, income, settlements, month, year, setMonth, addSettlement, chatterSettings, clientSettings } = useApp();
+  const [debtsView, setDebtsView] = useState("monthly");
   const [modalClient, setModalClient] = useState(null);
   const [form, setForm] = useState({ amount: "", direction: "AgencyToClient", notes: "" });
   const [saving, setSaving] = useState(false);
+
+  const allClientNames = useMemo(() => [...new Set([...models.map(m => m.name), ...income.map(i => i.modelName)])].filter(Boolean), [models, income]);
+
+  const yearIncome = useMemo(() => income.filter(r => new Date(r.date || 0).getFullYear() === year), [income, year]);
 
   const chatterDebtRows = useMemo(() => {
     const names = [...new Set(income.map(r => r.chatterName).filter(Boolean))];
@@ -3678,9 +3683,6 @@ function DebtsPage() {
   const monthData = useMemo(() => income.filter(r => new Date(r.date || 0).getMonth() === month && new Date(r.date || 0).getFullYear() === year), [income, month, year]);
 
   const debtRows = useMemo(() => {
-    // Get all valid client names from anywhere (models or income)
-    const allClientNames = [...new Set([...models.map(m => m.name), ...income.map(i => i.modelName)])].filter(Boolean);
-
     return allClientNames.map(clientName => {
       const pct = getRate(clientName, ym(year, month));
       const bal = Calc.clientBal(monthData, clientName, pct, settlements.filter(s => new Date(s.timestamp || s.date || Date.now()).getMonth() === month && new Date(s.timestamp || s.date || Date.now()).getFullYear() === year));
@@ -3699,9 +3701,45 @@ function DebtsPage() {
         hasVat, vatAmt, finalDue
       };
     }).sort((a, b) => b.totalIncome - a.totalIncome);
-  }, [models, income, monthData, settlements, year, month, clientSettings]);
+  }, [allClientNames, income, monthData, settlements, year, month, clientSettings]);
+
+  // Yearly breakdown: per month totals across all clients
+  const yearlyMonthRows = useMemo(() => {
+    return MONTHS_HE.map((mName, mi) => {
+      const mIncome = yearIncome.filter(r => new Date(r.date || 0).getMonth() === mi);
+      const mSettlements = settlements.filter(s => {
+        const d = new Date(s.timestamp || s.date || Date.now());
+        return d.getMonth() === mi && d.getFullYear() === year;
+      });
+      let totalIncome = 0, totalEntitlement = 0, totalSettled = 0, totalDue = 0;
+      allClientNames.forEach(clientName => {
+        const pct = getRate(clientName, ym(year, mi));
+        const bal = Calc.clientBal(mIncome, clientName, pct, mSettlements);
+        totalIncome += bal.totalIncome;
+        totalEntitlement += bal.ent;
+        totalSettled += bal.netSettled;
+        totalDue += bal.actualDue;
+      });
+      return { month: mName, monthIdx: mi, totalIncome, totalEntitlement, totalSettled, totalDue };
+    });
+  }, [yearIncome, settlements, allClientNames, year]);
+
+  // Yearly breakdown per client: total owed per client across the whole year
+  const yearlyClientRows = useMemo(() => {
+    return allClientNames.map(clientName => {
+      const pct = getRate(clientName, ym(year, 0));
+      const yearSets = settlements.filter(s => new Date(s.timestamp || s.date || Date.now()).getFullYear() === year);
+      const bal = Calc.clientBal(yearIncome, clientName, pct, yearSets);
+      const hasVat = (clientSettings[clientName] || {}).vatClient ?? false;
+      const finalDue = Math.abs(bal.actualDue) * (hasVat ? 1.18 : 1);
+      return { name: clientName, totalIncome: bal.totalIncome, entitlement: bal.ent, netSettled: bal.netSettled, actualDue: bal.actualDue, hasVat, finalDue };
+    }).filter(r => r.totalIncome > 0 || Math.abs(r.actualDue) > 0).sort((a, b) => b.totalIncome - a.totalIncome);
+  }, [allClientNames, yearIncome, settlements, year, clientSettings]);
 
   const totalDue = debtRows.reduce((acc, r) => acc + r.actualDue, 0);
+  const annualTotalDue = yearlyMonthRows.reduce((acc, r) => acc + r.totalDue, 0);
+  const annualTotalSettled = yearlyMonthRows.reduce((acc, r) => acc + r.totalSettled, 0);
+  const annualTotalEntitlement = yearlyMonthRows.reduce((acc, r) => acc + r.totalEntitlement, 0);
 
   const handleSave = async () => {
     if (!form.amount || isNaN(form.amount) || form.amount <= 0) return alert("הכנס סכום תקין");
@@ -3722,77 +3760,140 @@ function DebtsPage() {
   };
 
   return <div style={{ direction: "rtl", maxWidth: 1000, margin: "0 auto" }}>
-    <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>⚖️ דוח חובות והתחשבנות — {MONTHS_HE[month]}</h2>
-
-    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-      <Stat icon="🏦" title="סה״כ פער דורש קיזוז" value={fmtC(Math.abs(totalDue))} color={totalDue > 0 ? C.grn : C.red} sub={totalDue > 0 ? "הסוכנות חייבת בסך הכל" : "לקוחות חייבות בסך הכל"} />
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
+      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>⚖️ דוח חובות והתחשבנות</h2>
+      <div style={{ display: "flex", gap: 6 }}>
+        <Btn size="sm" variant={debtsView === "monthly" ? "primary" : "ghost"} onClick={() => setDebtsView("monthly")}>📅 חודשי</Btn>
+        <Btn size="sm" variant={debtsView === "yearly" ? "primary" : "ghost"} onClick={() => setDebtsView("yearly")}>📆 שנתי {year}</Btn>
+      </div>
     </div>
 
-    <Card style={{ padding: "0" }}>
-      <DT
-        columns={[
-          { label: "לקוחה", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
-          { label: 'סה״כ הכנסות', render: r => <span style={{ color: C.dim }}>{fmtC(r.totalIncome)}</span> },
-          { label: 'דרך סוכנות', render: r => <span style={{ color: C.dim }}>{fmtC(r.throughAgency)}</span> },
-          { label: 'שולם ללקוחה ישירות', render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
-          { label: 'אחוז הלקוחה', render: r => <span style={{ color: C.dim }}>{r.pct}%</span> },
-          { label: 'שכר מגיע ללקוחה', render: r => <span style={{ color: C.pri }}>{fmtC(r.entitlement)}</span> },
-          { label: 'קוזז החודש', render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
-          {
-            label: 'חוב מסכם לתשלום',
-            render: r => {
-              const bg = r.finalDue < 1 ? 'transparent' : (r.actualDue > 0 ? `${C.grn}15` : `${C.red}15`);
-              const col = r.finalDue < 1 ? C.mut : (r.actualDue > 0 ? C.grn : C.red);
-              const txt = r.finalDue < 1 ? 'מאוזן' : (r.actualDue > 0 ? 'אנחנו צריכים לשלם לה' : 'היא צריכה להעביר לנו');
-              return <div style={{ background: bg, color: col, padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 13 }}>
-                {r.hasVat && r.finalDue >= 1 ? <>
-                  <div style={{ fontSize: 10, color: C.dim }}>שכר: {fmtC(Math.abs(r.actualDue))}</div>
-                  <div style={{ fontSize: 10, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div>
-                  <div style={{ fontSize: 16 }}>{fmtC(r.finalDue)}</div>
-                </> : <div style={{ fontSize: 16 }}>{fmtC(r.finalDue)}</div>}
-                <div style={{ fontSize: 9 }}>{txt}{r.hasVat && r.finalDue >= 1 ? " (כולל מע״מ)" : ""}</div>
-              </div>
+    {debtsView === "monthly" ? <>
+      {/* Month selector pills */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+        <span style={{ color: C.dim, fontSize: 12, marginLeft: 4 }}>חודש:</span>
+        {MONTHS_HE.map((m, i) => (
+          <button key={i} onClick={() => setMonth(i)} style={{ padding: "4px 10px", borderRadius: 20, border: `1px solid ${i === month ? C.pri : C.bdr}`, background: i === month ? C.pri : "transparent", color: i === month ? "#fff" : C.dim, cursor: "pointer", fontSize: 12, transition: "all 0.15s" }}>{m}</button>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+        <Stat icon="🏦" title={`סה״כ פער דורש קיזוז — ${MONTHS_HE[month]}`} value={fmtC(Math.abs(totalDue))} color={totalDue > 0 ? C.grn : C.red} sub={totalDue > 0 ? "הסוכנות חייבת בסך הכל" : "לקוחות חייבות בסך הכל"} />
+      </div>
+
+      <Card style={{ padding: "0" }}>
+        <DT
+          columns={[
+            { label: "לקוחה", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
+            { label: 'סה״כ הכנסות', render: r => <span style={{ color: C.dim }}>{fmtC(r.totalIncome)}</span> },
+            { label: 'דרך סוכנות', render: r => <span style={{ color: C.dim }}>{fmtC(r.throughAgency)}</span> },
+            { label: 'שולם ללקוחה ישירות', render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
+            { label: 'אחוז הלקוחה', render: r => <span style={{ color: C.dim }}>{r.pct}%</span> },
+            { label: 'שכר מגיע ללקוחה', render: r => <span style={{ color: C.pri }}>{fmtC(r.entitlement)}</span> },
+            { label: 'קוזז החודש', render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
+            {
+              label: 'חוב מסכם לתשלום',
+              render: r => {
+                const bg = r.finalDue < 1 ? 'transparent' : (r.actualDue > 0 ? `${C.grn}15` : `${C.red}15`);
+                const col = r.finalDue < 1 ? C.mut : (r.actualDue > 0 ? C.grn : C.red);
+                const txt = r.finalDue < 1 ? 'מאוזן' : (r.actualDue > 0 ? 'אנחנו צריכים לשלם לה' : 'היא צריכה להעביר לנו');
+                return <div style={{ background: bg, color: col, padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 13 }}>
+                  {r.hasVat && r.finalDue >= 1 ? <>
+                    <div style={{ fontSize: 10, color: C.dim }}>שכר: {fmtC(Math.abs(r.actualDue))}</div>
+                    <div style={{ fontSize: 10, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div>
+                    <div style={{ fontSize: 16 }}>{fmtC(r.finalDue)}</div>
+                  </> : <div style={{ fontSize: 16 }}>{fmtC(r.finalDue)}</div>}
+                  <div style={{ fontSize: 9 }}>{txt}{r.hasVat && r.finalDue >= 1 ? " (כולל מע״מ)" : ""}</div>
+                </div>
+              }
+            },
+            {
+              label: 'פעולות',
+              render: r => <Btn size="sm" variant="outline" onClick={() => { setModalClient(r); setForm({ amount: Math.abs(r.actualDue), direction: r.actualDue > 0 ? "AgencyToClient" : "ClientToAgency", notes: "" }) }}>
+                ⚖️ בצע קיזוז
+              </Btn>
             }
-          },
-          {
-            label: 'פעולות',
-            render: r => <Btn size="sm" variant="outline" onClick={() => { setModalClient(r); setForm({ amount: Math.abs(r.actualDue), direction: r.actualDue > 0 ? "AgencyToClient" : "ClientToAgency", notes: "" }) }}>
-              ⚖️ בצע קיזוז
-            </Btn>
-          }
-        ]}
-        rows={debtRows}
-        footer={null} // Omitting total footer for now for simplicity
-      />
-    </Card>
+          ]}
+          rows={debtRows}
+          footer={null}
+        />
+      </Card>
 
-    {/* Chatters reconciliation table */}
-    <h3 style={{ color: C.txt, fontSize: 17, fontWeight: 700, marginTop: 32, marginBottom: 12 }}>👥 התחשבנות צ'אטרים — {MONTHS_HE[month]}</h3>
-    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-      <Stat icon="🔴" title="אנחנו חייבים לצ'אטרים" value={fmtC(chatterDebtRows.filter(r => r.balance > 0).reduce((s, r) => s + r.finalBalance, 0))} color={C.red} />
-      <Stat icon="🟢" title="צ'אטרים חייבים לנו" value={fmtC(chatterDebtRows.filter(r => r.balance < 0).reduce((s, r) => s + r.finalBalance, 0))} color={C.grn} />
-    </div>
-    <Card style={{ padding: 0, marginBottom: 32 }}>
-      <DT columns={[
-        { label: "צ'אטר", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
-        { label: "מכירות", render: r => <span style={{ color: C.dim }}>{fmtC(r.sales)}</span> },
-        { label: "שכר מגיע", render: r => <span style={{ color: C.pri }}>{fmtC(r.salary)}</span> },
-        { label: "שולם ישירות", render: r => <span style={{ color: C.grn }}>{fmtC(r.paidDirect)}</span> },
-        { label: "יתרה לתשלום", render: r => {
-          const col = Math.abs(r.balance) < 1 ? C.mut : r.balance > 0 ? C.red : C.grn;
-          const txt = Math.abs(r.balance) < 1 ? "מאוזן" : r.balance > 0 ? "אנחנו חייבים" : "הוא חייב לנו";
-          if (r.hasVat && Math.abs(r.balance) >= 1) {
+      {/* Chatters reconciliation table */}
+      <h3 style={{ color: C.txt, fontSize: 17, fontWeight: 700, marginTop: 32, marginBottom: 12 }}>👥 התחשבנות צ'אטרים — {MONTHS_HE[month]}</h3>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+        <Stat icon="🔴" title="אנחנו חייבים לצ'אטרים" value={fmtC(chatterDebtRows.filter(r => r.balance > 0).reduce((s, r) => s + r.finalBalance, 0))} color={C.red} />
+        <Stat icon="🟢" title="צ'אטרים חייבים לנו" value={fmtC(chatterDebtRows.filter(r => r.balance < 0).reduce((s, r) => s + r.finalBalance, 0))} color={C.grn} />
+      </div>
+      <Card style={{ padding: 0, marginBottom: 32 }}>
+        <DT columns={[
+          { label: "צ'אטר", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
+          { label: "מכירות", render: r => <span style={{ color: C.dim }}>{fmtC(r.sales)}</span> },
+          { label: "שכר מגיע", render: r => <span style={{ color: C.pri }}>{fmtC(r.salary)}</span> },
+          { label: "שולם ישירות", render: r => <span style={{ color: C.grn }}>{fmtC(r.paidDirect)}</span> },
+          { label: "יתרה לתשלום", render: r => {
+            const col = Math.abs(r.balance) < 1 ? C.mut : r.balance > 0 ? C.red : C.grn;
+            const txt = Math.abs(r.balance) < 1 ? "מאוזן" : r.balance > 0 ? "אנחנו חייבים" : "הוא חייב לנו";
+            if (r.hasVat && Math.abs(r.balance) >= 1) {
+              return <div style={{ color: col, fontWeight: 700 }}>
+                <div style={{ fontSize: 11, color: C.dim }}>לפני מע״מ: {fmtC(Math.abs(r.balance))}</div>
+                <div style={{ fontSize: 11, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div>
+                <div style={{ fontSize: 14 }}>סה״כ: {fmtC(r.finalBalance)}</div>
+                <div style={{ fontSize: 10 }}>{txt} + מע״מ</div>
+              </div>;
+            }
+            return <div style={{ color: col, fontWeight: 700 }}><div>{fmtC(r.finalBalance)}</div><div style={{ fontSize: 10 }}>{txt}</div></div>;
+          }}
+        ]} rows={chatterDebtRows} footer={["סה״כ", fmtC(chatterDebtRows.reduce((s,r)=>s+r.sales,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.salary,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.paidDirect,0)), ""]} />
+      </Card>
+    </> : <>
+      {/* ── YEARLY VIEW ── */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+        <Stat icon="📊" title={`סה״כ שכר ללקוחות — ${year}`} value={fmtC(annualTotalEntitlement)} color={C.pri} sub="סה״כ מגיע לכולן" />
+        <Stat icon="✅" title={`סה״כ קוזז — ${year}`} value={fmtC(annualTotalSettled)} color={C.ylw} sub="שולם/קוזז בפועל" />
+        <Stat icon="⚠️" title={`נשאר לקיזוז — ${year}`} value={fmtC(Math.abs(annualTotalDue))} color={annualTotalDue > 0 ? C.grn : C.red} sub={annualTotalDue > 0 ? "הסוכנות חייבת" : "לקוחות חייבות"} />
+      </div>
+
+      {/* Monthly breakdown table */}
+      <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 10 }}>📅 פירוט חודשי — {year}</h3>
+      <Card style={{ padding: 0, marginBottom: 28 }}>
+        <DT columns={[
+          { label: "חודש", render: r => <button onClick={() => { setMonth(r.monthIdx); setDebtsView("monthly"); }} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontWeight: 700, fontSize: 13, padding: 0 }}>{r.month} ↗</button> },
+          { label: "סה״כ הכנסות", render: r => <span style={{ color: C.dim }}>{r.totalIncome > 0 ? fmtC(r.totalIncome) : "—"}</span> },
+          { label: "שכר ללקוחות", render: r => <span style={{ color: C.pri }}>{r.totalEntitlement > 0 ? fmtC(r.totalEntitlement) : "—"}</span> },
+          { label: "קוזז", render: r => <span style={{ color: C.ylw }}>{r.totalSettled !== 0 ? fmtC(r.totalSettled) : "—"}</span> },
+          { label: "נשאר לקיזוז", render: r => {
+            if (Math.abs(r.totalDue) < 1) return <span style={{ color: C.mut }}>מאוזן</span>;
+            const col = r.totalDue > 0 ? C.grn : C.red;
+            const txt = r.totalDue > 0 ? "אנחנו חייבים" : "לקוחות חייבות";
+            return <div style={{ color: col, fontWeight: 700, fontSize: 13 }}>{fmtC(Math.abs(r.totalDue))}<div style={{ fontSize: 10, fontWeight: 400 }}>{txt}</div></div>;
+          }}
+        ]} rows={yearlyMonthRows}
+        footer={["סה״כ שנתי", fmtC(yearlyMonthRows.reduce((s,r)=>s+r.totalIncome,0)), fmtC(annualTotalEntitlement), fmtC(annualTotalSettled), fmtC(Math.abs(annualTotalDue))]} />
+      </Card>
+
+      {/* Per-client annual breakdown */}
+      <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 10 }}>👤 פירוט לפי לקוחה — {year}</h3>
+      <Card style={{ padding: 0, marginBottom: 32 }}>
+        <DT columns={[
+          { label: "לקוחה", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
+          { label: "סה״כ הכנסות", render: r => <span style={{ color: C.dim }}>{fmtC(r.totalIncome)}</span> },
+          { label: "שכר מגיע", render: r => <span style={{ color: C.pri }}>{fmtC(r.entitlement)}</span> },
+          { label: "קוזז", render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
+          { label: "נשאר לקיזוז", render: r => {
+            if (Math.abs(r.actualDue) < 1) return <span style={{ color: C.mut }}>מאוזן</span>;
+            const col = r.actualDue > 0 ? C.grn : C.red;
+            const txt = r.actualDue > 0 ? "אנחנו חייבים לה" : "היא חייבת לנו";
             return <div style={{ color: col, fontWeight: 700 }}>
-              <div style={{ fontSize: 11, color: C.dim }}>לפני מע״מ: {fmtC(Math.abs(r.balance))}</div>
-              <div style={{ fontSize: 11, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div>
-              <div style={{ fontSize: 14 }}>סה״כ: {fmtC(r.finalBalance)}</div>
-              <div style={{ fontSize: 10 }}>{txt} + מע״מ</div>
+              {fmtC(r.hasVat ? r.finalDue : Math.abs(r.actualDue))}
+              {r.hasVat && <div style={{ fontSize: 10, color: C.ylw }}>כולל מע״מ</div>}
+              <div style={{ fontSize: 10, fontWeight: 400 }}>{txt}</div>
             </div>;
-          }
-          return <div style={{ color: col, fontWeight: 700 }}><div>{fmtC(r.finalBalance)}</div><div style={{ fontSize: 10 }}>{txt}</div></div>;
-        }}
-      ]} rows={chatterDebtRows} footer={["סה״כ", fmtC(chatterDebtRows.reduce((s,r)=>s+r.sales,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.salary,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.paidDirect,0)), ""]} />
-    </Card>
+          }}
+        ]} rows={yearlyClientRows}
+        footer={["סה״כ", fmtC(yearlyClientRows.reduce((s,r)=>s+r.totalIncome,0)), fmtC(yearlyClientRows.reduce((s,r)=>s+r.entitlement,0)), fmtC(yearlyClientRows.reduce((s,r)=>s+r.netSettled,0)), fmtC(Math.abs(yearlyClientRows.reduce((s,r)=>s+r.actualDue,0)))]} />
+      </Card>
+    </>}
 
     {modalClient && <Modal open={true} onClose={() => setModalClient(null)} title={`תיעוד העברה לקיזוז חוב: ${modalClient.name}`} width={400}>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
