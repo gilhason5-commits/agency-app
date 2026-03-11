@@ -3762,21 +3762,13 @@ function DebtsPage() {
   return <div style={{ direction: "rtl", maxWidth: 1000, margin: "0 auto" }}>
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>⚖️ דוח חובות והתחשבנות</h2>
-      <div style={{ display: "flex", gap: 6 }}>
-        <Btn size="sm" variant={debtsView === "monthly" ? "primary" : "ghost"} onClick={() => setDebtsView("monthly")}>📅 חודשי</Btn>
-        <Btn size="sm" variant={debtsView === "yearly" ? "primary" : "ghost"} onClick={() => setDebtsView("yearly")}>📆 שנתי {year}</Btn>
+      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <Sel label="תצוגה:" value={debtsView} onChange={v => setDebtsView(v)} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />
+        {debtsView === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}
       </div>
     </div>
 
     {debtsView === "monthly" ? <>
-      {/* Month selector pills */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
-        <span style={{ color: C.dim, fontSize: 12, marginLeft: 4 }}>חודש:</span>
-        {MONTHS_HE.map((m, i) => (
-          <button key={i} onClick={() => setMonth(i)} style={{ padding: "4px 10px", borderRadius: 20, border: `1px solid ${i === month ? C.pri : C.bdr}`, background: i === month ? C.pri : "transparent", color: i === month ? "#fff" : C.dim, cursor: "pointer", fontSize: 12, transition: "all 0.15s" }}>{m}</button>
-        ))}
-      </div>
-
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <Stat icon="🏦" title={`סה״כ פער דורש קיזוז — ${MONTHS_HE[month]}`} value={fmtC(Math.abs(totalDue))} color={totalDue > 0 ? C.grn : C.red} sub={totalDue > 0 ? "הסוכנות חייבת בסך הכל" : "לקוחות חייבות בסך הכל"} />
       </div>
