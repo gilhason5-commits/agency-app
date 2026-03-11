@@ -3014,6 +3014,35 @@ function ChatterPortal() {
             ))}
           </div>
         )}
+
+        {/* Top 3 chatters this month */}
+        {(() => {
+          const byChatter = {};
+          iM.forEach(r => {
+            if (!r.chatterName) return;
+            byChatter[r.chatterName] = (byChatter[r.chatterName] || 0) + r.amountILS;
+          });
+          const top3 = Object.entries(byChatter).sort((a, b) => b[1] - a[1]).slice(0, 3);
+          if (top3.length === 0) return null;
+          const medals = ["🥇", "🥈", "🥉"];
+          const medalColors = ["#f59e0b", "#9ca3af", "#cd7f32"];
+          return <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${C.bdr}` }}>
+            <div style={{ color: C.dim, fontSize: 12, marginBottom: 10, fontWeight: 600 }}>🏆 הצ'אטרים הכי רווחיים החודש</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {top3.map(([name, total], i) => (
+                <div key={name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.bg, borderRadius: 8, padding: "8px 12px", border: `1px solid ${C.bdr}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 18 }}>{medals[i]}</span>
+                    <span style={{ color: name === chatterName ? C.pri : C.txt, fontWeight: name === chatterName ? 700 : 500, fontSize: 14 }}>
+                      {name}{name === chatterName ? " (את/ה)" : ""}
+                    </span>
+                  </div>
+                  <span style={{ color: medalColors[i], fontWeight: 700, fontSize: 15 }}>{fmtC(total)}</span>
+                </div>
+              ))}
+            </div>
+          </div>;
+        })()}
       </Card>
 
       {/* Income Entry Form */}
