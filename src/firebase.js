@@ -441,3 +441,19 @@ export async function fetchChatterTargets() {
 export async function setChatterTarget(chatterName, targets) {
     await setDoc(doc(db, "chatterTargets", chatterName), targets);
 }
+
+// ═══════════════════════════════════════════════════════
+// CLIENT RATES API
+// ═══════════════════════════════════════════════════════
+export async function fetchClientRates() {
+    try {
+        const snap = await getDocs(collection(db, "clientRates"));
+        const result = {};
+        snap.forEach(d => { result[d.id] = d.data(); });
+        return result;
+    } catch { return {}; }
+}
+
+export async function saveClientRate(clientName, ymi, pct) {
+    await setDoc(doc(db, "clientRates", clientName), { [ymi]: pct }, { merge: true });
+}
