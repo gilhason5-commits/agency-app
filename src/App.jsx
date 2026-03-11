@@ -3083,6 +3083,16 @@ function ChatterPortal() {
         </Btn>
       </Card>
 
+      {/* Per-client breakdown */}
+      {byClient.length > 0 && <>
+        <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 10 }}>👩 הכנסות לפי לקוחה</h3>
+        <DT textSm columns={[
+          { label: "לקוחה", key: "name" },
+          { label: "עסקאות", render: r => <span style={{ color: C.dim }}>{r.count}</span> },
+          { label: "סכום ₪", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(r.total)}</span> },
+        ]} rows={byClient} footer={["סה״כ", myIncome.length, fmtC(myIncome.reduce((s, r) => s + r.amountILS, 0))]} />
+      </>}
+
       {/* Pending Transactions */}
       {pending.length > 0 && <>
         <h3 style={{ color: C.ylw, fontSize: 15, fontWeight: 700, marginBottom: 10 }}>⏳ ממתינות לאישור ({pending.length})</h3>
@@ -3123,15 +3133,6 @@ function ChatterPortal() {
         ]} rows={approved} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved), ""]} />
       }
 
-      {/* Per-client breakdown */}
-      {byClient.length > 0 && <>
-        <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginTop: 24, marginBottom: 10 }}>👩 הכנסות לפי לקוחה</h3>
-        <DT textSm columns={[
-          { label: "לקוחה", key: "name" },
-          { label: "עסקאות", render: r => <span style={{ color: C.dim }}>{r.count}</span> },
-          { label: "סכום ₪", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(r.total)}</span> },
-        ]} rows={byClient} footer={["סה״כ", myIncome.length, fmtC(myIncome.reduce((s, r) => s + r.amountILS, 0))]} />
-      </>}
     </div>
   </div>;
 }
