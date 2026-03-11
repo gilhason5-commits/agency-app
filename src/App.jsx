@@ -3295,7 +3295,7 @@ function ApprovalsPage() {
 // CLIENT PORTAL (for client login)
 // ═══════════════════════════════════════════════════════
 function ClientPortal() {
-  const { user, logout, income, year, month, setMonth, loading, load, connected, setConnected, demo, loadDemo, liveRate } = useApp();
+  const { user, logout, income, year, month, setMonth, loading, load, connected, setConnected, demo, loadDemo, liveRate, clientSettings, settlements } = useApp();
   const w = useWin();
   const [view, setView] = useState("monthly");
 
@@ -3309,6 +3309,15 @@ function ClientPortal() {
   const totalIncome = data.reduce((s, r) => s + r.amountILS, 0);
   const throughAgency = data.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) !== "client").reduce((s, r) => s + r.amountILS, 0);
   const direct = data.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "client").reduce((s, r) => s + r.amountILS, 0);
+
+  const ymi = ym(year, month);
+  const pct = getRate(clientName, ymi);
+  const vatClient = (clientSettings[clientName] || {}).vatClient ?? false;
+  const relevantSettlements = useMemo(() => (settlements || []).filter(s => {
+    const d = new Date(s.timestamp || s.date || Date.now());
+    return view === "monthly" ? (d.getFullYear() === year && d.getMonth() === month) : d.getFullYear() === year;
+  }), [settlements, view, year, month]);
+  const bal = useMemo(() => Calc.clientBal(data, clientName, pct, relevantSettlements), [data, clientName, pct, relevantSettlements]);
   const txCount = data.length;
 
   // Targets: based on previous month's performance
@@ -3382,6 +3391,30 @@ function ClientPortal() {
           </PieChart>
         </ResponsiveContainer>
       </Card>}
+
+      {/* Payment Balance Card */}
+      {data.length > 0 && (() => {
+        const due = bal.actualDue;
+        const clientOwes = due < 0;
+        const agencyOwes = due > 0;
+        const vatAmt = Math.abs(due) * 0.18;
+        const totalWithVat = Math.abs(due) * 1.18;
+        const borderColor = clientOwes ? C.red : agencyOwes ? C.grn : C.bdr;
+        return <Card style={{ marginBottom: 16, border: `1px solid ${borderColor}` }}>
+          <h3 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 14 }}>💳 תשלום</h3>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: vatClient && Math.abs(due) >= 1 ? 14 : 0 }}>
+            <Stat icon={clientOwes ? "🔴" : agencyOwes ? "🟢" : "⚪"}
+              title={clientOwes ? "הלקוחה חייבת לסוכנות" : agencyOwes ? "הסוכנות חייבת ללקוחה" : "מאוזן"}
+              value={Math.abs(due) < 1 ? "מאוזן" : fmtC(Math.abs(due))}
+              color={clientOwes ? C.red : agencyOwes ? C.grn : C.mut}
+              sub={`עמלה ${pct}% | נטו לסוכנות: ${fmtC(bal.ent)}`} />
+            {vatClient && Math.abs(due) >= 1 && <>
+              <Stat icon="🧾" title="מע״מ 18%" value={fmtC(vatAmt)} color={C.ylw} />
+              <Stat icon={clientOwes ? "🔴" : "🟢"} title={`סה״כ ${clientOwes ? "לתשלום" : "להחזר"} (כולל מע״מ)`} value={fmtC(totalWithVat)} color={clientOwes ? C.red : C.grn} />
+            </>}
+          </div>
+        </Card>;
+      })()}
 
       <Card>
         <h3 style={{ color: C.dim, fontSize: 14, marginBottom: 12 }}>🧾 פירוט עסקאות</h3>
