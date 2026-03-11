@@ -887,7 +887,7 @@ function Prov({ children }) {
       setSettlements(prev => [...prev, saved]);
       return saved;
     }
-  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate]);
+  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
@@ -1855,14 +1855,14 @@ function ChatterPage() {
             <Stat icon="🏠" title="חוץ" value={`${cfg.fieldPct ?? 15}%`} />
             {sal.salaryType !== "sales" && <Stat icon="⏰" title="שכר לשעה" value={`₪${cfg.hourlyRate ?? 0}`} />}
             <Card style={{ flex: 1, minWidth: 140 }}>
-              <div style={{ color: C.dim, fontSize: 12, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 16 }}>⏱️</span>שעות עבודה — {MONTHS_HE[month]}</div>
-              <div style={{ display: "flex", alignItems: "center", border: `1px solid ${C.bdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
+              <div style={{ color: C.dim, fontSize: 12, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 16 }}>⏱️</span>שעות עבודה — {MONTHS_HE[month]}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input
                   type="number" min="0" value={hoursVal}
                   onChange={e => setHoursVal(e.target.value)}
-                  style={{ flex: 1, padding: "5px 8px", background: "transparent", border: "none", color: C.txt, fontSize: 22, fontWeight: 700, outline: "none", textAlign: "center" }}
+                  style={{ flex: 1, padding: "8px 12px", background: "#1e293b", border: `2px solid ${C.bdr}`, borderRadius: 8, color: "#f1f5f9", fontSize: 26, fontWeight: 700, outline: "none", textAlign: "center", minWidth: 0 }}
                 />
-                <button type="button" onClick={saveHours} disabled={saving} style={{ padding: "6px 12px", background: C.grn, border: "none", color: "#fff", fontSize: 16, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "..." : "✓"}</button>
+                <button type="button" onClick={saveHours} disabled={saving} style={{ padding: "8px 14px", background: C.grn, border: "none", borderRadius: 8, color: "#fff", fontSize: 18, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "..." : "✓"}</button>
               </div>
             </Card>
             {(() => {
