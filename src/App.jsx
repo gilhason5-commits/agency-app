@@ -745,6 +745,7 @@ function Prov({ children }) {
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
       try { const sets = await fetchSettlements(); console.log("Fetched settlements:", sets); setSettlements(sets); } catch (e) { console.error("Error fetching settlements:", e); }
       try { const ct = await fetchChatterTargets(); setChatterTargets(ct); } catch (e) { console.error("Error fetching chatterTargets:", e); }
+      try { const u = await UserSvc.fetchAll(); setSheetUsers(u); } catch (e) { console.error("Error fetching users:", e); }
       setConnected(true);
       setTimeout(() => setLoadStep(""), 3000);
     } catch (e) {
@@ -900,7 +901,7 @@ function LoginPage() {
 function useApp() { return useContext(Ctx); }
 
 function useFD() {
-  const { year, month, view, dateRange, income, expenses, models, genParams, liveRate } = useApp();
+  const { year, month, view, dateRange, income, expenses, models, genParams, liveRate, sheetUsers } = useApp();
   const dM = useMemo(() => new Date(year, month, 1), [year, month]);
 
   const incomeWithDynamicRate = useMemo(() => {
@@ -944,9 +945,17 @@ function useFD() {
       return true;
     });
   }, [expenses, dateRange]);
-  const chatters = useMemo(() => [...new Set(iY.map(r => r.chatterName).filter(Boolean))].sort(), [iY]);
+  const chatters = useMemo(() => {
+    const fromIncome = iY.map(r => r.chatterName).filter(Boolean);
+    const fromUsers = (sheetUsers || []).filter(u => u.role === "chatter").map(u => u.name);
+    return [...new Set([...fromIncome, ...fromUsers])].sort();
+  }, [iY, sheetUsers]);
   const platforms = useMemo(() => [...new Set(iY.map(r => r.platform).filter(Boolean))].sort(), [iY]);
-  const clients = useMemo(() => [...new Set(iY.map(r => r.modelName).filter(Boolean))].sort(), [iY]);
+  const clients = useMemo(() => {
+    const fromIncome = iY.map(r => r.modelName).filter(Boolean);
+    const fromUsers = (sheetUsers || []).filter(u => u.role === "client").map(u => u.name);
+    return [...new Set([...fromIncome, ...fromUsers])].sort();
+  }, [iY, sheetUsers]);
   return { dM, iY, iM, iRange, eY, eM, eRange, chatters, clients, platforms, models, genParams };
 }
 
@@ -2623,7 +2632,7 @@ ${overridesText || "אין"}
 // CHATTER PORTAL
 // ═══════════════════════════════════════════════════════
 function ChatterPortal() {
-  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets } = useApp();
+  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets, sheetUsers } = useApp();
   const { iM, iY } = useFD();
   const w = useWin();
   const chatterName = user?.name || "";
@@ -2698,8 +2707,12 @@ function ChatterPortal() {
     return { ...t, goal, progress };
   });
 
-  // Unique client names from all income
-  const clientNames = useMemo(() => [...new Set(income.map(r => r.modelName).filter(Boolean))].sort(), [income]);
+  // Unique client names from all income + registered users
+  const clientNames = useMemo(() => {
+    const fromIncome = income.map(r => r.modelName).filter(Boolean);
+    const fromUsers = (sheetUsers || []).filter(u => u.role === "client").map(u => u.name);
+    return [...new Set([...fromIncome, ...fromUsers])].sort();
+  }, [income, sheetUsers]);
 
   // Income types from all existing income data (filters out any string containing English characters)
   const incomeTypes = useMemo(() => {
