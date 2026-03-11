@@ -7,7 +7,8 @@ import {
   fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses,
   fetchSettlements, addSettlement, removeSettlement,
   fetchChatterTargets, setChatterTarget,
-  fetchClientRates, saveClientRate
+  fetchClientRates, saveClientRate,
+  fetchAllChatterSettings, saveChatterSettings
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -643,7 +644,20 @@ const GenParamsSvc = {
 // CALCULATIONS
 // ═══════════════════════════════════════════════════════
 const Calc = {
-  chatterSalary(rows) { let o = 0, r = 0; rows.forEach(x => { if (x.shiftLocation === "משרד") o += x.amountILS; else r += x.amountILS; }); return { oSales: o, rSales: r, oSal: o * .17, rSal: r * .15, total: o * .17 + r * .15 }; },
+  chatterSalary(rows, settings, ymi) {
+    let o = 0, r = 0;
+    rows.forEach(x => { if (x.shiftLocation === "משרד") o += x.amountILS; else r += x.amountILS; });
+    const officePct = (settings?.officePct ?? 17) / 100;
+    const fieldPct = (settings?.fieldPct ?? 15) / 100;
+    const salaryType = settings?.salaryType ?? "sales";
+    const hourlyRate = settings?.hourlyRate ?? 0;
+    const hours = (settings?.monthlyHours && ymi) ? (settings.monthlyHours[ymi] ?? 0) : 0;
+    const oSal = o * officePct; const rSal = r * fieldPct;
+    const salesSalary = oSal + rSal;
+    const hourlySalary = hours * hourlyRate;
+    const total = salaryType === "hourly" ? hourlySalary : salaryType === "sales" ? salesSalary : salesSalary + hourlySalary;
+    return { oSales: o, rSales: r, oSal, rSal, officePct: officePct * 100, fieldPct: fieldPct * 100, salesSalary, hourlySalary, hours, hourlyRate, salaryType, total };
+  },
   clientBal(rows, cn, pct, settlements = []) {
     const clRows = rows.filter(r => r.modelName === cn);
     const tot = clRows.reduce((s, r) => s + r.amountILS, 0);
@@ -709,6 +723,7 @@ function Prov({ children }) {
   const [expenses, setExpenses] = useState([]);
   const [settlements, setSettlements] = useState([]);
   const [chatterTargets, setChatterTargets] = useState({});
+  const [chatterSettings, setChatterSettings] = useState({});
   const [models, setModels] = useState([]);
   const [history, setHistory] = useState([]);
   const [genParams, setGenParams] = useState(DEFAULT_PARAMS);
@@ -745,6 +760,7 @@ function Prov({ children }) {
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
       try { const sets = await fetchSettlements(); console.log("Fetched settlements:", sets); setSettlements(sets); } catch (e) { console.error("Error fetching settlements:", e); }
       try { const ct = await fetchChatterTargets(); setChatterTargets(ct); } catch (e) { console.error("Error fetching chatterTargets:", e); }
+      try { const cs = await fetchAllChatterSettings(); setChatterSettings(cs); } catch (e) { console.error("Error fetching chatterSettings:", e); }
       try { const u = await UserSvc.fetchAll(); setSheetUsers(u); } catch (e) { console.error("Error fetching users:", e); }
       setConnected(true);
       setTimeout(() => setLoadStep(""), 3000);
@@ -847,6 +863,11 @@ function Prov({ children }) {
     saveChatterTarget: async (name, targets) => {
       await setChatterTarget(name, targets);
       setChatterTargets(prev => ({ ...prev, [name]: targets }));
+    },
+    chatterSettings, setChatterSettings,
+    saveChatterSetting: async (name, settings) => {
+      await saveChatterSettings(name, settings);
+      setChatterSettings(prev => ({ ...prev, [name]: { ...(prev[name] || {}), ...settings } }));
     },
     addSettlement: async (s) => {
       if (demo) {
@@ -1660,9 +1681,9 @@ function RecordIncomeAdmin({ onClose }) {
 // PAGE: EXPENSES
 // ═══════════════════════════════════════════════════════
 function ExpPage() {
-  const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo } = useApp();
+  const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo, rv, chatterSettings } = useApp();
   const { eM, eY, iM, iY } = useFD();
-  const { rv } = useApp(); const w = useWin();
+  const ymi = ym(year, month); const w = useWin();
   const [src, setSrc] = useState("all"), [popCat, setPopCat] = useState(null), [editExp, setEditExp] = useState(null), [delExp, setDelExp] = useState(null);
   const data = (view === "monthly" ? eM : eY).filter(e => src === "all" || (src === "auto" ? e.source === "אוטומטי" : e.source === "ידני"));
   const total = data.reduce((s, e) => s + e.amount, 0);
@@ -1671,7 +1692,7 @@ function ExpPage() {
   const off = Calc.offset(view === "monthly" ? eM : eY);
   const incD = view === "monthly" ? iM : iY;
   const chNames = [...new Set(incD.map(r => r.chatterName).filter(Boolean))];
-  const chSal = chNames.map(n => { const s = Calc.chatterSalary(incD.filter(r => r.chatterName === n)); return { name: n, ...s }; }).sort((a, b) => b.total - a.total);
+  const chSal = chNames.map(n => { const cfg = chatterSettings[n] || {}; const s = Calc.chatterSalary(incD.filter(r => r.chatterName === n), cfg, ymi); return { name: n, ...s }; }).sort((a, b) => b.total - a.total);
   const clNames = [...new Set(incD.map(r => r.modelName).filter(Boolean))];
   const clSal = clNames.map(n => { const p = getRate(n, ym(year, month)); const b = Calc.clientBal(incD, n, p); return { name: n, ...b }; }).sort((a, b) => b.totalIncome - a.totalIncome);
   const updCat = async (e, newCat) => { const updated = { ...e, classification: newCat }; setExpenses(prev => prev.map(x => x.id === e.id ? updated : x)); try { await ExpSvc.edit(updated); } catch (err) { console.error(err); } };
@@ -1724,7 +1745,7 @@ function ExpPage() {
         </div>
       </div>
       <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>⚖️ קיזוז דור / יוראי</h3><Card style={{ display: "flex", gap: 20, flexWrap: "wrap" }}><div><div style={{ color: C.dim, fontSize: 11 }}>דור</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(off.dor)}</div></div><div><div style={{ color: C.dim, fontSize: 11 }}>יוראי</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(off.yurai)}</div></div><div><div style={{ color: C.dim, fontSize: 11 }}>קיזוז</div><div style={{ fontSize: 14, fontWeight: 700, color: C.ylw }}>{off.owes} → {off.paid}: {fmtC(off.off)}</div></div></Card></div>
-      <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>👥 שכר צ'אטרים</h3><DT columns={[{ label: "צ'אטר", key: "name" }, { label: "משרד 17%", render: r => fmtC(r.oSal) }, { label: "חוץ 15%", render: r => fmtC(r.rSal) }, { label: "סה״כ", render: r => <strong style={{ color: C.pri }}>{fmtC(r.total)}</strong> }]} rows={chSal} footer={["סה״כ", "", "", fmtC(chSal.reduce((s, c) => s + c.total, 0))]} /></div>
+      <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>👥 שכר צ'אטרים</h3><DT columns={[{ label: "צ'אטר", key: "name" }, { label: "סוג שכר", render: r => SALARY_TYPE_LABELS[r.salaryType] || "מכירות" }, { label: "משרד", render: r => `${fmtC(r.oSal)} (${r.officePct ?? 17}%)` }, { label: "חוץ", render: r => `${fmtC(r.rSal)} (${r.fieldPct ?? 15}%)` }, { label: "שעתי", render: r => r.salaryType !== "sales" ? fmtC(r.hourlySalary) : "—" }, { label: "סה״כ", render: r => <strong style={{ color: C.pri }}>{fmtC(r.total)}</strong> }]} rows={chSal} footer={["סה״כ", "", "", "", "", fmtC(chSal.reduce((s, c) => s + c.total, 0))]} /></div>
       <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>👩 שכר לקוחות</h3><DT columns={[{ label: "לקוחה", key: "name" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "%", render: r => `${r.pct}%` }, { label: "זכאות", render: r => fmtC(r.ent) }, { label: "נכנס אליה", render: r => fmtC(r.direct) }, { label: "יתרה", render: r => <span style={{ color: r.bal >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.bal)}</span> }]} rows={clSal} footer={["סה״כ", "", "", fmtC(clSal.reduce((s, c) => s + c.ent, 0)), "", ""]} /></div>
     </>}
   </div>;
@@ -1733,25 +1754,97 @@ function ExpPage() {
 // ═══════════════════════════════════════════════════════
 // PAGE: CHATTERS
 // ═══════════════════════════════════════════════════════
+const SALARY_TYPE_LABELS = { sales: "מכירות בלבד", hourly: "שעתי בלבד", both: "שעתי + מכירות" };
+
 function ChatterPage() {
-  const { year, month, setMonth, view, setView } = useApp(); const { iM, iY, iRange, chatters } = useFD(); const [sel, setSel] = useState("");
+  const { year, month, setMonth, view, setView, chatterSettings, saveChatterSetting } = useApp();
+  const { iM, iY, iRange, chatters } = useFD();
+  const [sel, setSel] = useState("");
+  const [editSettings, setEditSettings] = useState(false);
+  const [editHours, setEditHours] = useState(false);
+  const [settingsForm, setSettingsForm] = useState({ salaryType: "sales", officePct: 17, fieldPct: 15, hourlyRate: 0 });
+  const [hoursVal, setHoursVal] = useState("");
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => { if (chatters.length && !sel) setSel(chatters[0]); }, [chatters, sel]);
-  const incD = view === "range" ? iRange : view === "monthly" ? iM : iY; const rows = incD.filter(r => r.chatterName === sel); const sal = Calc.chatterSalary(rows); const tot = rows.reduce((s, r) => s + r.amountILS, 0);
+
+  const ymi = ym(year, month);
+  const cfg = chatterSettings[sel] || {};
+  const incD = view === "range" ? iRange : view === "monthly" ? iM : iY;
+  const rows = incD.filter(r => r.chatterName === sel);
+  const sal = Calc.chatterSalary(rows, cfg, ymi);
+  const tot = rows.reduce((s, r) => s + r.amountILS, 0);
+
   const byCl = useMemo(() => { const m = {}; rows.forEach(r => { m[r.modelName] = (m[r.modelName] || 0) + r.amountILS; }); return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value })); }, [rows]);
   const byType = useMemo(() => { const m = {}; rows.forEach(r => { if (r.incomeType) { m[r.incomeType] = (m[r.incomeType] || 0) + r.amountILS; } }); return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value })); }, [rows]);
-  const mbd = useMemo(() => { if (view !== "yearly") return []; return MONTHS_HE.map((m, i) => { const mr = iY.filter(r => r.chatterName === sel && r.date && r.date.getMonth() === i); const s = Calc.chatterSalary(mr); return { month: m, ms: MONTHS_SHORT[i], sales: mr.reduce((sum, r) => sum + r.amountILS, 0), ...s }; }); }, [iY, sel, view]);
+  const mbd = useMemo(() => {
+    if (view !== "yearly") return [];
+    return MONTHS_HE.map((m, i) => {
+      const ymiI = ym(year, i);
+      const mr = iY.filter(r => r.chatterName === sel && r.date && r.date.getMonth() === i);
+      const s = Calc.chatterSalary(mr, cfg, ymiI);
+      return { month: m, ms: MONTHS_SHORT[i], sales: mr.reduce((sum, r) => sum + r.amountILS, 0), ...s };
+    });
+  }, [iY, sel, view, cfg, year]);
+
+  const openSettings = () => {
+    setSettingsForm({ salaryType: cfg.salaryType || "sales", officePct: cfg.officePct ?? 17, fieldPct: cfg.fieldPct ?? 15, hourlyRate: cfg.hourlyRate ?? 0 });
+    setEditSettings(true);
+  };
+  const saveSettings = async () => {
+    setSaving(true);
+    await saveChatterSetting(sel, settingsForm);
+    setSaving(false);
+    setEditSettings(false);
+  };
+  const openHours = () => { setHoursVal(String(cfg.monthlyHours?.[ymi] ?? "")); setEditHours(true); };
+  const saveHours = async () => {
+    setSaving(true);
+    await saveChatterSetting(sel, { monthlyHours: { ...(cfg.monthlyHours || {}), [ymi]: +hoursVal || 0 } });
+    setSaving(false);
+    setEditHours(false);
+  };
+
+  const inpS = { width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", boxSizing: "border-box" };
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👥 צ'אטרים</h2>
-    <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value={sel} onChange={setSel} options={chatters.map(c => ({ value: c, label: c }))} />} /></FB>
+    <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value={sel} onChange={v => { setSel(v); }} options={chatters.map(c => ({ value: c, label: c }))} />} /></FB>
     {!sel ? <p style={{ color: C.mut }}>בחר צ'אטר</p> : (view === "monthly" || view === "range") ? <>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon="💰" title="מכירות" value={fmtC(tot)} color={C.grn} sub={`${rows.length} עסקאות`} /><Stat icon="🏢" title="משרד" value={fmtC(sal.oSales)} sub={`שכר: ${fmtC(sal.oSal)}`} /><Stat icon="🏠" title="חוץ" value={fmtC(sal.rSales)} sub={`שכר: ${fmtC(sal.rSal)}`} /><Stat icon="💵" title="משכורת" value={fmtC(sal.total)} color={C.pri} /></div>
+        <Stat icon="💰" title="מכירות" value={fmtC(tot)} color={C.grn} sub={`${rows.length} עסקאות`} />
+        <Stat icon="🏢" title="משרד" value={fmtC(sal.oSales)} sub={`שכר ${sal.officePct ?? 17}%: ${fmtC(sal.oSal)}`} />
+        <Stat icon="🏠" title="חוץ" value={fmtC(sal.rSales)} sub={`שכר ${sal.fieldPct ?? 15}%: ${fmtC(sal.rSal)}`} />
+        {sal.salaryType !== "sales" && <Stat icon="⏱️" title="שעתי" value={fmtC(sal.hourlySalary)} sub={`${sal.hours} שעות × ₪${sal.hourlyRate}`} />}
+        <Stat icon="💵" title="משכורת" value={fmtC(sal.total)} color={C.pri} sub={SALARY_TYPE_LABELS[sal.salaryType] || "מכירות"} />
+      </div>
+
+      {/* Settings card */}
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <span style={{ color: C.dim, fontSize: 13, fontWeight: 600 }}>⚙️ הגדרות שכר — {sel}</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            {sal.salaryType !== "sales" && <Btn variant="ghost" size="sm" onClick={openHours}>⏱️ שעות חודש זה</Btn>}
+            <Btn variant="ghost" size="sm" onClick={openSettings}>✏️ ערוך הגדרות</Btn>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <div><div style={{ color: C.mut, fontSize: 11 }}>סוג שכר</div><div style={{ color: C.txt, fontWeight: 700 }}>{SALARY_TYPE_LABELS[cfg.salaryType || "sales"]}</div></div>
+          <div><div style={{ color: C.mut, fontSize: 11 }}>משרד</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.officePct ?? 17}%</div></div>
+          <div><div style={{ color: C.mut, fontSize: 11 }}>חוץ</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.fieldPct ?? 15}%</div></div>
+          {sal.salaryType !== "sales" && <>
+            <div><div style={{ color: C.mut, fontSize: 11 }}>שכר לשעה</div><div style={{ color: C.txt, fontWeight: 700 }}>₪{cfg.hourlyRate ?? 0}</div></div>
+            <div><div style={{ color: C.mut, fontSize: 11 }}>שעות החודש</div><div style={{ color: C.pri, fontWeight: 700 }}>{cfg.monthlyHours?.[ymi] ?? 0}</div></div>
+          </>}
+        </div>
+      </Card>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
         <Card><div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>מכירות לפי לקוחה</div><div style={{ width: "100%", direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(180, byCl.length * 30)}><BarChart data={byCl} layout="vertical" margin={{ top: 5, right: 150, bottom: 5, left: 20 }}><XAxis type="number" reversed={true} tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={150} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 0, 0, 4]} name="מכירות"><LabelList dataKey="value" position="insideLeft" formatter={v => `₪${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} /></Bar></BarChart></ResponsiveContainer></div></Card>
         {byType.length > 0 && <Card><div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>מכירות לפי סוג הכנסה</div><div style={{ width: "100%", direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(180, byType.length * 30)}><BarChart data={byType} layout="vertical" margin={{ top: 5, right: 150, bottom: 5, left: 20 }}><XAxis type="number" reversed={true} tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={150} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.priL} radius={[4, 0, 0, 4]} name="מכירות"><LabelList dataKey="value" position="insideLeft" formatter={v => `₪${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} /></Bar></BarChart></ResponsiveContainer></div></Card>}
       </div>
-      {/* Chatter reconciliation */}
+
+      {/* Reconciliation */}
       {(() => {
         const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
         const balance = sal.total - paidDirect;
@@ -1765,6 +1858,49 @@ function ChatterPage() {
         </Card>;
       })()}
       <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }]} rows={rows.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(rows.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(tot)]} />
+
+      {/* Edit settings modal */}
+      <Modal open={editSettings} onClose={() => setEditSettings(false)} title={`⚙️ הגדרות שכר — ${sel}`} width={400}>
+        <div style={{ display: "grid", gap: 14 }}>
+          <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>סוג שכר</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {Object.entries(SALARY_TYPE_LABELS).map(([k, v]) => (
+                <Btn key={k} variant={settingsForm.salaryType === k ? "primary" : "ghost"} size="sm" onClick={() => setSettingsForm(f => ({ ...f, salaryType: k }))}>{v}</Btn>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>% משרד (ברירת מחדל 17)</label>
+              <input type="number" min="0" max="100" value={settingsForm.officePct} onChange={e => setSettingsForm(f => ({ ...f, officePct: +e.target.value }))} style={inpS} />
+            </div>
+            <div>
+              <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>% חוץ (ברירת מחדל 15)</label>
+              <input type="number" min="0" max="100" value={settingsForm.fieldPct} onChange={e => setSettingsForm(f => ({ ...f, fieldPct: +e.target.value }))} style={inpS} />
+            </div>
+          </div>
+          {settingsForm.salaryType !== "sales" && <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שכר לשעה (₪)</label>
+            <input type="number" min="0" value={settingsForm.hourlyRate} onChange={e => setSettingsForm(f => ({ ...f, hourlyRate: +e.target.value }))} style={inpS} />
+          </div>}
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <Btn variant="success" onClick={saveSettings} disabled={saving}>{saving ? "שומר..." : "💾 שמור"}</Btn>
+            <Btn variant="ghost" onClick={() => setEditSettings(false)}>ביטול</Btn>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit hours modal */}
+      <Modal open={editHours} onClose={() => setEditHours(false)} title={`⏱️ שעות — ${sel} — ${MONTHS_HE[month]}`} width={320}>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>מספר שעות עבודה החודש</label>
+        <input type="number" min="0" value={hoursVal} onChange={e => setHoursVal(e.target.value)} style={{ ...inpS, fontSize: 22, marginBottom: 14 }} />
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn variant="success" onClick={saveHours} disabled={saving}>{saving ? "שומר..." : "💾 שמור"}</Btn>
+          <Btn variant="ghost" onClick={() => setEditHours(false)}>ביטול</Btn>
+        </div>
+      </Modal>
+
     </> : <>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><ComposedChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="sales" fill={C.pri} radius={[4, 4, 0, 0]} name="מכירות" /><Line type="monotone" dataKey="total" stroke={C.ylw} strokeWidth={2} dot={{ r: 3 }} name="משכורת" /></ComposedChart></ResponsiveContainer></Card>
       <DT columns={[{ label: "חודש", key: "month" }, { label: "מכירות", render: r => fmtC(r.sales) }, { label: "משרד", render: r => fmtC(r.oSales) }, { label: "חוץ", render: r => fmtC(r.rSales) }, { label: "שכר", render: r => <strong style={{ color: C.pri }}>{fmtC(r.total)}</strong> }]} rows={mbd} footer={["סה״כ", fmtC(mbd.reduce((s, r) => s + r.sales, 0)), "", "", fmtC(mbd.reduce((s, r) => s + r.total, 0))]} />
@@ -3390,7 +3526,7 @@ function UserManagementPage() {
 // PAGE: DEBTS REPORT (דוח חובות)
 // ═══════════════════════════════════════════════════════
 function DebtsPage() {
-  const { models, income, settlements, month, year, addSettlement } = useApp();
+  const { models, income, settlements, month, year, addSettlement, chatterSettings } = useApp();
   const [modalClient, setModalClient] = useState(null);
   const [form, setForm] = useState({ amount: "", direction: "AgencyToClient", notes: "" });
   const [saving, setSaving] = useState(false);
@@ -3399,7 +3535,8 @@ function DebtsPage() {
     const names = [...new Set(income.map(r => r.chatterName).filter(Boolean))];
     return names.map(name => {
       const rows = income.filter(r => r.chatterName === name && new Date(r.date || 0).getMonth() === month && new Date(r.date || 0).getFullYear() === year);
-      const sal = Calc.chatterSalary(rows);
+      const cfg = (chatterSettings || {})[name] || {};
+      const sal = Calc.chatterSalary(rows, cfg, ym(year, month));
       const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
       return { name, sales: rows.reduce((s, r) => s + r.amountILS, 0), salary: sal.total, paidDirect, balance: sal.total - paidDirect };
     }).sort((a, b) => b.sales - a.sales);
