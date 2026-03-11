@@ -1768,6 +1768,7 @@ function ChatterPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { if (chatters.length && !sel) setSel(chatters[0]); }, [chatters, sel]);
+  useEffect(() => { setVatChatter((chatterSettings[sel] || {}).vatChatter ?? false); }, [sel, chatterSettings]);
 
   const ymi = ym(year, month);
   const cfg = chatterSettings[sel] || {};
@@ -1830,12 +1831,13 @@ function ChatterPage() {
       {(() => {
         const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
         const balance = sal.total - paidDirect;
+        const vatAmt = Math.abs(balance) * 0.18;
         const finalBalance = Math.abs(balance) * (vatChatter ? 1.18 : 1);
         return <Card style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, margin: 0 }}>💵 שכר צ'אטר — {MONTHS_HE[month]}</h3>
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn variant={vatChatter ? "warning" : "ghost"} size="sm" onClick={() => setVatChatter(v => !v)}>🧾 {vatChatter ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
+              <Btn variant={vatChatter ? "warning" : "ghost"} size="sm" onClick={async () => { const nv = !vatChatter; setVatChatter(nv); await saveChatterSetting(sel, { vatChatter: nv }); }}>🧾 {vatChatter ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
               <Btn variant="ghost" size="sm" onClick={openSettings}>✏️ ערוך הגדרות</Btn>
             </div>
           </div>
@@ -1859,7 +1861,11 @@ function ChatterPage() {
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Stat icon="💵" title="שכר מגיע לצ'אטר" value={fmtC(sal.total)} color={C.pri} />
             <Stat icon="✅" title="שולם ישירות לצ'אטר" value={fmtC(paidDirect)} color={C.grn} />
-            <Stat icon={balance > 0 ? "🔴" : balance < 0 ? "🟢" : "⚪"} title={`${balance > 0 ? "אנחנו חייבים לו" : balance < 0 ? "הוא חייב לנו" : "מאוזן"}${vatChatter ? " + מע״מ" : ""}`} value={fmtC(finalBalance)} color={balance > 0 ? C.red : balance < 0 ? C.grn : C.mut} sub={vatChatter ? "כולל מע״מ 18%" : undefined} />
+            {vatChatter ? <>
+              <Stat icon={balance > 0 ? "🔴" : balance < 0 ? "🟢" : "⚪"} title={balance > 0 ? "יתרה לפני מע״מ" : balance < 0 ? "יתרה לפני מע״מ" : "מאוזן"} value={fmtC(Math.abs(balance))} color={balance > 0 ? C.red : balance < 0 ? C.grn : C.mut} />
+              <Stat icon="🧾" title="מע״מ 18%" value={fmtC(vatAmt)} color={C.ylw} />
+              <Stat icon={balance > 0 ? "🔴" : balance < 0 ? "🟢" : "⚪"} title={balance > 0 ? "סה״כ לתשלום לו (כולל מע״מ)" : balance < 0 ? "סה״כ לתשלום לנו (כולל מע״מ)" : "מאוזן"} value={fmtC(finalBalance)} color={balance > 0 ? C.red : balance < 0 ? C.grn : C.mut} />
+            </> : <Stat icon={balance > 0 ? "🔴" : balance < 0 ? "🟢" : "⚪"} title={balance > 0 ? "אנחנו חייבים לו" : balance < 0 ? "הוא חייב לנו" : "מאוזן"} value={fmtC(finalBalance)} color={balance > 0 ? C.red : balance < 0 ? C.grn : C.mut} />}
           </div>
         </Card>;
       })()}
@@ -3550,7 +3556,11 @@ function DebtsPage() {
       const cfg = (chatterSettings || {})[name] || {};
       const sal = Calc.chatterSalary(rows, cfg, ym(year, month));
       const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
-      return { name, sales: rows.reduce((s, r) => s + r.amountILS, 0), salary: sal.total, paidDirect, balance: sal.total - paidDirect };
+      const balance = sal.total - paidDirect;
+      const hasVat = cfg.vatChatter ?? false;
+      const vatAmt = Math.abs(balance) * 0.18;
+      const finalBalance = Math.abs(balance) * (hasVat ? 1.18 : 1);
+      return { name, sales: rows.reduce((s, r) => s + r.amountILS, 0), salary: sal.total, paidDirect, balance, hasVat, vatAmt, finalBalance };
     }).sort((a, b) => b.sales - a.sales);
   }, [income, month, year]);
 
@@ -3650,10 +3660,18 @@ function DebtsPage() {
         { label: "מכירות", render: r => <span style={{ color: C.dim }}>{fmtC(r.sales)}</span> },
         { label: "שכר מגיע", render: r => <span style={{ color: C.pri }}>{fmtC(r.salary)}</span> },
         { label: "שולם ישירות", render: r => <span style={{ color: C.grn }}>{fmtC(r.paidDirect)}</span> },
-        { label: "יתרה", render: r => {
+        { label: "יתרה לתשלום", render: r => {
           const col = Math.abs(r.balance) < 1 ? C.mut : r.balance > 0 ? C.red : C.grn;
           const txt = Math.abs(r.balance) < 1 ? "מאוזן" : r.balance > 0 ? "אנחנו חייבים" : "הוא חייב לנו";
-          return <div style={{ color: col, fontWeight: 700 }}><div>{fmtC(Math.abs(r.balance))}</div><div style={{ fontSize: 10 }}>{txt}</div></div>;
+          if (r.hasVat && Math.abs(r.balance) >= 1) {
+            return <div style={{ color: col, fontWeight: 700 }}>
+              <div style={{ fontSize: 11, color: C.dim }}>לפני מע״מ: {fmtC(Math.abs(r.balance))}</div>
+              <div style={{ fontSize: 11, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div>
+              <div style={{ fontSize: 14 }}>סה״כ: {fmtC(r.finalBalance)}</div>
+              <div style={{ fontSize: 10 }}>{txt} + מע״מ</div>
+            </div>;
+          }
+          return <div style={{ color: col, fontWeight: 700 }}><div>{fmtC(r.finalBalance)}</div><div style={{ fontSize: 10 }}>{txt}</div></div>;
         }}
       ]} rows={chatterDebtRows} footer={["סה״כ", fmtC(chatterDebtRows.reduce((s,r)=>s+r.sales,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.salary,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.paidDirect,0)), ""]} />
     </Card>
