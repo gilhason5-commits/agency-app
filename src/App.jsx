@@ -1764,11 +1764,11 @@ function ChatterPage() {
   const [editHours, setEditHours] = useState(false);
   const [settingsForm, setSettingsForm] = useState({ salaryType: "sales", officePct: 17, fieldPct: 15, hourlyRate: 0 });
   const [hoursVal, setHoursVal] = useState("");
-  const [vatChatter, setVatChatter] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { if (chatters.length && !sel) setSel(chatters[0]); }, [chatters, sel]);
-  useEffect(() => { setVatChatter((chatterSettings[sel] || {}).vatChatter ?? false); }, [sel, chatterSettings]);
+
+  const vatChatter = (chatterSettings[sel] || {}).vatChatter ?? false;
 
   const ymi = ym(year, month);
   const cfg = chatterSettings[sel] || {};
@@ -1837,7 +1837,7 @@ function ChatterPage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, margin: 0 }}>💵 שכר צ'אטר — {MONTHS_HE[month]}</h3>
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn variant={vatChatter ? "warning" : "ghost"} size="sm" onClick={async () => { const nv = !vatChatter; setVatChatter(nv); await saveChatterSetting(sel, { vatChatter: nv }); }}>🧾 {vatChatter ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
+              <Btn variant={vatChatter ? "warning" : "ghost"} size="sm" onClick={async () => { await saveChatterSetting(sel, { vatChatter: !vatChatter }); }}>🧾 {vatChatter ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
               <Btn variant="ghost" size="sm" onClick={openSettings}>✏️ ערוך הגדרות</Btn>
             </div>
           </div>
