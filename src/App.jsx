@@ -887,7 +887,7 @@ function Prov({ children }) {
       setSettlements(prev => [...prev, saved]);
       return saved;
     }
-  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate]);
+  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
@@ -1855,14 +1855,14 @@ function ChatterPage() {
             <Stat icon="🏠" title="חוץ" value={`${cfg.fieldPct ?? 15}%`} />
             {sal.salaryType !== "sales" && <Stat icon="⏰" title="שכר לשעה" value={`₪${cfg.hourlyRate ?? 0}`} />}
             <Card style={{ flex: 1, minWidth: 140 }}>
-              <div style={{ color: C.dim, fontSize: 12, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 16 }}>⏱️</span>שעות עבודה — {MONTHS_HE[month]}</div>
-              <div style={{ display: "flex", alignItems: "center", border: `1px solid ${C.bdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
+              <div style={{ color: C.dim, fontSize: 12, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 16 }}>⏱️</span>שעות עבודה — {MONTHS_HE[month]}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input
                   type="number" min="0" value={hoursVal}
                   onChange={e => setHoursVal(e.target.value)}
-                  style={{ flex: 1, padding: "5px 8px", background: "transparent", border: "none", color: C.txt, fontSize: 22, fontWeight: 700, outline: "none", textAlign: "center" }}
+                  style={{ flex: 1, padding: "8px 12px", background: "#1e293b", border: `2px solid ${C.bdr}`, borderRadius: 8, color: "#f1f5f9", fontSize: 26, fontWeight: 700, outline: "none", textAlign: "center", minWidth: 0 }}
                 />
-                <button type="button" onClick={saveHours} disabled={saving} style={{ padding: "6px 12px", background: C.grn, border: "none", color: "#fff", fontSize: 16, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "..." : "✓"}</button>
+                <button type="button" onClick={saveHours} disabled={saving} style={{ padding: "8px 14px", background: C.grn, border: "none", borderRadius: 8, color: "#fff", fontSize: 18, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "..." : "✓"}</button>
               </div>
             </Card>
             {(() => {
@@ -3014,6 +3014,35 @@ function ChatterPortal() {
             ))}
           </div>
         )}
+
+        {/* Top 3 chatters this month */}
+        {(() => {
+          const byChatter = {};
+          iM.forEach(r => {
+            if (!r.chatterName) return;
+            byChatter[r.chatterName] = (byChatter[r.chatterName] || 0) + r.amountILS;
+          });
+          const top3 = Object.entries(byChatter).sort((a, b) => b[1] - a[1]).slice(0, 3);
+          if (top3.length === 0) return null;
+          const medals = ["🥇", "🥈", "🥉"];
+          const medalColors = ["#f59e0b", "#9ca3af", "#cd7f32"];
+          return <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${C.bdr}` }}>
+            <div style={{ color: C.dim, fontSize: 12, marginBottom: 10, fontWeight: 600 }}>🏆 הצ'אטרים הכי רווחיים החודש</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {top3.map(([name, total], i) => (
+                <div key={name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: C.bg, borderRadius: 8, padding: "8px 12px", border: `1px solid ${C.bdr}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 18 }}>{medals[i]}</span>
+                    <span style={{ color: name === chatterName ? C.pri : C.txt, fontWeight: name === chatterName ? 700 : 500, fontSize: 14 }}>
+                      {name}{name === chatterName ? " (את/ה)" : ""}
+                    </span>
+                  </div>
+                  <span style={{ color: medalColors[i], fontWeight: 700, fontSize: 15 }}>{fmtC(total)}</span>
+                </div>
+              ))}
+            </div>
+          </div>;
+        })()}
       </Card>
 
       {/* Income Entry Form */}
