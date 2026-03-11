@@ -1842,7 +1842,7 @@ function ChatterPage() {
         const vatAmt = Math.abs(balance) * 0.18;
         const finalBalance = Math.abs(balance) * (vatChatter ? 1.18 : 1);
         return <Card style={{ marginBottom: 16 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, position: "relative", zIndex: 2 }}>
             <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, margin: 0 }}>💵 שכר צ'אטר — {MONTHS_HE[month]}</h3>
             <div style={{ display: "flex", gap: 8 }}>
               <Btn variant={vatChatter ? "warning" : "ghost"} size="sm" onClick={async () => { await saveChatterSetting(sel, { vatChatter: !vatChatter }); }}>🧾 {vatChatter ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
@@ -3120,16 +3120,15 @@ function ChatterPortal() {
             { label: "תאריך", render: renderDateHour },
             { label: "סוג הכנסה", key: "incomeType" },
             { label: "שם קונה", render: r => r.buyerName || "—" },
-            { label: "צ'אטר", key: "chatterName" },
             { label: "דוגמנית", key: "modelName" },
             { label: "פלטפורמה", key: "platform" },
             { label: "מיקום", key: "shiftLocation" },
-            { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" },
-            { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" },
+            { label: "עמ׳ $", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" },
+            { label: "עמ׳ ₪", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" },
             { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
             { label: "סכום ₪", render: r => <span style={{ color: C.ylw }}>{fmtC(r.amountILS)}</span> },
-            { label: "ביטול", render: () => <span style={{ color: C.ylw }}>⏳ ממתין</span> }
-          ]} rows={pending} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(pending.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalPending), ""]} />
+            { label: "סטטוס", render: () => <span style={{ color: C.ylw }}>⏳ ממתין</span> }
+          ]} rows={pending} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(pending.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalPending), "", ""]} />
         </div>
       </>}
 
@@ -3140,16 +3139,15 @@ function ChatterPortal() {
           { label: "תאריך", render: renderDateHour },
           { label: "סוג הכנסה", key: "incomeType" },
           { label: "שם קונה", render: r => r.buyerName || "—" },
-          { label: "צ'אטר", key: "chatterName" },
           { label: "דוגמנית", key: "modelName" },
           { label: "פלטפורמה", key: "platform" },
           { label: "מיקום", key: "shiftLocation" },
-          { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" },
-          { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" },
+          { label: "עמ׳ $", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" },
+          { label: "עמ׳ ₪", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" },
           { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
           { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> },
-          { label: "ביטול", render: r => <span style={{ color: r.cancelled ? C.ylw : C.dim }}>{r.cancelled ? "בוטל" : "❌"}</span> }
-        ]} rows={approved} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved), ""]} />
+          { label: "סטטוס", render: r => <span style={{ color: r.cancelled ? C.ylw : C.dim }}>{r.cancelled ? "בוטל" : "✅"}</span> }
+        ]} rows={approved} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved), "", ""]} />
       }
 
     </div>
@@ -3387,20 +3385,18 @@ function ClientPortal() {
 
       <Card>
         <h3 style={{ color: C.dim, fontSize: 14, marginBottom: 12 }}>🧾 פירוט עסקאות</h3>
-        <DT columns={[
+        <DT textSm columns={[
           { label: "תאריך", render: renderDateHour },
           { label: "סוג הכנסה", key: "incomeType" },
           { label: "שם קונה", render: r => r.buyerName || "—" },
           { label: "צ'אטר", key: "chatterName" },
-          { label: "דוגמנית", key: "modelName" },
           { label: "פלטפורמה", key: "platform" },
           { label: "מיקום", key: "shiftLocation" },
-          { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" },
-          { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" },
+          { label: "עמ׳ $", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" },
+          { label: "עמ׳ ₪", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" },
           { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
           { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> },
-          { label: "ביטול", render: r => <span style={{ color: r.cancelled ? C.ylw : C.dim }}>{r.cancelled ? "בוטל" : "❌"}</span> }
-        ]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(data.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalIncome), ""]} />
+        ]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(data.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalIncome), ""]} />
       </Card>
     </div>
   </div>;
