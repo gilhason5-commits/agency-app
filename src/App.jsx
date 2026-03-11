@@ -1865,6 +1865,30 @@ function ChatterPage() {
               </div>
               <Btn variant="success" size="sm" onClick={saveHours} disabled={saving}>{saving ? "..." : "💾"}</Btn>
             </div>
+            {(() => {
+              const hours = parseFloat(hoursVal) || 0;
+              const netProfit = tot - sal.total;
+              const profitPerHour = hours > 0 ? netProfit / hours : null;
+              const roiColor = netProfit >= 0 ? C.grn : C.red;
+              return <div style={{ background: C.bg, border: `1px solid ${netProfit >= 0 ? C.grn : C.red}`, borderRadius: 10, padding: "8px 14px", minWidth: 180 }}>
+                <div style={{ color: C.mut, fontSize: 10, marginBottom: 4, fontWeight: 600 }}>📊 ROI — כדאיות לעסק</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <span style={{ color: C.dim, fontSize: 11 }}>רווח נקי (אחרי שכר)</span>
+                    <span style={{ color: roiColor, fontWeight: 700, fontSize: 12 }}>{fmtC(netProfit)}</span>
+                  </div>
+                  {hours > 0 && <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <span style={{ color: C.dim, fontSize: 11 }}>ממוצע לשעת עבודה</span>
+                    <span style={{ color: profitPerHour >= 0 ? C.pri : C.red, fontWeight: 700, fontSize: 12 }}>{fmtC(Math.round(profitPerHour))}</span>
+                  </div>}
+                  {hours > 0 && <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <span style={{ color: C.dim, fontSize: 11 }}>מכירות לשעה</span>
+                    <span style={{ color: C.ylw, fontWeight: 700, fontSize: 12 }}>{fmtC(Math.round(tot / hours))}</span>
+                  </div>}
+                  {hours === 0 && <div style={{ color: C.mut, fontSize: 10 }}>הזן שעות עבודה לחישוב</div>}
+                </div>
+              </div>;
+            })()}
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Stat icon="💵" title="שכר מגיע לצ'אטר" value={fmtC(sal.total)} color={C.pri} />
