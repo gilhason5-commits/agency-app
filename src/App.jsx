@@ -6,7 +6,8 @@ import {
   fetchUsers, addUser, removeUser, findUser, saveAllUsers,
   fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses,
   fetchSettlements, addSettlement, removeSettlement,
-  fetchChatterTargets, setChatterTarget
+  fetchChatterTargets, setChatterTarget,
+  fetchClientRates, saveClientRate
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -674,7 +675,24 @@ const Calc = {
 };
 const _rates = (() => { try { return JSON.parse(localStorage.getItem("CLIENT_RATES_DB") || "{}"); } catch { return {}; } })();
 function getRate(n, ymi) { return _rates[n]?.[ymi] ?? 0; }
-function setRate(n, ymi, p) { if (!_rates[n]) _rates[n] = {}; _rates[n][ymi] = p; try { localStorage.setItem("CLIENT_RATES_DB", JSON.stringify(_rates)); } catch {} }
+function setRate(n, ymi, p) {
+  if (!_rates[n]) _rates[n] = {};
+  _rates[n][ymi] = p;
+  try { localStorage.setItem("CLIENT_RATES_DB", JSON.stringify(_rates)); } catch {}
+  saveClientRate(n, ymi, p).catch(() => {});
+}
+async function loadRatesFromFirebase() {
+  try {
+    const data = await fetchClientRates();
+    Object.entries(data).forEach(([name, months]) => {
+      Object.entries(months).forEach(([ymi, pct]) => {
+        if (!_rates[name]) _rates[name] = {};
+        _rates[name][ymi] = pct;
+      });
+    });
+    try { localStorage.setItem("CLIENT_RATES_DB", JSON.stringify(_rates)); } catch {}
+  } catch {}
+}
 
 // ═══════════════════════════════════════════════════════
 // CONTEXT
@@ -748,6 +766,7 @@ function Prov({ children }) {
     ModelSvc.fetchAll().then(setModels);
     HistorySvc.fetchAll().then(setHistory);
     GenParamsSvc.fetch().then(setGenParams);
+    loadRatesFromFirebase().then(() => setRv(v => v + 1));
   }, []);
 
   const loadDemo = useCallback(() => {
