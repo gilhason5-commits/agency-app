@@ -1854,16 +1854,16 @@ function ChatterPage() {
             <div><div style={{ color: C.mut, fontSize: 11 }}>משרד</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.officePct ?? 17}%</div></div>
             <div><div style={{ color: C.mut, fontSize: 11 }}>חוץ</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.fieldPct ?? 15}%</div></div>
             {sal.salaryType !== "sales" && <div><div style={{ color: C.mut, fontSize: 11 }}>שכר לשעה</div><div style={{ color: C.txt, fontWeight: 700 }}>₪{cfg.hourlyRate ?? 0}</div></div>}
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 6 }}>
-              <div>
-                <div style={{ color: C.mut, fontSize: 11, marginBottom: 4 }}>⏱️ שעות עבודה — {MONTHS_HE[month]}</div>
+            <div>
+              <div style={{ color: C.mut, fontSize: 11, marginBottom: 4 }}>⏱️ שעות עבודה — {MONTHS_HE[month]}</div>
+              <div style={{ display: "flex", alignItems: "center", border: `1px solid ${C.bdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
                 <input
                   type="number" min="0" value={hoursVal}
                   onChange={e => setHoursVal(e.target.value)}
-                  style={{ width: 80, padding: "5px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 15, fontWeight: 700, outline: "none", textAlign: "center" }}
+                  style={{ width: 70, padding: "5px 8px", background: "transparent", border: "none", color: C.txt, fontSize: 15, fontWeight: 700, outline: "none", textAlign: "center" }}
                 />
+                <button onClick={saveHours} disabled={saving} style={{ padding: "5px 10px", background: C.grn, border: "none", color: "#fff", fontSize: 15, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "..." : "✓"}</button>
               </div>
-              <Btn variant="success" size="sm" onClick={saveHours} disabled={saving}>{saving ? "..." : "💾"}</Btn>
             </div>
             {(() => {
               const hours = parseFloat(hoursVal) || 0;
