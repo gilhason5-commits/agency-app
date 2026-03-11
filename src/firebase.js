@@ -457,3 +457,19 @@ export async function fetchClientRates() {
 export async function saveClientRate(clientName, ymi, pct) {
     await setDoc(doc(db, "clientRates", clientName), { [ymi]: pct }, { merge: true });
 }
+
+// ═══════════════════════════════════════════════════════
+// CHATTER SETTINGS API (salary type, rates, hourly pay)
+// ═══════════════════════════════════════════════════════
+export async function fetchAllChatterSettings() {
+    try {
+        const snap = await getDocs(collection(db, "chatterSettings"));
+        const result = {};
+        snap.forEach(d => { result[d.id] = d.data(); });
+        return result;
+    } catch { return {}; }
+}
+
+export async function saveChatterSettings(chatterName, settings) {
+    await setDoc(doc(db, "chatterSettings", chatterName), settings, { merge: true });
+}
