@@ -1849,45 +1849,40 @@ function ChatterPage() {
               <Btn variant="ghost" size="sm" onClick={openSettings}>✏️ ערוך הגדרות</Btn>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${C.bdr}`, alignItems: "flex-end" }}>
-            <div><div style={{ color: C.mut, fontSize: 11 }}>סוג שכר</div><div style={{ color: C.txt, fontWeight: 700 }}>{SALARY_TYPE_LABELS[cfg.salaryType || "sales"]}</div></div>
-            <div><div style={{ color: C.mut, fontSize: 11 }}>משרד</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.officePct ?? 17}%</div></div>
-            <div><div style={{ color: C.mut, fontSize: 11 }}>חוץ</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.fieldPct ?? 15}%</div></div>
-            {sal.salaryType !== "sales" && <div><div style={{ color: C.mut, fontSize: 11 }}>שכר לשעה</div><div style={{ color: C.txt, fontWeight: 700 }}>₪{cfg.hourlyRate ?? 0}</div></div>}
-            <div>
-              <div style={{ color: C.mut, fontSize: 11, marginBottom: 4 }}>⏱️ שעות עבודה — {MONTHS_HE[month]}</div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${C.bdr}` }}>
+            <Stat icon="📋" title="סוג שכר" value={SALARY_TYPE_LABELS[cfg.salaryType || "sales"]} />
+            <Stat icon="🏢" title="משרד" value={`${cfg.officePct ?? 17}%`} />
+            <Stat icon="🏠" title="חוץ" value={`${cfg.fieldPct ?? 15}%`} />
+            {sal.salaryType !== "sales" && <Stat icon="⏰" title="שכר לשעה" value={`₪${cfg.hourlyRate ?? 0}`} />}
+            <Card style={{ flex: 1, minWidth: 140 }}>
+              <div style={{ color: C.dim, fontSize: 12, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 16 }}>⏱️</span>שעות עבודה — {MONTHS_HE[month]}</div>
               <div style={{ display: "flex", alignItems: "center", border: `1px solid ${C.bdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
                 <input
                   type="number" min="0" value={hoursVal}
                   onChange={e => setHoursVal(e.target.value)}
-                  style={{ width: 70, padding: "5px 8px", background: "transparent", border: "none", color: C.txt, fontSize: 15, fontWeight: 700, outline: "none", textAlign: "center" }}
+                  style={{ flex: 1, padding: "5px 8px", background: "transparent", border: "none", color: C.txt, fontSize: 22, fontWeight: 700, outline: "none", textAlign: "center" }}
                 />
-                <button onClick={saveHours} disabled={saving} style={{ padding: "5px 10px", background: C.grn, border: "none", color: "#fff", fontSize: 15, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "..." : "✓"}</button>
+                <button type="button" onClick={saveHours} disabled={saving} style={{ padding: "6px 12px", background: C.grn, border: "none", color: "#fff", fontSize: 16, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "..." : "✓"}</button>
               </div>
-            </div>
+            </Card>
             {(() => {
               const hours = parseFloat(hoursVal) || 0;
               const netProfit = tot - sal.total;
               const profitPerHour = hours > 0 ? netProfit / hours : null;
               const roiColor = netProfit >= 0 ? C.grn : C.red;
-              return <div style={{ background: C.bg, border: `1px solid ${netProfit >= 0 ? C.grn : C.red}`, borderRadius: 10, padding: "8px 14px", minWidth: 180 }}>
-                <div style={{ color: C.mut, fontSize: 10, marginBottom: 4, fontWeight: 600 }}>📊 ROI — כדאיות לעסק</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: C.dim, fontSize: 11 }}>רווח נקי (אחרי שכר)</span>
-                    <span style={{ color: roiColor, fontWeight: 700, fontSize: 12 }}>{fmtC(netProfit)}</span>
-                  </div>
-                  {hours > 0 && <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: C.dim, fontSize: 11 }}>ממוצע לשעת עבודה</span>
-                    <span style={{ color: profitPerHour >= 0 ? C.pri : C.red, fontWeight: 700, fontSize: 12 }}>{fmtC(Math.round(profitPerHour))}</span>
-                  </div>}
-                  {hours > 0 && <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <span style={{ color: C.dim, fontSize: 11 }}>מכירות לשעה</span>
-                    <span style={{ color: C.ylw, fontWeight: 700, fontSize: 12 }}>{fmtC(Math.round(tot / hours))}</span>
-                  </div>}
-                  {hours === 0 && <div style={{ color: C.mut, fontSize: 10 }}>הזן שעות עבודה לחישוב</div>}
-                </div>
-              </div>;
+              return <>
+                <Card style={{ flex: 1, minWidth: 140 }}>
+                  <div style={{ color: C.dim, fontSize: 12, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 16 }}>📊</span>רווח נקי לעסק</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: roiColor }}>{fmtC(netProfit)}</div>
+                  <div style={{ color: C.mut, fontSize: 11, marginTop: 4 }}>הכנסות פחות שכר</div>
+                </Card>
+                <Card style={{ flex: 1, minWidth: 140 }}>
+                  <div style={{ color: C.dim, fontSize: 12, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 16 }}>⚡</span>רווח לשעת עבודה</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: hours > 0 ? (profitPerHour >= 0 ? C.pri : C.red) : C.mut }}>{hours > 0 ? fmtC(Math.round(profitPerHour)) : "—"}</div>
+                  {hours > 0 && <div style={{ color: C.mut, fontSize: 11, marginTop: 4 }}>מכירות: {fmtC(Math.round(tot / hours))}/שעה</div>}
+                  {hours === 0 && <div style={{ color: C.mut, fontSize: 11, marginTop: 4 }}>הזן שעות לחישוב</div>}
+                </Card>
+              </>;
             })()}
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
