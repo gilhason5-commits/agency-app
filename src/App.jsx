@@ -8,7 +8,8 @@ import {
   fetchSettlements, addSettlement, removeSettlement,
   fetchChatterTargets, setChatterTarget,
   fetchClientRates, saveClientRate,
-  fetchAllChatterSettings, saveChatterSettings
+  fetchAllChatterSettings, saveChatterSettings,
+  fetchAllClientSettings, saveClientSettings
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -724,6 +725,7 @@ function Prov({ children }) {
   const [settlements, setSettlements] = useState([]);
   const [chatterTargets, setChatterTargets] = useState({});
   const [chatterSettings, setChatterSettings] = useState({});
+  const [clientSettings, setClientSettings] = useState({});
   const [models, setModels] = useState([]);
   const [history, setHistory] = useState([]);
   const [genParams, setGenParams] = useState(DEFAULT_PARAMS);
@@ -761,6 +763,7 @@ function Prov({ children }) {
       try { const sets = await fetchSettlements(); console.log("Fetched settlements:", sets); setSettlements(sets); } catch (e) { console.error("Error fetching settlements:", e); }
       try { const ct = await fetchChatterTargets(); setChatterTargets(ct); } catch (e) { console.error("Error fetching chatterTargets:", e); }
       try { const cs = await fetchAllChatterSettings(); setChatterSettings(cs); } catch (e) { console.error("Error fetching chatterSettings:", e); }
+      try { const cls = await fetchAllClientSettings(); setClientSettings(cls); } catch (e) { console.error("Error fetching clientSettings:", e); }
       try { const u = await UserSvc.fetchAll(); setSheetUsers(u); } catch (e) { console.error("Error fetching users:", e); }
       setConnected(true);
       setTimeout(() => setLoadStep(""), 3000);
@@ -868,6 +871,11 @@ function Prov({ children }) {
     saveChatterSetting: async (name, settings) => {
       setChatterSettings(prev => ({ ...prev, [name]: { ...(prev[name] || {}), ...settings } }));
       await saveChatterSettings(name, settings);
+    },
+    clientSettings, setClientSettings,
+    saveClientSetting: async (name, settings) => {
+      setClientSettings(prev => ({ ...prev, [name]: { ...(prev[name] || {}), ...settings } }));
+      await saveClientSettings(name, settings);
     },
     addSettlement: async (s) => {
       if (demo) {
@@ -1764,11 +1772,11 @@ function ChatterPage() {
   const [editHours, setEditHours] = useState(false);
   const [settingsForm, setSettingsForm] = useState({ salaryType: "sales", officePct: 17, fieldPct: 15, hourlyRate: 0 });
   const [hoursVal, setHoursVal] = useState("");
-  const [vatChatter, setVatChatter] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { if (chatters.length && !sel) setSel(chatters[0]); }, [chatters, sel]);
-  useEffect(() => { setVatChatter((chatterSettings[sel] || {}).vatChatter ?? false); }, [sel, chatterSettings]);
+
+  const vatChatter = (chatterSettings[sel] || {}).vatChatter ?? false;
 
   const ymi = ym(year, month);
   const cfg = chatterSettings[sel] || {};
@@ -1837,7 +1845,7 @@ function ChatterPage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, margin: 0 }}>💵 שכר צ'אטר — {MONTHS_HE[month]}</h3>
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn variant={vatChatter ? "warning" : "ghost"} size="sm" onClick={async () => { const nv = !vatChatter; setVatChatter(nv); await saveChatterSetting(sel, { vatChatter: nv }); }}>🧾 {vatChatter ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
+              <Btn variant={vatChatter ? "warning" : "ghost"} size="sm" onClick={async () => { await saveChatterSetting(sel, { vatChatter: !vatChatter }); }}>🧾 {vatChatter ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
               <Btn variant="ghost" size="sm" onClick={openSettings}>✏️ ערוך הגדרות</Btn>
             </div>
           </div>
@@ -1846,17 +1854,41 @@ function ChatterPage() {
             <div><div style={{ color: C.mut, fontSize: 11 }}>משרד</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.officePct ?? 17}%</div></div>
             <div><div style={{ color: C.mut, fontSize: 11 }}>חוץ</div><div style={{ color: C.txt, fontWeight: 700 }}>{cfg.fieldPct ?? 15}%</div></div>
             {sal.salaryType !== "sales" && <div><div style={{ color: C.mut, fontSize: 11 }}>שכר לשעה</div><div style={{ color: C.txt, fontWeight: 700 }}>₪{cfg.hourlyRate ?? 0}</div></div>}
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 6 }}>
-              <div>
-                <div style={{ color: C.mut, fontSize: 11, marginBottom: 4 }}>⏱️ שעות עבודה — {MONTHS_HE[month]}</div>
+            <div>
+              <div style={{ color: C.mut, fontSize: 11, marginBottom: 4 }}>⏱️ שעות עבודה — {MONTHS_HE[month]}</div>
+              <div style={{ display: "flex", alignItems: "center", border: `1px solid ${C.bdr}`, borderRadius: 8, overflow: "hidden", background: C.bg }}>
                 <input
                   type="number" min="0" value={hoursVal}
                   onChange={e => setHoursVal(e.target.value)}
-                  style={{ width: 80, padding: "5px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 15, fontWeight: 700, outline: "none", textAlign: "center" }}
+                  style={{ width: 70, padding: "5px 8px", background: "transparent", border: "none", color: C.txt, fontSize: 15, fontWeight: 700, outline: "none", textAlign: "center" }}
                 />
+                <button onClick={saveHours} disabled={saving} style={{ padding: "5px 10px", background: C.grn, border: "none", color: "#fff", fontSize: 15, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "..." : "✓"}</button>
               </div>
-              <Btn variant="success" size="sm" onClick={saveHours} disabled={saving}>{saving ? "..." : "💾"}</Btn>
             </div>
+            {(() => {
+              const hours = parseFloat(hoursVal) || 0;
+              const netProfit = tot - sal.total;
+              const profitPerHour = hours > 0 ? netProfit / hours : null;
+              const roiColor = netProfit >= 0 ? C.grn : C.red;
+              return <div style={{ background: C.bg, border: `1px solid ${netProfit >= 0 ? C.grn : C.red}`, borderRadius: 10, padding: "8px 14px", minWidth: 180 }}>
+                <div style={{ color: C.mut, fontSize: 10, marginBottom: 4, fontWeight: 600 }}>📊 ROI — כדאיות לעסק</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <span style={{ color: C.dim, fontSize: 11 }}>רווח נקי (אחרי שכר)</span>
+                    <span style={{ color: roiColor, fontWeight: 700, fontSize: 12 }}>{fmtC(netProfit)}</span>
+                  </div>
+                  {hours > 0 && <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <span style={{ color: C.dim, fontSize: 11 }}>ממוצע לשעת עבודה</span>
+                    <span style={{ color: profitPerHour >= 0 ? C.pri : C.red, fontWeight: 700, fontSize: 12 }}>{fmtC(Math.round(profitPerHour))}</span>
+                  </div>}
+                  {hours > 0 && <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <span style={{ color: C.dim, fontSize: 11 }}>מכירות לשעה</span>
+                    <span style={{ color: C.ylw, fontWeight: 700, fontSize: 12 }}>{fmtC(Math.round(tot / hours))}</span>
+                  </div>}
+                  {hours === 0 && <div style={{ color: C.mut, fontSize: 10 }}>הזן שעות עבודה לחישוב</div>}
+                </div>
+              </div>;
+            })()}
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Stat icon="💵" title="שכר מגיע לצ'אטר" value={fmtC(sal.total)} color={C.pri} />
@@ -1924,9 +1956,10 @@ function ChatterPage() {
 // PAGE: CLIENTS
 // ═══════════════════════════════════════════════════════
 function ClientPage() {
-  const { year, month, setMonth, view, setView, rv, updRate, setIncome } = useApp(); const { iM, iY, iRange, clients } = useFD();
-  const [sel, setSel] = useState(""), [editPct, setEditPct] = useState(false), [pv, setPv] = useState(0), [vatClient, setVatClient] = useState(false);
+  const { year, month, setMonth, view, setView, rv, updRate, setIncome, clientSettings, saveClientSetting } = useApp(); const { iM, iY, iRange, clients } = useFD();
+  const [sel, setSel] = useState(""), [editPct, setEditPct] = useState(false), [pv, setPv] = useState(0);
   useEffect(() => { if (clients.length && !sel) setSel(clients[0]); }, [clients, sel]);
+  const vatClient = (clientSettings[sel] || {}).vatClient ?? false;
   const ymi = ym(year, month), pct = getRate(sel, ymi); const incD = view === "range" ? iRange : view === "monthly" ? iM : iY; const bal = Calc.clientBal(incD, sel, pct); const clientTxCount = incD.filter(r => r.modelName === sel).length;
 
   const togglePaid = async (r) => {
@@ -1953,7 +1986,7 @@ function ClientPage() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <span style={{ color: C.dim, fontSize: 13 }}>💵 משכורת — {MONTHS_HE[month]}</span>
           <div style={{ display: "flex", gap: 8 }}>
-            <Btn variant={vatClient ? "warning" : "ghost"} size="sm" onClick={() => setVatClient(v => !v)}>🧾 {vatClient ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
+            <Btn variant={vatClient ? "warning" : "ghost"} size="sm" onClick={async () => { await saveClientSetting(sel, { vatClient: !vatClient }); }}>🧾 {vatClient ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
             <Btn variant="ghost" size="sm" onClick={() => { setPv(pct); setEditPct(true); }}>✏️ ערוך אחוז</Btn>
           </div>
         </div>
@@ -1962,9 +1995,13 @@ function ClientPage() {
           <div><div style={{ color: C.mut, fontSize: 11 }}>זכאות (שכר)</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(bal.ent)}</div></div>
           <div><div style={{ color: C.mut, fontSize: 11 }}>כבר שולם לה</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(bal.direct)}</div></div>
           <div style={{ borderRight: `2px solid ${C.bdr}`, paddingRight: 12 }}>
-            <div style={{ color: C.dim, fontSize: 11, fontWeight: 700 }}>תשלום בפועל{vatClient ? " + מע״מ" : ""}</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: bal.actualDue >= 0 ? C.grn : C.red }}>{fmtC(Math.abs(bal.actualDue) * (vatClient ? 1.18 : 1))}</div>
-            <div style={{ fontSize: 10, color: bal.actualDue >= 0 ? C.grn : C.red }}>{bal.actualDue >= 0 ? "הסוכנות חייבת ללקוחה" : "הלקוחה חייבת לסוכנות"}{vatClient ? " (כולל מע״מ 18%)" : ""}</div>
+            <div style={{ color: C.dim, fontSize: 11, fontWeight: 700 }}>יתרה לתשלום</div>
+            {vatClient && Math.abs(bal.actualDue) >= 1 ? <>
+              <div style={{ fontSize: 12, color: C.dim }}>לפני מע״מ: {fmtC(Math.abs(bal.actualDue))}</div>
+              <div style={{ fontSize: 12, color: C.ylw }}>מע״מ 18%: {fmtC(Math.abs(bal.actualDue) * 0.18)}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: bal.actualDue >= 0 ? C.grn : C.red }}>{fmtC(Math.abs(bal.actualDue) * 1.18)}</div>
+            </> : <div style={{ fontSize: 20, fontWeight: 800, color: bal.actualDue >= 0 ? C.grn : C.red }}>{fmtC(Math.abs(bal.actualDue))}</div>}
+            <div style={{ fontSize: 10, color: bal.actualDue >= 0 ? C.grn : C.red }}>{bal.actualDue >= 0 ? "הסוכנות חייבת ללקוחה" : "הלקוחה חייבת לסוכנות"}{vatClient ? " (כולל מע״מ)" : ""}</div>
           </div>
         </div>
       </Card>
@@ -3070,6 +3107,16 @@ function ChatterPortal() {
         </Btn>
       </Card>
 
+      {/* Per-client breakdown */}
+      {byClient.length > 0 && <>
+        <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 10 }}>👩 הכנסות לפי לקוחה</h3>
+        <DT textSm columns={[
+          { label: "לקוחה", key: "name" },
+          { label: "עסקאות", render: r => <span style={{ color: C.dim }}>{r.count}</span> },
+          { label: "סכום ₪", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(r.total)}</span> },
+        ]} rows={byClient} footer={["סה״כ", myIncome.length, fmtC(myIncome.reduce((s, r) => s + r.amountILS, 0))]} />
+      </>}
+
       {/* Pending Transactions */}
       {pending.length > 0 && <>
         <h3 style={{ color: C.ylw, fontSize: 15, fontWeight: 700, marginBottom: 10 }}>⏳ ממתינות לאישור ({pending.length})</h3>
@@ -3110,15 +3157,6 @@ function ChatterPortal() {
         ]} rows={approved} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved), ""]} />
       }
 
-      {/* Per-client breakdown */}
-      {byClient.length > 0 && <>
-        <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginTop: 24, marginBottom: 10 }}>👩 הכנסות לפי לקוחה</h3>
-        <DT textSm columns={[
-          { label: "לקוחה", key: "name" },
-          { label: "עסקאות", render: r => <span style={{ color: C.dim }}>{r.count}</span> },
-          { label: "סכום ₪", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(r.total)}</span> },
-        ]} rows={byClient} footer={["סה״כ", myIncome.length, fmtC(myIncome.reduce((s, r) => s + r.amountILS, 0))]} />
-      </>}
     </div>
   </div>;
 }
@@ -3544,7 +3582,7 @@ function UserManagementPage() {
 // PAGE: DEBTS REPORT (דוח חובות)
 // ═══════════════════════════════════════════════════════
 function DebtsPage() {
-  const { models, income, settlements, month, year, addSettlement, chatterSettings } = useApp();
+  const { models, income, settlements, month, year, addSettlement, chatterSettings, clientSettings } = useApp();
   const [modalClient, setModalClient] = useState(null);
   const [form, setForm] = useState({ amount: "", direction: "AgencyToClient", notes: "" });
   const [saving, setSaving] = useState(false);
@@ -3574,6 +3612,9 @@ function DebtsPage() {
     return allClientNames.map(clientName => {
       const pct = getRate(clientName, ym(year, month));
       const bal = Calc.clientBal(monthData, clientName, pct, settlements.filter(s => new Date(s.timestamp || s.date || Date.now()).getMonth() === month && new Date(s.timestamp || s.date || Date.now()).getFullYear() === year));
+      const hasVat = (clientSettings[clientName] || {}).vatClient ?? false;
+      const vatAmt = Math.abs(bal.actualDue) * 0.18;
+      const finalDue = Math.abs(bal.actualDue) * (hasVat ? 1.18 : 1);
       return {
         name: clientName,
         totalIncome: bal.totalIncome,
@@ -3582,10 +3623,11 @@ function DebtsPage() {
         pct: bal.pct,
         entitlement: bal.ent,
         netSettled: bal.netSettled,
-        actualDue: bal.actualDue
+        actualDue: bal.actualDue,
+        hasVat, vatAmt, finalDue
       };
     }).sort((a, b) => b.totalIncome - a.totalIncome);
-  }, [models, income, monthData, settlements, year, month]);
+  }, [models, income, monthData, settlements, year, month, clientSettings]);
 
   const totalDue = debtRows.reduce((acc, r) => acc + r.actualDue, 0);
 
@@ -3627,12 +3669,16 @@ function DebtsPage() {
           {
             label: 'חוב מסכם לתשלום',
             render: r => {
-              const bg = Math.abs(r.actualDue) < 1 ? 'transparent' : (r.actualDue > 0 ? `${C.grn}15` : `${C.red}15`);
-              const col = Math.abs(r.actualDue) < 1 ? C.mut : (r.actualDue > 0 ? C.grn : C.red);
-              const txt = Math.abs(r.actualDue) < 1 ? 'מאוזן' : (r.actualDue > 0 ? 'אנחנו צריכים לשלם לה' : 'היא צריכה להעביר לנו');
+              const bg = r.finalDue < 1 ? 'transparent' : (r.actualDue > 0 ? `${C.grn}15` : `${C.red}15`);
+              const col = r.finalDue < 1 ? C.mut : (r.actualDue > 0 ? C.grn : C.red);
+              const txt = r.finalDue < 1 ? 'מאוזן' : (r.actualDue > 0 ? 'אנחנו צריכים לשלם לה' : 'היא צריכה להעביר לנו');
               return <div style={{ background: bg, color: col, padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 13 }}>
-                <div style={{ fontSize: 16 }}>{fmtC(Math.abs(r.actualDue))}</div>
-                <div style={{ fontSize: 9 }}>{txt}</div>
+                {r.hasVat && r.finalDue >= 1 ? <>
+                  <div style={{ fontSize: 10, color: C.dim }}>שכר: {fmtC(Math.abs(r.actualDue))}</div>
+                  <div style={{ fontSize: 10, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div>
+                  <div style={{ fontSize: 16 }}>{fmtC(r.finalDue)}</div>
+                </> : <div style={{ fontSize: 16 }}>{fmtC(r.finalDue)}</div>}
+                <div style={{ fontSize: 9 }}>{txt}{r.hasVat && r.finalDue >= 1 ? " (כולל מע״מ)" : ""}</div>
               </div>
             }
           },

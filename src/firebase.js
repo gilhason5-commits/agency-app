@@ -473,3 +473,19 @@ export async function fetchAllChatterSettings() {
 export async function saveChatterSettings(chatterName, settings) {
     await setDoc(doc(db, "chatterSettings", chatterName), settings, { merge: true });
 }
+
+// ═══════════════════════════════════════════════════════
+// CLIENT SETTINGS API (vat, etc.)
+// ═══════════════════════════════════════════════════════
+export async function fetchAllClientSettings() {
+    try {
+        const snap = await getDocs(collection(db, "clientSettings"));
+        const result = {};
+        snap.forEach(d => { result[d.id] = d.data(); });
+        return result;
+    } catch { return {}; }
+}
+
+export async function saveClientSettings(clientName, settings) {
+    await setDoc(doc(db, "clientSettings", clientName), settings, { merge: true });
+}
