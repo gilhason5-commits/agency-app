@@ -1862,7 +1862,7 @@ function ChatterPage() {
                   onChange={e => setHoursVal(e.target.value)}
                   style={{ width: 70, padding: "5px 8px", background: "transparent", border: "none", color: C.txt, fontSize: 15, fontWeight: 700, outline: "none", textAlign: "center" }}
                 />
-                <button onClick={saveHours} disabled={saving} style={{ padding: "5px 10px", background: C.grn, border: "none", color: "#fff", fontSize: 15, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "..." : "✓"}</button>
+                <button type="button" onClick={saveHours} disabled={saving} style={{ padding: "5px 10px", background: C.grn, border: "none", color: "#fff", fontSize: 15, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "..." : "✓"}</button>
               </div>
             </div>
             {(() => {
