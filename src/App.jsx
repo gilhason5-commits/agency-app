@@ -1157,12 +1157,28 @@ function SetupPage() {
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
-  const { year, month, setMonth, view, setView, liveRate } = useApp();
+  const { year, month, setMonth, view, setView, liveRate, chatterSettings } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
+  const ymi = ym(year, month);
+  const totalChatterSalary = useMemo(() => {
+    const names = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
+    return names.reduce((sum, n) => {
+      const cfg = chatterSettings[n] || {};
+      return sum + Calc.chatterSalary(activeI.filter(r => r.chatterName === n), cfg, ymi).total;
+    }, 0);
+  }, [activeI, chatterSettings, ymi]);
+  const totalClientSalary = useMemo(() => {
+    const names = [...new Set(activeI.map(r => r.modelName).filter(Boolean))];
+    return names.reduce((sum, n) => {
+      const pct = getRate(n, ymi);
+      return sum + Calc.clientBal(activeI, n, pct).ent;
+    }, 0);
+  }, [activeI, ymi]);
+  const netProfit = mp.profit - totalClientSalary - totalChatterSalary;
   const mbd = useMemo(() => {
     let lastDays = 31, lastInc = 0;
     return MONTHS_HE.map((m, i) => {
@@ -1211,7 +1227,10 @@ function DashPage() {
     <FB><ViewFilter /></FB>
     {view === "monthly" ? <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
       <Stat icon="💰" title={`צפי הכנסות — ${MONTHS_HE[month]}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iM.length} עסקאות`} />
-      <Stat icon="📈" title="צפי רווח לפני מיסים" value={fmtC(mp.profit)} color={mp.profit >= 0 ? C.grn : C.red} sub={`הוצאות: ${fmtC(mp.exp)}`} />
+      <Stat icon="💳" title="הוצאות" value={fmtC(mp.exp)} color={C.red} />
+      <Stat icon="👑" title="צפי שכר לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
+      <Stat icon="💬" title="צפי שכר צאטים" value={fmtC(totalChatterSalary)} color={C.ylw} />
+      <Stat icon="📈" title="צפי רווח לפני מס" value={fmtC(netProfit)} color={netProfit >= 0 ? C.grn : C.red} />
     </div> : <>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
         <Stat icon="💰" title={`הכנסות ${year}`} value={fmtC(iY.reduce((s, r) => s + r.amountILS, 0))} color={C.grn} />
