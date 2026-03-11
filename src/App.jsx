@@ -672,7 +672,9 @@ const Calc = {
     return { daily, t1: daily * 1.05 * nextDays, t2: daily * 1.10 * nextDays, t3: daily * 1.15 * nextDays };
   }
 };
-const _rates = {}; function getRate(n, ymi) { return _rates[n]?.[ymi] ?? 0; } function setRate(n, ymi, p) { if (!_rates[n]) _rates[n] = {}; _rates[n][ymi] = p; }
+const _rates = (() => { try { return JSON.parse(localStorage.getItem("CLIENT_RATES_DB") || "{}"); } catch { return {}; } })();
+function getRate(n, ymi) { return _rates[n]?.[ymi] ?? 0; }
+function setRate(n, ymi, p) { if (!_rates[n]) _rates[n] = {}; _rates[n][ymi] = p; try { localStorage.setItem("CLIENT_RATES_DB", JSON.stringify(_rates)); } catch {} }
 
 // ═══════════════════════════════════════════════════════
 // CONTEXT
