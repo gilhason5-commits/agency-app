@@ -1164,7 +1164,7 @@ function SetupPage() {
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
-  const { year, month, setMonth, view, setView, liveRate, chatterSettings } = useApp();
+  const { year, month, setMonth, view, setView, liveRate, chatterSettings, settlements } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
@@ -1186,6 +1186,40 @@ function DashPage() {
     }, 0);
   }, [activeI, ymi]);
   const netProfit = mp.profit - totalClientSalary - totalChatterSalary;
+
+  const paymentGap = useMemo(() => {
+    const isMonthly = view === "monthly";
+    const filterDate = s => {
+      const d = new Date(s.timestamp || s.date || Date.now());
+      return isMonthly ? (d.getMonth() === month && d.getFullYear() === year) : d.getFullYear() === year;
+    };
+    const periodSets = settlements.filter(filterDate);
+    // Client gaps
+    const clientNames = [...new Set(activeI.map(r => r.modelName).filter(Boolean))];
+    const clientGap = clientNames.reduce((sum, n) => {
+      const pct = getRate(n, ymi);
+      return sum + Calc.clientBal(activeI, n, pct, periodSets.filter(s => s.entityType !== "chatter")).actualDue;
+    }, 0);
+    // Chatter gaps
+    const chatterNames = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
+    const chatterSets = periodSets.filter(s => s.entityType === "chatter");
+    const chatterGap = chatterNames.reduce((sum, name) => {
+      const rows = activeI.filter(r => r.chatterName === name);
+      const cfg = chatterSettings[name] || {};
+      const sal = Calc.chatterSalary(rows, cfg, ymi).total;
+      const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+      let netSettled = 0;
+      chatterSets.filter(s => s.modelName === name).forEach(s => {
+        if (s.direction === "AgencyToChatter") netSettled += s.amount;
+        if (s.direction === "ChatterToAgency") netSettled -= s.amount;
+      });
+      return sum + (sal - paidDirect - netSettled);
+    }, 0);
+    return clientGap + chatterGap;
+  }, [activeI, settlements, chatterSettings, ymi, view, month, year]);
+
+  const actualProfit = netProfit - paymentGap;
+
   const mbd = useMemo(() => {
     let lastDays = 31, lastInc = 0;
     return MONTHS_HE.map((m, i) => {
@@ -1238,6 +1272,8 @@ function DashPage() {
       <Stat icon="👑" title="צפי שכר לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
       <Stat icon="💬" title="צפי שכר צאטים" value={fmtC(totalChatterSalary)} color={C.ylw} />
       <Stat icon="📈" title="צפי רווח לפני מס" value={fmtC(netProfit)} color={netProfit >= 0 ? C.grn : C.red} />
+      <Stat icon={paymentGap > 0 ? "🔴" : paymentGap < 0 ? "🟢" : "⚪"} title="פערי תשלומים" value={fmtC(Math.abs(paymentGap))} color={paymentGap > 0 ? C.red : paymentGap < 0 ? C.grn : C.mut} sub={paymentGap > 0 ? "אנחנו חייבים" : paymentGap < 0 ? "חייבים לנו" : "מאוזן"} />
+      <Stat icon="💵" title="רווח בפועל" value={fmtC(actualProfit)} color={actualProfit >= 0 ? C.grn : C.red} sub="אחרי קיזוזים ותשלומים" />
     </div> : <>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
         <Stat icon="💰" title={`הכנסות ${year}`} value={fmtC(iY.reduce((s, r) => s + r.amountILS, 0))} color={C.grn} />
@@ -1896,11 +1932,8 @@ function ChatterPage({ forceSel, onBack } = {}) {
   const inpS = { width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", boxSizing: "border-box" };
 
   return <div style={{ direction: "rtl" }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-      {onBack && <button onClick={onBack} style={{ background: "none", border: `1px solid ${C.bdr}`, color: C.dim, padding: "6px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>← חזרה לסקירה</button>}
-      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>👥 צ'אטרים{sel ? ` — ${sel}` : ""}</h2>
-    </div>
-    <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value={sel} onChange={v => { setSel(v); }} options={sortedChatters.map(c => ({ value: c, label: c }))} />} /></FB>
+    <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👥 צ'אטרים{sel ? ` — ${sel}` : ""}</h2>
+    <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value={sel} onChange={v => { if (v === "__overview__" && onBack) { onBack(); } else { setSel(v); } }} options={[...(onBack ? [{ value: "__overview__", label: "סקירה כללית" }] : []), ...sortedChatters.map(c => ({ value: c, label: c }))]} />} /></FB>
     {!sel ? <p style={{ color: C.mut }}>בחר צ'אטר</p> : (view === "monthly" || view === "range") ? <>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <Stat icon="💰" title="מכירות" value={fmtC(tot)} color={C.grn} sub={`${rows.length} עסקאות`} />
@@ -2054,7 +2087,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
       const sal = Calc.chatterSalary(rows, cfg, ymi);
       const total = rows.reduce((s, r) => s + r.amountILS, 0);
       return { name, total, salary: sal.total, netProfit: total - sal.total, txCount: rows.length };
-    }).sort((a, b) => b.total - a.total);
+    }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
   }, [incD, chatters, chatterSettings, ymi]);
 
   const monthlyByChatter = useMemo(() => {
@@ -2074,7 +2107,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👥 סקירת כל הצ'אטרים</h2>
-    <FB><ViewFilter /></FB>
+    <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value="" onChange={v => { if (v) onSelectChatter(v); }} options={[{ value: "", label: "סקירה כללית" }, ...chatterStats.map(c => ({ value: c.name, label: c.name }))]} />} /></FB>
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
       <Stat icon="👥" title="מספר צ'אטרים" value={chatters.length} />
       <Stat icon="💰" title="סה״כ מכירות" value={fmtC(totalSales)} color={C.grn} />
@@ -2146,19 +2179,6 @@ function ChattersOverviewPage({ onSelectChatter }) {
       ]} rows={chatterStats.map(c => ({ ...c, officePct: (chatterSettings[c.name] || {}).officePct ?? 17, fieldPct: (chatterSettings[c.name] || {}).fieldPct ?? 15 }))}
       footer={["סה״כ", fmtC(totalSales), "", "", fmtC(totalSalary), fmtC(totalSales - totalSalary), ""]} />
     </Card>
-    <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>👆 לחץ על צ'אטר לצפייה בפרטים מלאים</div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 12 }}>
-      {chatterStats.map((c, i) => (
-        <div key={c.name} onClick={() => onSelectChatter(c.name)} style={{ background: C.card, border: `1px solid ${C.bdr}`, borderTop: `3px solid ${ENTITY_COLORS[i % ENTITY_COLORS.length]}`, borderRadius: 12, padding: "16px", cursor: "pointer" }}>
-          <div style={{ color: C.txt, fontWeight: 700, fontSize: 15, marginBottom: 8 }}>{c.name}</div>
-          <div style={{ color: C.grn, fontSize: 20, fontWeight: 700 }}>{fmtC(c.total)}</div>
-          <div style={{ color: C.dim, fontSize: 12, marginTop: 4 }}>{c.txCount} עסקאות</div>
-          <div style={{ color: C.ylw, fontSize: 13, marginTop: 6 }}>משכורת: {fmtC(c.salary)}</div>
-          <div style={{ color: c.netProfit >= 0 ? C.pri : C.red, fontSize: 12, marginTop: 2 }}>רווח: {fmtC(c.netProfit)}</div>
-          <div style={{ marginTop: 10, padding: "6px 10px", background: ENTITY_COLORS[i % ENTITY_COLORS.length] + "22", borderRadius: 6, color: ENTITY_COLORS[i % ENTITY_COLORS.length], fontSize: 12, textAlign: "center", fontWeight: 600 }}>פרטים מלאים ←</div>
-        </div>
-      ))}
-    </div>
   </div>;
 }
 
@@ -2184,7 +2204,7 @@ function ClientsOverviewPage({ onSelectClient }) {
       const pct = getRate(name, ymi);
       const bal = Calc.clientBal(incD, name, pct);
       return { name, total, pct, entitlement: bal.ent, direct: bal.direct, balance: bal.actualDue, txCount: rows.length };
-    }).sort((a, b) => b.total - a.total);
+    }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
   }, [incD, clients, ymi, rv]);
 
   const monthlyByClient = useMemo(() => {
@@ -2203,7 +2223,7 @@ function ClientsOverviewPage({ onSelectClient }) {
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👩 סקירת כל הלקוחות</h2>
-    <FB><ViewFilter /></FB>
+    <FB><ViewFilter extraBefore={<Sel label="לקוחה:" value="" onChange={v => { if (v) onSelectClient(v); }} options={[{ value: "", label: "סקירה כללית" }, ...clientStats.map(c => ({ value: c.name, label: c.name }))]} />} /></FB>
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
       <Stat icon="👩" title="מספר לקוחות" value={clients.length} />
       <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(totalIncome)} color={C.grn} />
@@ -2274,19 +2294,6 @@ function ClientsOverviewPage({ onSelectClient }) {
         { label: "", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>פרטים ←</button> }
       ]} rows={clientStats} footer={["סה״כ", fmtC(totalIncome), "", fmtC(totalEntitlement), "", "", ""]} />
     </Card>
-    <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>👆 לחץ על לקוחה לצפייה בפרטים מלאים</div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 12 }}>
-      {clientStats.map((c, i) => (
-        <div key={c.name} onClick={() => onSelectClient(c.name)} style={{ background: C.card, border: `1px solid ${C.bdr}`, borderTop: `3px solid ${ENTITY_COLORS[i % ENTITY_COLORS.length]}`, borderRadius: 12, padding: "16px", cursor: "pointer" }}>
-          <div style={{ color: C.txt, fontWeight: 700, fontSize: 15, marginBottom: 8 }}>{c.name}</div>
-          <div style={{ color: C.grn, fontSize: 20, fontWeight: 700 }}>{fmtC(c.total)}</div>
-          <div style={{ color: C.dim, fontSize: 12, marginTop: 4 }}>{c.txCount} עסקאות • {c.pct}%</div>
-          <div style={{ color: C.ylw, fontSize: 13, marginTop: 6 }}>זכאות: {fmtC(c.entitlement)}</div>
-          <div style={{ color: c.balance >= 0 ? C.grn : C.red, fontSize: 12, marginTop: 2 }}>יתרה: {fmtC(Math.abs(c.balance))}</div>
-          <div style={{ marginTop: 10, padding: "6px 10px", background: ENTITY_COLORS[i % ENTITY_COLORS.length] + "22", borderRadius: 6, color: ENTITY_COLORS[i % ENTITY_COLORS.length], fontSize: 12, textAlign: "center", fontWeight: 600 }}>פרטים מלאים ←</div>
-        </div>
-      ))}
-    </div>
   </div>;
 }
 
@@ -2325,11 +2332,8 @@ function ClientPage({ forceSel, onBack } = {}) {
   const ybd = useMemo(() => { if (view !== "yearly") return []; return MONTHS_HE.map((m, i) => { const yi = ym(year, i); const p = getRate(sel, yi); const mr = iY.filter(r => r.modelName === sel && r.date && r.date.getMonth() === i); const b = Calc.clientBal(mr, sel, p); return { month: m, ms: MONTHS_SHORT[i], ...b }; }); }, [iY, sel, view, year, rv]);
 
   return <div style={{ direction: "rtl" }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-      {onBack && <button onClick={onBack} style={{ background: "none", border: `1px solid ${C.bdr}`, color: C.dim, padding: "6px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>← חזרה לסקירה</button>}
-      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>👩 לקוחות{sel ? ` — ${sel}` : ""}</h2>
-    </div>
-    <FB><ViewFilter extraBefore={<Sel label="לקוחה:" value={sel} onChange={setSel} options={sortedClients.map(c => ({ value: c, label: c }))} />} /></FB>
+    <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👩 לקוחות{sel ? ` — ${sel}` : ""}</h2>
+    <FB><ViewFilter extraBefore={<Sel label="לקוחה:" value={sel} onChange={v => { if (v === "__overview__" && onBack) { onBack(); } else { setSel(v); } }} options={[...(onBack ? [{ value: "__overview__", label: "סקירה כללית" }] : []), ...sortedClients.map(c => ({ value: c, label: c }))]} />} /></FB>
     {!sel ? <p style={{ color: C.mut }}>בחר לקוחה</p> : (view === "monthly" || view === "range") ? <>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}><Stat icon="💰" title="הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} sub={`${clientTxCount} עסקאות`} /><Stat icon="🏢" title="דרך סוכנות" value={fmtC(bal.through)} /><Stat icon="👩" title="ישירות" value={fmtC(bal.direct)} /><Stat icon="💵" title="זכאות (שכר צפוי)" value={fmtC(bal.ent)} color={C.pri} /></div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 16, marginBottom: 16 }}>
@@ -4184,10 +4188,16 @@ function DebtsPage() {
 
       {/* Chatters reconciliation table */}
       <h3 style={{ color: C.txt, fontSize: 17, fontWeight: 700, marginTop: 32, marginBottom: 12 }}>👥 התחשבנות צ'אטרים — {MONTHS_HE[month]}</h3>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-        <Stat icon="🔴" title="אנחנו חייבים לצ'אטרים" value={fmtC(chatterDebtRows.filter(r => r.balance > 0).reduce((s, r) => s + r.finalBalance, 0))} color={C.red} />
-        <Stat icon="🟢" title="צ'אטרים חייבים לנו" value={fmtC(chatterDebtRows.filter(r => r.balance < 0).reduce((s, r) => s + r.finalBalance, 0))} color={C.grn} />
-      </div>
+      {(() => {
+        const weOwe = chatterDebtRows.filter(r => r.balance > 0).reduce((s, r) => s + r.finalBalance, 0);
+        const theyOwe = chatterDebtRows.filter(r => r.balance < 0).reduce((s, r) => s + r.finalBalance, 0);
+        const net = weOwe - theyOwe;
+        const label = net > 0 ? "אנחנו חייבים לצ'אטרים" : net < 0 ? "צ'אטרים חייבים לנו" : "מאוזן";
+        const col = net > 0 ? C.red : net < 0 ? C.grn : C.mut;
+        return <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+          <Stat icon={net > 0 ? "🔴" : net < 0 ? "🟢" : "⚪"} title={label} value={fmtC(Math.abs(net))} color={col} />
+        </div>;
+      })()}
       <Card style={{ padding: 0, marginBottom: 32 }}>
         <DT columns={[
           { label: "צ'אטר", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
