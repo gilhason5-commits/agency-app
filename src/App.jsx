@@ -2054,7 +2054,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
       const sal = Calc.chatterSalary(rows, cfg, ymi);
       const total = rows.reduce((s, r) => s + r.amountILS, 0);
       return { name, total, salary: sal.total, netProfit: total - sal.total, txCount: rows.length };
-    }).sort((a, b) => b.total - a.total);
+    }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
   }, [incD, chatters, chatterSettings, ymi]);
 
   const monthlyByChatter = useMemo(() => {
@@ -2171,7 +2171,7 @@ function ClientsOverviewPage({ onSelectClient }) {
       const pct = getRate(name, ymi);
       const bal = Calc.clientBal(incD, name, pct);
       return { name, total, pct, entitlement: bal.ent, direct: bal.direct, balance: bal.actualDue, txCount: rows.length };
-    }).sort((a, b) => b.total - a.total);
+    }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
   }, [incD, clients, ymi, rv]);
 
   const monthlyByClient = useMemo(() => {
