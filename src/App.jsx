@@ -1164,7 +1164,7 @@ function SetupPage() {
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
-  const { year, month, setMonth, view, setView, liveRate, chatterSettings, settlements } = useApp();
+  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
@@ -1194,13 +1194,16 @@ function DashPage() {
       return isMonthly ? (d.getMonth() === month && d.getFullYear() === year) : d.getFullYear() === year;
     };
     const periodSets = settlements.filter(filterDate);
-    // Client gaps
+    // Client gaps (with VAT)
     const clientNames = [...new Set(activeI.map(r => r.modelName).filter(Boolean))];
     const clientGap = clientNames.reduce((sum, n) => {
       const pct = getRate(n, ymi);
-      return sum + Calc.clientBal(activeI, n, pct, periodSets.filter(s => s.entityType !== "chatter")).actualDue;
+      const bal = Calc.clientBal(activeI, n, pct, periodSets.filter(s => s.entityType !== "chatter"));
+      const hasVat = (clientSettings[n] || {}).vatClient ?? false;
+      const finalDue = hasVat ? bal.actualDue * 1.18 : bal.actualDue;
+      return sum + finalDue;
     }, 0);
-    // Chatter gaps
+    // Chatter gaps (with VAT)
     const chatterNames = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
     const chatterSets = periodSets.filter(s => s.entityType === "chatter");
     const chatterGap = chatterNames.reduce((sum, name) => {
@@ -1213,7 +1216,9 @@ function DashPage() {
         if (s.direction === "AgencyToChatter") netSettled += s.amount;
         if (s.direction === "ChatterToAgency") netSettled -= s.amount;
       });
-      return sum + (sal - paidDirect - netSettled);
+      const balance = sal - paidDirect - netSettled;
+      const hasVat = cfg.vatChatter ?? false;
+      return sum + (hasVat ? balance * 1.18 : balance);
     }, 0);
     return clientGap + chatterGap;
   }, [activeI, settlements, chatterSettings, ymi, view, month, year]);
