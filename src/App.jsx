@@ -3783,11 +3783,17 @@ function DebtsPage() {
   const [debtsView, setDebtsView] = useState("monthly");
   const [modalClient, setModalClient] = useState(null);
   const [form, setForm] = useState({ amount: "", direction: "AgencyToClient", notes: "" });
+  const [modalChatter, setModalChatter] = useState(null);
+  const [chatterForm, setChatterForm] = useState({ amount: "", direction: "AgencyToChatter", notes: "" });
   const [saving, setSaving] = useState(false);
 
   const allClientNames = useMemo(() => [...new Set([...models.map(m => m.name), ...income.map(i => i.modelName)])].filter(Boolean), [models, income]);
 
   const yearIncome = useMemo(() => income.filter(r => new Date(r.date || 0).getFullYear() === year), [income, year]);
+
+  const monthChatterSettlements = useMemo(() =>
+    settlements.filter(s => s.entityType === "chatter" && new Date(s.timestamp || s.date || Date.now()).getMonth() === month && new Date(s.timestamp || s.date || Date.now()).getFullYear() === year),
+    [settlements, month, year]);
 
   const chatterDebtRows = useMemo(() => {
     const names = [...new Set(income.map(r => r.chatterName).filter(Boolean))];
@@ -3796,13 +3802,18 @@ function DebtsPage() {
       const cfg = (chatterSettings || {})[name] || {};
       const sal = Calc.chatterSalary(rows, cfg, ym(year, month));
       const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
-      const balance = sal.total - paidDirect;
+      let netSettled = 0;
+      monthChatterSettlements.filter(s => s.modelName === name).forEach(s => {
+        if (s.direction === "AgencyToChatter") netSettled += s.amount;
+        if (s.direction === "ChatterToAgency") netSettled -= s.amount;
+      });
+      const balance = sal.total - paidDirect - netSettled;
       const hasVat = cfg.vatChatter ?? false;
       const vatAmt = Math.abs(balance) * 0.18;
       const finalBalance = Math.abs(balance) * (hasVat ? 1.18 : 1);
-      return { name, sales: rows.reduce((s, r) => s + r.amountILS, 0), salary: sal.total, paidDirect, balance, hasVat, vatAmt, finalBalance };
+      return { name, sales: rows.reduce((s, r) => s + r.amountILS, 0), salary: sal.total, paidDirect, netSettled, balance, hasVat, vatAmt, finalBalance };
     }).sort((a, b) => b.sales - a.sales);
-  }, [income, month, year, chatterSettings]);
+  }, [income, month, year, chatterSettings, monthChatterSettlements]);
 
   // Group data by client for the current month
   const monthData = useMemo(() => income.filter(r => new Date(r.date || 0).getMonth() === month && new Date(r.date || 0).getFullYear() === year), [income, month, year]);
@@ -3884,6 +3895,25 @@ function DebtsPage() {
     setSaving(false);
   };
 
+  const handleChatterSave = async () => {
+    if (!chatterForm.amount || isNaN(chatterForm.amount) || chatterForm.amount <= 0) return alert("הכנס סכום תקין");
+    setSaving(true);
+    try {
+      await addSettlement({
+        modelName: modalChatter.name,
+        entityType: "chatter",
+        amount: Number(chatterForm.amount),
+        direction: chatterForm.direction,
+        notes: chatterForm.notes,
+        date: new Date().toISOString()
+      });
+      setModalChatter(null);
+    } catch (e) {
+      alert("שגיאה במערכת: " + e.message);
+    }
+    setSaving(false);
+  };
+
   return <div style={{ direction: "rtl", maxWidth: 1000, margin: "0 auto" }}>
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>⚖️ דוח חובות והתחשבנות</h2>
@@ -3948,6 +3978,7 @@ function DebtsPage() {
           { label: "מכירות", render: r => <span style={{ color: C.dim }}>{fmtC(r.sales)}</span> },
           { label: "שכר מגיע", render: r => <span style={{ color: C.pri }}>{fmtC(r.salary)}</span> },
           { label: "שולם ישירות", render: r => <span style={{ color: C.grn }}>{fmtC(r.paidDirect)}</span> },
+          { label: "קוזז החודש", render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
           { label: "יתרה לתשלום", render: r => {
             const col = Math.abs(r.balance) < 1 ? C.mut : r.balance > 0 ? C.red : C.grn;
             const txt = Math.abs(r.balance) < 1 ? "מאוזן" : r.balance > 0 ? "אנחנו חייבים" : "הוא חייב לנו";
@@ -3960,8 +3991,14 @@ function DebtsPage() {
               </div>;
             }
             return <div style={{ color: col, fontWeight: 700 }}><div>{fmtC(r.finalBalance)}</div><div style={{ fontSize: 10 }}>{txt}</div></div>;
-          }}
-        ]} rows={chatterDebtRows} footer={["סה״כ", fmtC(chatterDebtRows.reduce((s,r)=>s+r.sales,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.salary,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.paidDirect,0)), ""]} />
+          }},
+          {
+            label: "פעולות",
+            render: r => <Btn size="sm" variant="outline" onClick={() => { setModalChatter(r); setChatterForm({ amount: Math.abs(r.balance), direction: r.balance > 0 ? "AgencyToChatter" : "ChatterToAgency", notes: "" }); }}>
+              ⚖️ בצע קיזוז
+            </Btn>
+          }
+        ]} rows={chatterDebtRows} footer={["סה״כ", fmtC(chatterDebtRows.reduce((s,r)=>s+r.sales,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.salary,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.paidDirect,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.netSettled,0)), ""  , ""]} />
       </Card>
     </> : <>
       {/* ── YEARLY VIEW ── */}
@@ -4031,6 +4068,29 @@ function DebtsPage() {
         <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
           <Btn style={{ flex: 1 }} variant="success" onClick={handleSave} disabled={saving}>{saving ? "⏳" : "💾 תעד המרה/קיזוז"}</Btn>
           <Btn variant="ghost" onClick={() => setModalClient(null)}>ביטול</Btn>
+        </div>
+      </div>
+    </Modal>}
+
+    {modalChatter && <Modal open={true} onClose={() => setModalChatter(null)} title={`תיעוד קיזוז לצ'אטר: ${modalChatter.name}`} width={400}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <p style={{ color: C.dim, fontSize: 13, marginBottom: 10 }}>יתרת חוב מצב נוכחי: <strong style={{ color: C.txt }}>{fmtC(Math.abs(modalChatter.balance))}</strong> ({modalChatter.balance >= 0 ? "הסוכנות חייבת לצ'אטר" : "הצ'אטר חייב לסוכנות"})</p>
+
+        <label style={{ color: C.dim, fontSize: 12 }}>כיוון העברה</label>
+        <select value={chatterForm.direction} onChange={e => setChatterForm({ ...chatterForm, direction: e.target.value })} style={{ padding: 12, borderRadius: 8, background: C.bg, border: `1px solid ${C.bdr}`, color: C.txt, outline: "none" }}>
+          <option value="AgencyToChatter">הסוכנות משלמת/מעבירה לצ'אטר (+)</option>
+          <option value="ChatterToAgency">הצ'אטר מעביר לסוכנות (-)</option>
+        </select>
+
+        <label style={{ color: C.dim, fontSize: 12 }}>סכום (₪)</label>
+        <input type="number" value={chatterForm.amount} onChange={e => setChatterForm({ ...chatterForm, amount: e.target.value })} style={{ padding: 12, borderRadius: 8, background: C.bg, border: `1px solid ${C.bdr}`, color: C.txt, outline: "none", fontSize: 18 }} placeholder="לדוגמה 1000" />
+
+        <label style={{ color: C.dim, fontSize: 12 }}>הערה (אופציונלי)</label>
+        <input type="text" value={chatterForm.notes} onChange={e => setChatterForm({ ...chatterForm, notes: e.target.value })} style={{ padding: 12, borderRadius: 8, background: C.bg, border: `1px solid ${C.bdr}`, color: C.txt, outline: "none" }} placeholder="העברה בביט / מזומן / סיבת קיזוז" />
+
+        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          <Btn style={{ flex: 1 }} variant="success" onClick={handleChatterSave} disabled={saving}>{saving ? "⏳" : "💾 תעד קיזוז"}</Btn>
+          <Btn variant="ghost" onClick={() => setModalChatter(null)}>ביטול</Btn>
         </div>
       </div>
     </Modal>}
