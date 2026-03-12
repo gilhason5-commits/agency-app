@@ -2117,7 +2117,8 @@ function ChattersOverviewPage({ onSelectChatter }) {
       const cfg = chatterSettings[name] || {};
       const sal = Calc.chatterSalary(rows, cfg, ymi);
       const total = rows.reduce((s, r) => s + r.amountILS, 0);
-      return { name, total, salary: sal.total, netProfit: total - sal.total, txCount: rows.length };
+      const roi = sal.total > 0 ? ((total - sal.total) / sal.total * 100) : 0;
+      return { name, total, salary: sal.total, netProfit: total - sal.total, roi, txCount: rows.length };
     }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
   }, [incD, chatters, chatterSettings, ymi]);
 
@@ -2161,14 +2162,16 @@ function ChattersOverviewPage({ onSelectChatter }) {
         </ResponsiveContainer></div>
       </Card>
       <Card>
-        <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>💵 מכירות vs משכורת</div>
+        <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📊 השוואת ROI לפי צ'אטר</div>
         <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(200, chatterStats.length * 44)}>
-          <BarChart data={chatterStats} layout="vertical" margin={{ top: 5, right: 130, bottom: 5, left: 10 }}>
-            <XAxis type="number" reversed tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} />
+          <BarChart data={[...chatterStats].sort((a, b) => b.roi - a.roi)} layout="vertical" margin={{ top: 5, right: 130, bottom: 5, left: 10 }}>
+            <XAxis type="number" reversed tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `${v.toFixed(0)}%`} />
             <YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={120} interval={0} />
-            <Tooltip content={<TT />} />
-            <Bar dataKey="total" fill={C.pri} name="מכירות" radius={[4,0,0,4]} />
-            <Bar dataKey="salary" fill={C.ylw} name="משכורת" radius={[4,0,0,4]} />
+            <Tooltip formatter={v => `${v.toFixed(0)}%`} />
+            <Bar dataKey="roi" name="ROI" radius={[4,0,0,4]}>
+              {[...chatterStats].sort((a, b) => b.roi - a.roi).map((c, i) => <Cell key={i} fill={c.roi >= 0 ? C.grn : C.red} />)}
+              <LabelList dataKey="roi" position="insideLeft" formatter={v => `${v.toFixed(0)}%`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} />
+            </Bar>
           </BarChart>
         </ResponsiveContainer></div>
       </Card>
