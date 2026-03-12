@@ -1455,6 +1455,7 @@ function IncPage() {
 // ═══════════════════════════════════════════════════════
 function EditIncomeModal({ record, onClose }) {
   const { setIncome, liveRate, income } = useApp();
+  const { clients } = useFD();
   const incomeTypes = useMemo(() => {
     const fromData = income.map(r => r.incomeType).filter(Boolean);
     const defaults = ["תוכן", "שיחה", "סקסטינג", "ביט", "העברה בנקאית", "פייבוקס", "וולט"];
@@ -1465,6 +1466,7 @@ function EditIncomeModal({ record, onClose }) {
   const [currency, setCurrency] = useState(isUSD ? "USD" : "ILS");
   const [amount, setAmount] = useState(isUSD ? String(record.amountUSD || "") : String(record.rawILS || record.amountILS || ""));
   const [incomeType, setIncomeType] = useState(record.incomeType || "");
+  const [modelName, setModelName] = useState(record.modelName || "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -1480,6 +1482,7 @@ function EditIncomeModal({ record, onClose }) {
       const commFields = computeCommissionFields(record.platform, incomeType, inputILS, inputUSD, rate);
       const updates = {
         incomeType,
+        modelName,
         rawILS: inputILS,
         originalRawILS: inputILS,
         originalRawUSD: inputUSD,
@@ -1505,6 +1508,14 @@ function EditIncomeModal({ record, onClose }) {
       <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>
         {record.chatterName} • {record.modelName} • {record.platform} • {record.date instanceof Date ? record.date.toLocaleDateString("he-IL") : ""}
       </div>
+    </div>
+
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>לקוחה</label>
+      <select value={modelName} onChange={e => setModelName(e.target.value)} style={inputStyle}>
+        <option value="">בחר...</option>
+        {clients.map(c => <option key={c} value={c}>{c}</option>)}
+      </select>
     </div>
 
     <div style={{ marginBottom: 14 }}>
