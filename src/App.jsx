@@ -1896,11 +1896,8 @@ function ChatterPage({ forceSel, onBack } = {}) {
   const inpS = { width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", boxSizing: "border-box" };
 
   return <div style={{ direction: "rtl" }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-      {onBack && <button onClick={onBack} style={{ background: "none", border: `1px solid ${C.bdr}`, color: C.dim, padding: "6px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>← חזרה לסקירה</button>}
-      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>👥 צ'אטרים{sel ? ` — ${sel}` : ""}</h2>
-    </div>
-    <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value={sel} onChange={v => { setSel(v); }} options={sortedChatters.map(c => ({ value: c, label: c }))} />} /></FB>
+    <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👥 צ'אטרים{sel ? ` — ${sel}` : ""}</h2>
+    <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value={sel} onChange={v => { if (v === "__overview__" && onBack) { onBack(); } else { setSel(v); } }} options={[...(onBack ? [{ value: "__overview__", label: "סקירה כללית" }] : []), ...sortedChatters.map(c => ({ value: c, label: c }))]} />} /></FB>
     {!sel ? <p style={{ color: C.mut }}>בחר צ'אטר</p> : (view === "monthly" || view === "range") ? <>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <Stat icon="💰" title="מכירות" value={fmtC(tot)} color={C.grn} sub={`${rows.length} עסקאות`} />
@@ -2074,7 +2071,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👥 סקירת כל הצ'אטרים</h2>
-    <FB><ViewFilter /></FB>
+    <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value="" onChange={v => { if (v) onSelectChatter(v); }} options={[{ value: "", label: "סקירה כללית" }, ...chatterStats.map(c => ({ value: c.name, label: c.name }))]} />} /></FB>
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
       <Stat icon="👥" title="מספר צ'אטרים" value={chatters.length} />
       <Stat icon="💰" title="סה״כ מכירות" value={fmtC(totalSales)} color={C.grn} />
@@ -2190,7 +2187,7 @@ function ClientsOverviewPage({ onSelectClient }) {
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👩 סקירת כל הלקוחות</h2>
-    <FB><ViewFilter /></FB>
+    <FB><ViewFilter extraBefore={<Sel label="לקוחה:" value="" onChange={v => { if (v) onSelectClient(v); }} options={[{ value: "", label: "סקירה כללית" }, ...clientStats.map(c => ({ value: c.name, label: c.name }))]} />} /></FB>
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
       <Stat icon="👩" title="מספר לקוחות" value={clients.length} />
       <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(totalIncome)} color={C.grn} />
@@ -2299,11 +2296,8 @@ function ClientPage({ forceSel, onBack } = {}) {
   const ybd = useMemo(() => { if (view !== "yearly") return []; return MONTHS_HE.map((m, i) => { const yi = ym(year, i); const p = getRate(sel, yi); const mr = iY.filter(r => r.modelName === sel && r.date && r.date.getMonth() === i); const b = Calc.clientBal(mr, sel, p); return { month: m, ms: MONTHS_SHORT[i], ...b }; }); }, [iY, sel, view, year, rv]);
 
   return <div style={{ direction: "rtl" }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-      {onBack && <button onClick={onBack} style={{ background: "none", border: `1px solid ${C.bdr}`, color: C.dim, padding: "6px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>← חזרה לסקירה</button>}
-      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>👩 לקוחות{sel ? ` — ${sel}` : ""}</h2>
-    </div>
-    <FB><ViewFilter extraBefore={<Sel label="לקוחה:" value={sel} onChange={setSel} options={sortedClients.map(c => ({ value: c, label: c }))} />} /></FB>
+    <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👩 לקוחות{sel ? ` — ${sel}` : ""}</h2>
+    <FB><ViewFilter extraBefore={<Sel label="לקוחה:" value={sel} onChange={v => { if (v === "__overview__" && onBack) { onBack(); } else { setSel(v); } }} options={[...(onBack ? [{ value: "__overview__", label: "סקירה כללית" }] : []), ...sortedClients.map(c => ({ value: c, label: c }))]} />} /></FB>
     {!sel ? <p style={{ color: C.mut }}>בחר לקוחה</p> : (view === "monthly" || view === "range") ? <>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}><Stat icon="💰" title="הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} sub={`${clientTxCount} עסקאות`} /><Stat icon="🏢" title="דרך סוכנות" value={fmtC(bal.through)} /><Stat icon="👩" title="ישירות" value={fmtC(bal.direct)} /><Stat icon="💵" title="זכאות (שכר צפוי)" value={fmtC(bal.ent)} color={C.pri} /></div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 16, marginBottom: 16 }}>
