@@ -409,6 +409,13 @@ const IncSvc = {
     }
     return updated;
   },
+  async deleteTransaction(incRow) {
+    if (incRow._fromPending) {
+      await removePending(incRow.id);
+    } else {
+      await removeIncome(incRow.id);
+    }
+  },
   async retroApplyCommissions() {
     return await migrateCommissions();
   },
@@ -1401,6 +1408,13 @@ function IncPage() {
       }
     } catch (e) { alert("שגיאה: " + e.message); }
   };
+  const deleteTx = async (r) => {
+    if (!confirm("למחוק עסקה זו לצמיתות? פעולה זו אינה ניתנת לביטול.")) return;
+    try {
+      await IncSvc.deleteTransaction(r);
+      setIncome(prev => prev.filter(x => x.id !== r.id));
+    } catch (e) { alert("שגיאה: " + e.message); }
+  };
   const chartData = useMemo(() => {
     if (view === "yearly") return MONTHS_HE.map((m, i) => ({ name: MONTHS_SHORT[i], value: data.filter(r => r.date && r.date.getMonth() === i).reduce((s, r) => s + r.amountILS, 0) }));
     if (xAxis === "date") { const map = {}; data.forEach(r => { const k = r.date ? r.date.getDate() : "?"; map[k] = (map[k] || 0) + r.amountILS; }); return Object.entries(map).sort((a, b) => +a[0] - +b[0]).map(([k, v]) => ({ name: k, value: v })); }
@@ -1425,7 +1439,7 @@ function IncPage() {
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(grandTotal), "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(grandTotal), "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
 
     {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד הכנסה ידני" width={500}>
       <RecordIncomeAdmin onClose={() => setShowIncForm(false)} />
