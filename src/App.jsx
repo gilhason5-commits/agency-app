@@ -2146,19 +2146,6 @@ function ChattersOverviewPage({ onSelectChatter }) {
       ]} rows={chatterStats.map(c => ({ ...c, officePct: (chatterSettings[c.name] || {}).officePct ?? 17, fieldPct: (chatterSettings[c.name] || {}).fieldPct ?? 15 }))}
       footer={["סה״כ", fmtC(totalSales), "", "", fmtC(totalSalary), fmtC(totalSales - totalSalary), ""]} />
     </Card>
-    <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>👆 לחץ על צ'אטר לצפייה בפרטים מלאים</div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 12 }}>
-      {chatterStats.map((c, i) => (
-        <div key={c.name} onClick={() => onSelectChatter(c.name)} style={{ background: C.card, border: `1px solid ${C.bdr}`, borderTop: `3px solid ${ENTITY_COLORS[i % ENTITY_COLORS.length]}`, borderRadius: 12, padding: "16px", cursor: "pointer" }}>
-          <div style={{ color: C.txt, fontWeight: 700, fontSize: 15, marginBottom: 8 }}>{c.name}</div>
-          <div style={{ color: C.grn, fontSize: 20, fontWeight: 700 }}>{fmtC(c.total)}</div>
-          <div style={{ color: C.dim, fontSize: 12, marginTop: 4 }}>{c.txCount} עסקאות</div>
-          <div style={{ color: C.ylw, fontSize: 13, marginTop: 6 }}>משכורת: {fmtC(c.salary)}</div>
-          <div style={{ color: c.netProfit >= 0 ? C.pri : C.red, fontSize: 12, marginTop: 2 }}>רווח: {fmtC(c.netProfit)}</div>
-          <div style={{ marginTop: 10, padding: "6px 10px", background: ENTITY_COLORS[i % ENTITY_COLORS.length] + "22", borderRadius: 6, color: ENTITY_COLORS[i % ENTITY_COLORS.length], fontSize: 12, textAlign: "center", fontWeight: 600 }}>פרטים מלאים ←</div>
-        </div>
-      ))}
-    </div>
   </div>;
 }
 
@@ -2274,19 +2261,6 @@ function ClientsOverviewPage({ onSelectClient }) {
         { label: "", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>פרטים ←</button> }
       ]} rows={clientStats} footer={["סה״כ", fmtC(totalIncome), "", fmtC(totalEntitlement), "", "", ""]} />
     </Card>
-    <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>👆 לחץ על לקוחה לצפייה בפרטים מלאים</div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 12 }}>
-      {clientStats.map((c, i) => (
-        <div key={c.name} onClick={() => onSelectClient(c.name)} style={{ background: C.card, border: `1px solid ${C.bdr}`, borderTop: `3px solid ${ENTITY_COLORS[i % ENTITY_COLORS.length]}`, borderRadius: 12, padding: "16px", cursor: "pointer" }}>
-          <div style={{ color: C.txt, fontWeight: 700, fontSize: 15, marginBottom: 8 }}>{c.name}</div>
-          <div style={{ color: C.grn, fontSize: 20, fontWeight: 700 }}>{fmtC(c.total)}</div>
-          <div style={{ color: C.dim, fontSize: 12, marginTop: 4 }}>{c.txCount} עסקאות • {c.pct}%</div>
-          <div style={{ color: C.ylw, fontSize: 13, marginTop: 6 }}>זכאות: {fmtC(c.entitlement)}</div>
-          <div style={{ color: c.balance >= 0 ? C.grn : C.red, fontSize: 12, marginTop: 2 }}>יתרה: {fmtC(Math.abs(c.balance))}</div>
-          <div style={{ marginTop: 10, padding: "6px 10px", background: ENTITY_COLORS[i % ENTITY_COLORS.length] + "22", borderRadius: 6, color: ENTITY_COLORS[i % ENTITY_COLORS.length], fontSize: 12, textAlign: "center", fontWeight: 600 }}>פרטים מלאים ←</div>
-        </div>
-      ))}
-    </div>
   </div>;
 }
 
