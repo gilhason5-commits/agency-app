@@ -409,6 +409,13 @@ const IncSvc = {
     }
     return updated;
   },
+  async deleteTransaction(incRow) {
+    if (incRow._fromPending) {
+      await removePending(incRow.id);
+    } else {
+      await removeIncome(incRow.id);
+    }
+  },
   async retroApplyCommissions() {
     return await migrateCommissions();
   },
@@ -1401,6 +1408,13 @@ function IncPage() {
       }
     } catch (e) { alert("שגיאה: " + e.message); }
   };
+  const deleteTx = async (r) => {
+    if (!confirm("למחוק עסקה זו לצמיתות? פעולה זו אינה ניתנת לביטול.")) return;
+    try {
+      await IncSvc.deleteTransaction(r);
+      setIncome(prev => prev.filter(x => x.id !== r.id));
+    } catch (e) { alert("שגיאה: " + e.message); }
+  };
   const chartData = useMemo(() => {
     if (view === "yearly") return MONTHS_HE.map((m, i) => ({ name: MONTHS_SHORT[i], value: data.filter(r => r.date && r.date.getMonth() === i).reduce((s, r) => s + r.amountILS, 0) }));
     if (xAxis === "date") { const map = {}; data.forEach(r => { const k = r.date ? r.date.getDate() : "?"; map[k] = (map[k] || 0) + r.amountILS; }); return Object.entries(map).sort((a, b) => +a[0] - +b[0]).map(([k, v]) => ({ name: k, value: v })); }
@@ -1425,7 +1439,7 @@ function IncPage() {
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(grandTotal), "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(grandTotal), "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
 
     {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד הכנסה ידני" width={500}>
       <RecordIncomeAdmin onClose={() => setShowIncForm(false)} />
@@ -1441,6 +1455,7 @@ function IncPage() {
 // ═══════════════════════════════════════════════════════
 function EditIncomeModal({ record, onClose }) {
   const { setIncome, liveRate, income } = useApp();
+  const { clients } = useFD();
   const incomeTypes = useMemo(() => {
     const fromData = income.map(r => r.incomeType).filter(Boolean);
     const defaults = ["תוכן", "שיחה", "סקסטינג", "ביט", "העברה בנקאית", "פייבוקס", "וולט"];
@@ -1451,6 +1466,7 @@ function EditIncomeModal({ record, onClose }) {
   const [currency, setCurrency] = useState(isUSD ? "USD" : "ILS");
   const [amount, setAmount] = useState(isUSD ? String(record.amountUSD || "") : String(record.rawILS || record.amountILS || ""));
   const [incomeType, setIncomeType] = useState(record.incomeType || "");
+  const [modelName, setModelName] = useState(record.modelName || "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -1466,6 +1482,7 @@ function EditIncomeModal({ record, onClose }) {
       const commFields = computeCommissionFields(record.platform, incomeType, inputILS, inputUSD, rate);
       const updates = {
         incomeType,
+        modelName,
         rawILS: inputILS,
         originalRawILS: inputILS,
         originalRawUSD: inputUSD,
@@ -1491,6 +1508,14 @@ function EditIncomeModal({ record, onClose }) {
       <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>
         {record.chatterName} • {record.modelName} • {record.platform} • {record.date instanceof Date ? record.date.toLocaleDateString("he-IL") : ""}
       </div>
+    </div>
+
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>לקוחה</label>
+      <select value={modelName} onChange={e => setModelName(e.target.value)} style={inputStyle}>
+        <option value="">בחר...</option>
+        {clients.map(c => <option key={c} value={c}>{c}</option>)}
+      </select>
     </div>
 
     <div style={{ marginBottom: 14 }}>
@@ -1743,7 +1768,29 @@ function ExpPage() {
       <FB><ViewFilter /></FB>
       {view === "monthly" ? <>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 16 }}>
-          <Stat icon="💳" title={`סה״כ — ${MONTHS_HE[month]}`} value={fmtC(total)} color={C.red} style={{ flex: 1, minWidth: 200 }} />
+          {(() => {
+            const chTotal = chSal.reduce((s, c) => s + c.total, 0);
+            const clTotal = clSal.reduce((s, c) => s + c.ent, 0);
+            const grandTotal = total + chTotal + clTotal;
+            return <Card style={{ flex: 1, minWidth: 200, padding: "14px 18px" }}>
+              <div style={{ color: C.dim, fontSize: 12, marginBottom: 4 }}>💳 סה״כ הוצאות — {MONTHS_HE[month]}</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: C.red, marginBottom: 8 }}>{fmtC(grandTotal)}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
+                  <span>💳 הוצאות סוכנות</span>
+                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(total)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
+                  <span>👥 שכר צ'אטרים</span>
+                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(chTotal)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
+                  <span>👩 שכר לקוחות</span>
+                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(clTotal)}</span>
+                </div>
+              </div>
+            </Card>;
+          })()}
           {catBd.length > 0 && <Card style={{ flex: 2, minWidth: 300, display: "flex", alignItems: "center" }}>
             <div style={{ width: "100%", direction: "ltr" }}>
               <ResponsiveContainer width="100%" height={80}>
@@ -1793,13 +1840,24 @@ function ChatterPage({ forceSel, onBack } = {}) {
   const [hoursVal, setHoursVal] = useState("");
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { if (chatters.length && !sel) setSel(chatters[0]); }, [chatters, sel]);
+  const incD = view === "range" ? iRange : view === "monthly" ? iM : iY;
+  const sortedChatters = useMemo(() => {
+    const ymi0 = ym(year, month);
+    return [...chatters].sort((a, b) => {
+      const aRows = incD.filter(r => r.chatterName === a);
+      const bRows = incD.filter(r => r.chatterName === b);
+      const aProfit = aRows.reduce((s, r) => s + r.amountILS, 0) - Calc.chatterSalary(aRows, chatterSettings[a] || {}, ymi0).total;
+      const bProfit = bRows.reduce((s, r) => s + r.amountILS, 0) - Calc.chatterSalary(bRows, chatterSettings[b] || {}, ymi0).total;
+      return bProfit - aProfit;
+    });
+  }, [chatters, incD, chatterSettings, year, month]);
+
+  useEffect(() => { if (sortedChatters.length && !sel) setSel(sortedChatters[0]); }, [sortedChatters, sel]);
 
   const vatChatter = (chatterSettings[sel] || {}).vatChatter ?? false;
 
   const ymi = ym(year, month);
   const cfg = chatterSettings[sel] || {};
-  const incD = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const rows = incD.filter(r => r.chatterName === sel);
   const sal = Calc.chatterSalary(rows, cfg, ymi);
   const tot = rows.reduce((s, r) => s + r.amountILS, 0);
@@ -1842,7 +1900,7 @@ function ChatterPage({ forceSel, onBack } = {}) {
       {onBack && <button onClick={onBack} style={{ background: "none", border: `1px solid ${C.bdr}`, color: C.dim, padding: "6px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>← חזרה לסקירה</button>}
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>👥 צ'אטרים{sel ? ` — ${sel}` : ""}</h2>
     </div>
-    <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value={sel} onChange={v => { setSel(v); }} options={chatters.map(c => ({ value: c, label: c }))} />} /></FB>
+    <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value={sel} onChange={v => { setSel(v); }} options={sortedChatters.map(c => ({ value: c, label: c }))} />} /></FB>
     {!sel ? <p style={{ color: C.mut }}>בחר צ'אטר</p> : (view === "monthly" || view === "range") ? <>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <Stat icon="💰" title="מכירות" value={fmtC(tot)} color={C.grn} sub={`${rows.length} עסקאות`} />
@@ -1972,10 +2030,19 @@ function ChatterPage({ forceSel, onBack } = {}) {
 // ═══════════════════════════════════════════════════════
 // PAGE: CHATTERS OVERVIEW + HUB
 // ═══════════════════════════════════════════════════════
+function InlinePctInput({ value, onSave }) {
+  const [v, setV] = useState(value);
+  useEffect(() => setV(value), [value]);
+  return <input type="number" min="0" max="100" value={v}
+    onChange={e => setV(+e.target.value)}
+    onBlur={() => { if (v !== value) onSave(v); }}
+    onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
+    style={{ width: 54, padding: "4px 6px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 4, color: C.txt, fontSize: 12, outline: "none", textAlign: "center" }} />;
+}
 const ENTITY_COLORS = ['#6366f1', '#22c55e', '#f97316', '#eab308', '#8b5cf6', '#06b6d4', '#f43f5e', '#84cc16', '#ec4899', '#14b8a6'];
 
 function ChattersOverviewPage({ onSelectChatter }) {
-  const { year, view, chatterSettings } = useApp();
+  const { year, month, view, chatterSettings, saveChatterSetting } = useApp();
   const { iM, iY, iRange, chatters } = useFD();
   const incD = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const ymi = ym(year, new Date().getMonth());
@@ -2066,6 +2133,19 @@ function ChattersOverviewPage({ onSelectChatter }) {
         </PieChart>
       </ResponsiveContainer></div>
     </Card>}
+    <Card style={{ marginBottom: 16 }}>
+      <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📋 סיכום וניהול אחוזים</div>
+      <DT columns={[
+        { label: "צ'אטר", render: r => <button onClick={() => onSelectChatter(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontWeight: 700, fontSize: 13, padding: 0 }}>{r.name}</button> },
+        { label: "מכירות", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.total)}</span> },
+        { label: "% משרד", render: r => <InlinePctInput value={r.officePct} onSave={v => saveChatterSetting(r.name, { officePct: v })} /> },
+        { label: "% חוץ", render: r => <InlinePctInput value={r.fieldPct} onSave={v => saveChatterSetting(r.name, { fieldPct: v })} /> },
+        { label: "משכורת", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.salary)}</span> },
+        { label: "רווח נקי", render: r => <span style={{ color: r.netProfit >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.netProfit)}</span> },
+        { label: "", render: r => <button onClick={() => onSelectChatter(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>פרטים ←</button> }
+      ]} rows={chatterStats.map(c => ({ ...c, officePct: (chatterSettings[c.name] || {}).officePct ?? 17, fieldPct: (chatterSettings[c.name] || {}).fieldPct ?? 15 }))}
+      footer={["סה״כ", fmtC(totalSales), "", "", fmtC(totalSalary), fmtC(totalSales - totalSalary), ""]} />
+    </Card>
     <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>👆 לחץ על צ'אטר לצפייה בפרטים מלאים</div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 12 }}>
       {chatterStats.map((c, i) => (
@@ -2089,14 +2169,150 @@ function ChatterHub() {
 }
 
 // ═══════════════════════════════════════════════════════
+// PAGE: CLIENTS OVERVIEW + HUB
+// ═══════════════════════════════════════════════════════
+function ClientsOverviewPage({ onSelectClient }) {
+  const { year, month, view, rv, updRate, clientSettings, saveClientSetting } = useApp();
+  const { iM, iY, iRange, clients } = useFD();
+  const incD = view === "range" ? iRange : view === "monthly" ? iM : iY;
+  const ymi = ym(year, month);
+
+  const clientStats = useMemo(() => {
+    return clients.map(name => {
+      const rows = incD.filter(r => r.modelName === name);
+      const total = rows.reduce((s, r) => s + r.amountILS, 0);
+      const pct = getRate(name, ymi);
+      const bal = Calc.clientBal(incD, name, pct);
+      return { name, total, pct, entitlement: bal.ent, direct: bal.direct, balance: bal.actualDue, txCount: rows.length };
+    }).sort((a, b) => b.total - a.total);
+  }, [incD, clients, ymi, rv]);
+
+  const monthlyByClient = useMemo(() => {
+    if (view !== "yearly") return [];
+    return MONTHS_SHORT.map((ms, i) => {
+      const entry = { ms };
+      clients.forEach(name => {
+        entry[name] = iY.filter(r => r.modelName === name && r.date?.getMonth() === i).reduce((s, r) => s + r.amountILS, 0);
+      });
+      return entry;
+    });
+  }, [iY, clients, view]);
+
+  const totalIncome = clientStats.reduce((s, c) => s + c.total, 0);
+  const totalEntitlement = clientStats.reduce((s, c) => s + c.entitlement, 0);
+
+  return <div style={{ direction: "rtl" }}>
+    <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👩 סקירת כל הלקוחות</h2>
+    <FB><ViewFilter /></FB>
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+      <Stat icon="👩" title="מספר לקוחות" value={clients.length} />
+      <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(totalIncome)} color={C.grn} />
+      <Stat icon="💵" title="סה״כ זכאות" value={fmtC(totalEntitlement)} color={C.ylw} />
+      <Stat icon="📊" title="רווח נקי לעסק" value={fmtC(totalIncome - totalEntitlement)} color={totalIncome - totalEntitlement >= 0 ? C.grn : C.red} />
+    </div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
+      <Card>
+        <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📊 הכנסות לפי לקוחה</div>
+        <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(200, clientStats.length * 44)}>
+          <BarChart data={clientStats} layout="vertical" margin={{ top: 5, right: 130, bottom: 5, left: 10 }}>
+            <XAxis type="number" reversed tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} />
+            <YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={120} interval={0} />
+            <Tooltip content={<TT />} />
+            <Bar dataKey="total" name="הכנסות" radius={[4,0,0,4]}>
+              {clientStats.map((_, i) => <Cell key={i} fill={ENTITY_COLORS[i % ENTITY_COLORS.length]} />)}
+              <LabelList dataKey="total" position="insideLeft" formatter={v => `₪${v>=1000?(v/1000).toFixed(0)+'k':v}`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer></div>
+      </Card>
+      <Card>
+        <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>💵 הכנסות vs זכאות</div>
+        <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(200, clientStats.length * 44)}>
+          <BarChart data={clientStats} layout="vertical" margin={{ top: 5, right: 130, bottom: 5, left: 10 }}>
+            <XAxis type="number" reversed tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} />
+            <YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={120} interval={0} />
+            <Tooltip content={<TT />} />
+            <Bar dataKey="total" fill={C.pri} name="הכנסות" radius={[4,0,0,4]} />
+            <Bar dataKey="entitlement" fill={C.ylw} name="זכאות" radius={[4,0,0,4]} />
+          </BarChart>
+        </ResponsiveContainer></div>
+      </Card>
+    </div>
+    {view === "yearly" && clients.length > 0 && <Card style={{ marginBottom: 16 }}>
+      <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📈 טרנד חודשי לפי לקוחה</div>
+      <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={240}>
+        <LineChart data={monthlyByClient}>
+          <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
+          <XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} />
+          <YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} />
+          <Tooltip content={<TT />} />
+          <Legend />
+          {clients.map((name, i) => <Line key={name} type="monotone" dataKey={name} stroke={ENTITY_COLORS[i % ENTITY_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} />)}
+        </LineChart>
+      </ResponsiveContainer></div>
+    </Card>}
+    {clientStats.length > 0 && <Card style={{ marginBottom: 16 }}>
+      <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>🥧 חלוקת הכנסות</div>
+      <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={220}>
+        <PieChart>
+          <Pie data={clientStats.map(c => ({ name: c.name, value: c.total || 1 }))} cx="50%" cy="50%" outerRadius={85} dataKey="value" label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`} labelLine={false} fontSize={11}>
+            {clientStats.map((_, i) => <Cell key={i} fill={ENTITY_COLORS[i % ENTITY_COLORS.length]} />)}
+          </Pie>
+          <Tooltip formatter={v => fmtC(v)} />
+        </PieChart>
+      </ResponsiveContainer></div>
+    </Card>}
+    <Card style={{ marginBottom: 16 }}>
+      <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📋 סיכום וניהול אחוזים</div>
+      <DT columns={[
+        { label: "לקוחה", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontWeight: 700, fontSize: 13, padding: 0 }}>{r.name}</button> },
+        { label: "הכנסות", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.total)}</span> },
+        { label: "אחוז %", render: r => <InlinePctInput value={r.pct} onSave={v => updRate(r.name, ymi, v)} /> },
+        { label: "זכאות", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.entitlement)}</span> },
+        { label: "שולם ישירות", render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
+        { label: "יתרה", render: r => <span style={{ color: r.balance >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(Math.abs(r.balance))}</span> },
+        { label: "", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>פרטים ←</button> }
+      ]} rows={clientStats} footer={["סה״כ", fmtC(totalIncome), "", fmtC(totalEntitlement), "", "", ""]} />
+    </Card>
+    <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>👆 לחץ על לקוחה לצפייה בפרטים מלאים</div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 12 }}>
+      {clientStats.map((c, i) => (
+        <div key={c.name} onClick={() => onSelectClient(c.name)} style={{ background: C.card, border: `1px solid ${C.bdr}`, borderTop: `3px solid ${ENTITY_COLORS[i % ENTITY_COLORS.length]}`, borderRadius: 12, padding: "16px", cursor: "pointer" }}>
+          <div style={{ color: C.txt, fontWeight: 700, fontSize: 15, marginBottom: 8 }}>{c.name}</div>
+          <div style={{ color: C.grn, fontSize: 20, fontWeight: 700 }}>{fmtC(c.total)}</div>
+          <div style={{ color: C.dim, fontSize: 12, marginTop: 4 }}>{c.txCount} עסקאות • {c.pct}%</div>
+          <div style={{ color: C.ylw, fontSize: 13, marginTop: 6 }}>זכאות: {fmtC(c.entitlement)}</div>
+          <div style={{ color: c.balance >= 0 ? C.grn : C.red, fontSize: 12, marginTop: 2 }}>יתרה: {fmtC(Math.abs(c.balance))}</div>
+          <div style={{ marginTop: 10, padding: "6px 10px", background: ENTITY_COLORS[i % ENTITY_COLORS.length] + "22", borderRadius: 6, color: ENTITY_COLORS[i % ENTITY_COLORS.length], fontSize: 12, textAlign: "center", fontWeight: 600 }}>פרטים מלאים ←</div>
+        </div>
+      ))}
+    </div>
+  </div>;
+}
+
+function ClientHub() {
+  const [sel, setSel] = useState(null);
+  if (sel) return <ClientPage forceSel={sel} onBack={() => setSel(null)} />;
+  return <ClientsOverviewPage onSelectClient={setSel} />;
+}
+
+// ═══════════════════════════════════════════════════════
 // PAGE: CLIENTS
 // ═══════════════════════════════════════════════════════
 function ClientPage({ forceSel, onBack } = {}) {
   const { year, month, setMonth, view, setView, rv, updRate, setIncome, clientSettings, saveClientSetting } = useApp(); const { iM, iY, iRange, clients } = useFD();
   const [sel, setSel] = useState(forceSel || ""), [editPct, setEditPct] = useState(false), [pv, setPv] = useState(0);
-  useEffect(() => { if (clients.length && !sel) setSel(clients[0]); }, [clients, sel]);
+  const incD = view === "range" ? iRange : view === "monthly" ? iM : iY;
+  const sortedClients = useMemo(() => {
+    return [...clients].sort((a, b) => {
+      const aTotal = incD.filter(r => r.modelName === a).reduce((s, r) => s + r.amountILS, 0);
+      const bTotal = incD.filter(r => r.modelName === b).reduce((s, r) => s + r.amountILS, 0);
+      return bTotal - aTotal;
+    });
+  }, [clients, incD]);
+  useEffect(() => { if (sortedClients.length && !sel) setSel(sortedClients[0]); }, [sortedClients, sel]);
   const vatClient = (clientSettings[sel] || {}).vatClient ?? false;
-  const ymi = ym(year, month), pct = getRate(sel, ymi); const incD = view === "range" ? iRange : view === "monthly" ? iM : iY; const bal = Calc.clientBal(incD, sel, pct); const clientTxCount = incD.filter(r => r.modelName === sel).length;
+  const ymi = ym(year, month), pct = getRate(sel, ymi); const bal = Calc.clientBal(incD, sel, pct); const clientTxCount = incD.filter(r => r.modelName === sel).length;
 
   const togglePaid = async (r) => {
     try {
@@ -2113,7 +2329,7 @@ function ClientPage({ forceSel, onBack } = {}) {
       {onBack && <button onClick={onBack} style={{ background: "none", border: `1px solid ${C.bdr}`, color: C.dim, padding: "6px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13 }}>← חזרה לסקירה</button>}
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>👩 לקוחות{sel ? ` — ${sel}` : ""}</h2>
     </div>
-    <FB><ViewFilter extraBefore={<Sel label="לקוחה:" value={sel} onChange={setSel} options={clients.map(c => ({ value: c, label: c }))} />} /></FB>
+    <FB><ViewFilter extraBefore={<Sel label="לקוחה:" value={sel} onChange={setSel} options={sortedClients.map(c => ({ value: c, label: c }))} />} /></FB>
     {!sel ? <p style={{ color: C.mut }}>בחר לקוחה</p> : (view === "monthly" || view === "range") ? <>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}><Stat icon="💰" title="הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} sub={`${clientTxCount} עסקאות`} /><Stat icon="🏢" title="דרך סוכנות" value={fmtC(bal.through)} /><Stat icon="👩" title="ישירות" value={fmtC(bal.direct)} /><Stat icon="💵" title="זכאות (שכר צפוי)" value={fmtC(bal.ent)} color={C.pri} /></div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))", gap: 16, marginBottom: 16 }}>
@@ -3783,11 +3999,17 @@ function DebtsPage() {
   const [debtsView, setDebtsView] = useState("monthly");
   const [modalClient, setModalClient] = useState(null);
   const [form, setForm] = useState({ amount: "", direction: "AgencyToClient", notes: "" });
+  const [modalChatter, setModalChatter] = useState(null);
+  const [chatterForm, setChatterForm] = useState({ amount: "", direction: "AgencyToChatter", notes: "" });
   const [saving, setSaving] = useState(false);
 
   const allClientNames = useMemo(() => [...new Set([...models.map(m => m.name), ...income.map(i => i.modelName)])].filter(Boolean), [models, income]);
 
   const yearIncome = useMemo(() => income.filter(r => new Date(r.date || 0).getFullYear() === year), [income, year]);
+
+  const monthChatterSettlements = useMemo(() =>
+    settlements.filter(s => s.entityType === "chatter" && new Date(s.timestamp || s.date || Date.now()).getMonth() === month && new Date(s.timestamp || s.date || Date.now()).getFullYear() === year),
+    [settlements, month, year]);
 
   const chatterDebtRows = useMemo(() => {
     const names = [...new Set(income.map(r => r.chatterName).filter(Boolean))];
@@ -3796,13 +4018,18 @@ function DebtsPage() {
       const cfg = (chatterSettings || {})[name] || {};
       const sal = Calc.chatterSalary(rows, cfg, ym(year, month));
       const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
-      const balance = sal.total - paidDirect;
+      let netSettled = 0;
+      monthChatterSettlements.filter(s => s.modelName === name).forEach(s => {
+        if (s.direction === "AgencyToChatter") netSettled += s.amount;
+        if (s.direction === "ChatterToAgency") netSettled -= s.amount;
+      });
+      const balance = sal.total - paidDirect - netSettled;
       const hasVat = cfg.vatChatter ?? false;
       const vatAmt = Math.abs(balance) * 0.18;
       const finalBalance = Math.abs(balance) * (hasVat ? 1.18 : 1);
-      return { name, sales: rows.reduce((s, r) => s + r.amountILS, 0), salary: sal.total, paidDirect, balance, hasVat, vatAmt, finalBalance };
+      return { name, sales: rows.reduce((s, r) => s + r.amountILS, 0), salary: sal.total, paidDirect, netSettled, balance, hasVat, vatAmt, finalBalance };
     }).sort((a, b) => b.sales - a.sales);
-  }, [income, month, year, chatterSettings]);
+  }, [income, month, year, chatterSettings, monthChatterSettlements]);
 
   // Group data by client for the current month
   const monthData = useMemo(() => income.filter(r => new Date(r.date || 0).getMonth() === month && new Date(r.date || 0).getFullYear() === year), [income, month, year]);
@@ -3884,6 +4111,25 @@ function DebtsPage() {
     setSaving(false);
   };
 
+  const handleChatterSave = async () => {
+    if (!chatterForm.amount || isNaN(chatterForm.amount) || chatterForm.amount <= 0) return alert("הכנס סכום תקין");
+    setSaving(true);
+    try {
+      await addSettlement({
+        modelName: modalChatter.name,
+        entityType: "chatter",
+        amount: Number(chatterForm.amount),
+        direction: chatterForm.direction,
+        notes: chatterForm.notes,
+        date: new Date().toISOString()
+      });
+      setModalChatter(null);
+    } catch (e) {
+      alert("שגיאה במערכת: " + e.message);
+    }
+    setSaving(false);
+  };
+
   return <div style={{ direction: "rtl", maxWidth: 1000, margin: "0 auto" }}>
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>⚖️ דוח חובות והתחשבנות</h2>
@@ -3948,6 +4194,7 @@ function DebtsPage() {
           { label: "מכירות", render: r => <span style={{ color: C.dim }}>{fmtC(r.sales)}</span> },
           { label: "שכר מגיע", render: r => <span style={{ color: C.pri }}>{fmtC(r.salary)}</span> },
           { label: "שולם ישירות", render: r => <span style={{ color: C.grn }}>{fmtC(r.paidDirect)}</span> },
+          { label: "קוזז החודש", render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
           { label: "יתרה לתשלום", render: r => {
             const col = Math.abs(r.balance) < 1 ? C.mut : r.balance > 0 ? C.red : C.grn;
             const txt = Math.abs(r.balance) < 1 ? "מאוזן" : r.balance > 0 ? "אנחנו חייבים" : "הוא חייב לנו";
@@ -3960,8 +4207,14 @@ function DebtsPage() {
               </div>;
             }
             return <div style={{ color: col, fontWeight: 700 }}><div>{fmtC(r.finalBalance)}</div><div style={{ fontSize: 10 }}>{txt}</div></div>;
-          }}
-        ]} rows={chatterDebtRows} footer={["סה״כ", fmtC(chatterDebtRows.reduce((s,r)=>s+r.sales,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.salary,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.paidDirect,0)), ""]} />
+          }},
+          {
+            label: "פעולות",
+            render: r => <Btn size="sm" variant="outline" onClick={() => { setModalChatter(r); setChatterForm({ amount: Math.abs(r.balance), direction: r.balance > 0 ? "AgencyToChatter" : "ChatterToAgency", notes: "" }); }}>
+              ⚖️ בצע קיזוז
+            </Btn>
+          }
+        ]} rows={chatterDebtRows} footer={["סה״כ", fmtC(chatterDebtRows.reduce((s,r)=>s+r.sales,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.salary,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.paidDirect,0)), fmtC(chatterDebtRows.reduce((s,r)=>s+r.netSettled,0)), ""  , ""]} />
       </Card>
     </> : <>
       {/* ── YEARLY VIEW ── */}
@@ -4034,13 +4287,36 @@ function DebtsPage() {
         </div>
       </div>
     </Modal>}
+
+    {modalChatter && <Modal open={true} onClose={() => setModalChatter(null)} title={`תיעוד קיזוז לצ'אטר: ${modalChatter.name}`} width={400}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <p style={{ color: C.dim, fontSize: 13, marginBottom: 10 }}>יתרת חוב מצב נוכחי: <strong style={{ color: C.txt }}>{fmtC(Math.abs(modalChatter.balance))}</strong> ({modalChatter.balance >= 0 ? "הסוכנות חייבת לצ'אטר" : "הצ'אטר חייב לסוכנות"})</p>
+
+        <label style={{ color: C.dim, fontSize: 12 }}>כיוון העברה</label>
+        <select value={chatterForm.direction} onChange={e => setChatterForm({ ...chatterForm, direction: e.target.value })} style={{ padding: 12, borderRadius: 8, background: C.bg, border: `1px solid ${C.bdr}`, color: C.txt, outline: "none" }}>
+          <option value="AgencyToChatter">הסוכנות משלמת/מעבירה לצ'אטר (+)</option>
+          <option value="ChatterToAgency">הצ'אטר מעביר לסוכנות (-)</option>
+        </select>
+
+        <label style={{ color: C.dim, fontSize: 12 }}>סכום (₪)</label>
+        <input type="number" value={chatterForm.amount} onChange={e => setChatterForm({ ...chatterForm, amount: e.target.value })} style={{ padding: 12, borderRadius: 8, background: C.bg, border: `1px solid ${C.bdr}`, color: C.txt, outline: "none", fontSize: 18 }} placeholder="לדוגמה 1000" />
+
+        <label style={{ color: C.dim, fontSize: 12 }}>הערה (אופציונלי)</label>
+        <input type="text" value={chatterForm.notes} onChange={e => setChatterForm({ ...chatterForm, notes: e.target.value })} style={{ padding: 12, borderRadius: 8, background: C.bg, border: `1px solid ${C.bdr}`, color: C.txt, outline: "none" }} placeholder="העברה בביט / מזומן / סיבת קיזוז" />
+
+        <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          <Btn style={{ flex: 1 }} variant="success" onClick={handleChatterSave} disabled={saving}>{saving ? "⏳" : "💾 תעד קיזוז"}</Btn>
+          <Btn variant="ghost" onClick={() => setModalChatter(null)}>ביטול</Btn>
+        </div>
+      </div>
+    </Modal>}
   </div>;
 }
 
 // ═══════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════
-const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterPage, clients: ClientPage, debts: DebtsPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage, approvals: ApprovalsPage, users: UserManagementPage };
+const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterHub, clients: ClientHub, debts: DebtsPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage, approvals: ApprovalsPage, users: UserManagementPage };
 function Content() {
   const { page, setPage, connected, user, load } = useApp();
   const w = useWin();
