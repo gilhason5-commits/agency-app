@@ -1233,9 +1233,33 @@ function DashPage() {
       const daysInMonth = new Date(year, i + 1, 0).getDate();
       const t = Calc.targets(lastInc, lastDays, daysInMonth);
       lastInc = inc; lastDays = daysInMonth;
-      return { month: m, ms: MONTHS_SHORT[i], idx: i, inc, exp, tgt1: t.t1, tgt2: t.t2, tgt3: t.t3, dailyAvg: t.daily, days: daysInMonth };
+      // Per-month payment gap
+      const mSets = settlements.filter(s => { const d = new Date(s.timestamp || s.date || Date.now()); return d.getMonth() === i && d.getFullYear() === year; });
+      const ymiM = ym(year, i);
+      const clNames = [...new Set(mi.map(r => r.modelName).filter(Boolean))];
+      const clGap = clNames.reduce((sum, n) => {
+        const pct = getRate(n, ymiM);
+        const bal = Calc.clientBal(mi, n, pct, mSets.filter(s => s.entityType !== "chatter"));
+        const hasVat = (clientSettings[n] || {}).vatClient ?? false;
+        return sum + (hasVat ? bal.actualDue * 1.18 : bal.actualDue);
+      }, 0);
+      const chNames = [...new Set(mi.map(r => r.chatterName).filter(Boolean))];
+      const chSets = mSets.filter(s => s.entityType === "chatter");
+      const chGap = chNames.reduce((sum, name) => {
+        const rows = mi.filter(r => r.chatterName === name);
+        const cfg = chatterSettings[name] || {};
+        const sal = Calc.chatterSalary(rows, cfg, ymiM).total;
+        const pd = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+        let ns = 0;
+        chSets.filter(s => s.modelName === name).forEach(s => { if (s.direction === "AgencyToChatter") ns += s.amount; if (s.direction === "ChatterToAgency") ns -= s.amount; });
+        const balance = sal - pd - ns;
+        const hasVat = cfg.vatChatter ?? false;
+        return sum + (hasVat ? balance * 1.18 : balance);
+      }, 0);
+      const gap = clGap + chGap;
+      return { month: m, ms: MONTHS_SHORT[i], idx: i, inc, exp, gap, tgt1: t.t1, tgt2: t.t2, tgt3: t.t3, dailyAvg: t.daily, days: daysInMonth };
     });
-  }, [iY, eY, year, liveRate]);
+  }, [iY, eY, year, liveRate, settlements, chatterSettings, clientSettings]);
 
   const cumData = useMemo(() => { let ci = 0, ct = 0; return mbd.map(d => { ci += d.inc; ct += d.tgt1; return { ...d, cumInc: ci, cumTgt: ct }; }); }, [mbd]);
   const yearTotInc = cumData[11]?.cumInc || 0, yearTotTgt = cumData[11]?.cumTgt || 0;
@@ -1290,18 +1314,20 @@ function DashPage() {
         { label: "חודש", key: "month" },
         { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.inc)}</span> },
         { label: "הוצאות", render: r => <span style={{ color: C.red }}>{fmtC(r.exp)}</span> },
+        { label: "פערים", render: r => <span style={{ color: r.gap > 0 ? C.red : r.gap < 0 ? C.grn : C.mut }}>{fmtC(Math.abs(r.gap))}</span> },
         { label: "ל.מ", render: () => <span style={{ color: C.dim }}>—</span> },
         { label: "צפי מע״מ", render: r => <span style={{ color: C.ylw }}>{fmtC(r.inc * 0.17)}</span> },
         { label: "צפי מס", render: r => { const profit = r.inc - r.exp; const tax = profit > 0 ? profit * 0.23 : 0; return <span style={{ color: C.ylw }}>{fmtC(tax)}</span>; } },
-        { label: "רווח נטו", render: r => { const profit = r.inc - r.exp; const vat = r.inc * 0.17; const tax = profit > 0 ? profit * 0.23 : 0; const net = profit - vat - tax; return <span style={{ color: net >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(net)}</span>; } },
+        { label: "רווח נטו", render: r => { const profit = r.inc - r.exp - r.gap; const vat = r.inc * 0.17; const tax = profit > 0 ? profit * 0.23 : 0; const net = profit - vat - tax; return <span style={{ color: net >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(net)}</span>; } },
       ]} rows={mbd} footer={(() => {
         const totInc = mbd.reduce((s, r) => s + r.inc, 0);
         const totExp = mbd.reduce((s, r) => s + r.exp, 0);
+        const totGap = mbd.reduce((s, r) => s + r.gap, 0);
         const totVat = totInc * 0.17;
-        const totProfit = totInc - totExp;
+        const totProfit = totInc - totExp - totGap;
         const totTax = totProfit > 0 ? totProfit * 0.23 : 0;
         const totNet = totProfit - totVat - totTax;
-        return ["סה״כ", fmtC(totInc), fmtC(totExp), "—", fmtC(totVat), fmtC(totTax), fmtC(totNet)];
+        return ["סה״כ", fmtC(totInc), fmtC(totExp), fmtC(Math.abs(totGap)), "—", fmtC(totVat), fmtC(totTax), fmtC(totNet)];
       })()} />
     </>}
 
