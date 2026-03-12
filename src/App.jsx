@@ -1164,7 +1164,7 @@ function SetupPage() {
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
-  const { year, month, setMonth, view, setView, liveRate, chatterSettings } = useApp();
+  const { year, month, setMonth, view, setView, liveRate, chatterSettings, settlements } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
@@ -1186,6 +1186,40 @@ function DashPage() {
     }, 0);
   }, [activeI, ymi]);
   const netProfit = mp.profit - totalClientSalary - totalChatterSalary;
+
+  const paymentGap = useMemo(() => {
+    const isMonthly = view === "monthly";
+    const filterDate = s => {
+      const d = new Date(s.timestamp || s.date || Date.now());
+      return isMonthly ? (d.getMonth() === month && d.getFullYear() === year) : d.getFullYear() === year;
+    };
+    const periodSets = settlements.filter(filterDate);
+    // Client gaps
+    const clientNames = [...new Set(activeI.map(r => r.modelName).filter(Boolean))];
+    const clientGap = clientNames.reduce((sum, n) => {
+      const pct = getRate(n, ymi);
+      return sum + Calc.clientBal(activeI, n, pct, periodSets.filter(s => s.entityType !== "chatter")).actualDue;
+    }, 0);
+    // Chatter gaps
+    const chatterNames = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
+    const chatterSets = periodSets.filter(s => s.entityType === "chatter");
+    const chatterGap = chatterNames.reduce((sum, name) => {
+      const rows = activeI.filter(r => r.chatterName === name);
+      const cfg = chatterSettings[name] || {};
+      const sal = Calc.chatterSalary(rows, cfg, ymi).total;
+      const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+      let netSettled = 0;
+      chatterSets.filter(s => s.modelName === name).forEach(s => {
+        if (s.direction === "AgencyToChatter") netSettled += s.amount;
+        if (s.direction === "ChatterToAgency") netSettled -= s.amount;
+      });
+      return sum + (sal - paidDirect - netSettled);
+    }, 0);
+    return clientGap + chatterGap;
+  }, [activeI, settlements, chatterSettings, ymi, view, month, year]);
+
+  const actualProfit = netProfit - paymentGap;
+
   const mbd = useMemo(() => {
     let lastDays = 31, lastInc = 0;
     return MONTHS_HE.map((m, i) => {
@@ -1238,6 +1272,8 @@ function DashPage() {
       <Stat icon="👑" title="צפי שכר לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
       <Stat icon="💬" title="צפי שכר צאטים" value={fmtC(totalChatterSalary)} color={C.ylw} />
       <Stat icon="📈" title="צפי רווח לפני מס" value={fmtC(netProfit)} color={netProfit >= 0 ? C.grn : C.red} />
+      <Stat icon={paymentGap > 0 ? "🔴" : paymentGap < 0 ? "🟢" : "⚪"} title="פערי תשלומים" value={fmtC(Math.abs(paymentGap))} color={paymentGap > 0 ? C.red : paymentGap < 0 ? C.grn : C.mut} sub={paymentGap > 0 ? "אנחנו חייבים" : paymentGap < 0 ? "חייבים לנו" : "מאוזן"} />
+      <Stat icon="💵" title="רווח בפועל" value={fmtC(actualProfit)} color={actualProfit >= 0 ? C.grn : C.red} sub="אחרי קיזוזים ותשלומים" />
     </div> : <>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
         <Stat icon="💰" title={`הכנסות ${year}`} value={fmtC(iY.reduce((s, r) => s + r.amountILS, 0))} color={C.grn} />
