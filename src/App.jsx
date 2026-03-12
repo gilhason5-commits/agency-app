@@ -1743,7 +1743,29 @@ function ExpPage() {
       <FB><ViewFilter /></FB>
       {view === "monthly" ? <>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 16 }}>
-          <Stat icon="💳" title={`סה״כ — ${MONTHS_HE[month]}`} value={fmtC(total)} color={C.red} style={{ flex: 1, minWidth: 200 }} />
+          {(() => {
+            const chTotal = chSal.reduce((s, c) => s + c.total, 0);
+            const clTotal = clSal.reduce((s, c) => s + c.ent, 0);
+            const grandTotal = total + chTotal + clTotal;
+            return <Card style={{ flex: 1, minWidth: 200, padding: "14px 18px" }}>
+              <div style={{ color: C.dim, fontSize: 12, marginBottom: 4 }}>💳 סה״כ הוצאות — {MONTHS_HE[month]}</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: C.red, marginBottom: 8 }}>{fmtC(grandTotal)}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
+                  <span>💳 הוצאות סוכנות</span>
+                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(total)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
+                  <span>👥 שכר צ'אטרים</span>
+                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(chTotal)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
+                  <span>👩 שכר לקוחות</span>
+                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(clTotal)}</span>
+                </div>
+              </div>
+            </Card>;
+          })()}
           {catBd.length > 0 && <Card style={{ flex: 2, minWidth: 300, display: "flex", alignItems: "center" }}>
             <div style={{ width: "100%", direction: "ltr" }}>
               <ResponsiveContainer width="100%" height={80}>
