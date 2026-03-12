@@ -1164,7 +1164,7 @@ function SetupPage() {
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
-  const { year, month, setMonth, view, setView, liveRate, chatterSettings, settlements } = useApp();
+  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
@@ -1194,13 +1194,16 @@ function DashPage() {
       return isMonthly ? (d.getMonth() === month && d.getFullYear() === year) : d.getFullYear() === year;
     };
     const periodSets = settlements.filter(filterDate);
-    // Client gaps
+    // Client gaps (with VAT)
     const clientNames = [...new Set(activeI.map(r => r.modelName).filter(Boolean))];
     const clientGap = clientNames.reduce((sum, n) => {
       const pct = getRate(n, ymi);
-      return sum + Calc.clientBal(activeI, n, pct, periodSets.filter(s => s.entityType !== "chatter")).actualDue;
+      const bal = Calc.clientBal(activeI, n, pct, periodSets.filter(s => s.entityType !== "chatter"));
+      const hasVat = (clientSettings[n] || {}).vatClient ?? false;
+      const finalDue = hasVat ? bal.actualDue * 1.18 : bal.actualDue;
+      return sum + finalDue;
     }, 0);
-    // Chatter gaps
+    // Chatter gaps (with VAT)
     const chatterNames = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
     const chatterSets = periodSets.filter(s => s.entityType === "chatter");
     const chatterGap = chatterNames.reduce((sum, name) => {
@@ -1213,7 +1216,9 @@ function DashPage() {
         if (s.direction === "AgencyToChatter") netSettled += s.amount;
         if (s.direction === "ChatterToAgency") netSettled -= s.amount;
       });
-      return sum + (sal - paidDirect - netSettled);
+      const balance = sal - paidDirect - netSettled;
+      const hasVat = cfg.vatChatter ?? false;
+      return sum + (hasVat ? balance * 1.18 : balance);
     }, 0);
     return clientGap + chatterGap;
   }, [activeI, settlements, chatterSettings, ymi, view, month, year]);
@@ -1228,9 +1233,33 @@ function DashPage() {
       const daysInMonth = new Date(year, i + 1, 0).getDate();
       const t = Calc.targets(lastInc, lastDays, daysInMonth);
       lastInc = inc; lastDays = daysInMonth;
-      return { month: m, ms: MONTHS_SHORT[i], idx: i, inc, exp, tgt1: t.t1, tgt2: t.t2, tgt3: t.t3, dailyAvg: t.daily, days: daysInMonth };
+      // Per-month payment gap
+      const mSets = settlements.filter(s => { const d = new Date(s.timestamp || s.date || Date.now()); return d.getMonth() === i && d.getFullYear() === year; });
+      const ymiM = ym(year, i);
+      const clNames = [...new Set(mi.map(r => r.modelName).filter(Boolean))];
+      const clGap = clNames.reduce((sum, n) => {
+        const pct = getRate(n, ymiM);
+        const bal = Calc.clientBal(mi, n, pct, mSets.filter(s => s.entityType !== "chatter"));
+        const hasVat = (clientSettings[n] || {}).vatClient ?? false;
+        return sum + (hasVat ? bal.actualDue * 1.18 : bal.actualDue);
+      }, 0);
+      const chNames = [...new Set(mi.map(r => r.chatterName).filter(Boolean))];
+      const chSets = mSets.filter(s => s.entityType === "chatter");
+      const chGap = chNames.reduce((sum, name) => {
+        const rows = mi.filter(r => r.chatterName === name);
+        const cfg = chatterSettings[name] || {};
+        const sal = Calc.chatterSalary(rows, cfg, ymiM).total;
+        const pd = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+        let ns = 0;
+        chSets.filter(s => s.modelName === name).forEach(s => { if (s.direction === "AgencyToChatter") ns += s.amount; if (s.direction === "ChatterToAgency") ns -= s.amount; });
+        const balance = sal - pd - ns;
+        const hasVat = cfg.vatChatter ?? false;
+        return sum + (hasVat ? balance * 1.18 : balance);
+      }, 0);
+      const gap = clGap + chGap;
+      return { month: m, ms: MONTHS_SHORT[i], idx: i, inc, exp, gap, tgt1: t.t1, tgt2: t.t2, tgt3: t.t3, dailyAvg: t.daily, days: daysInMonth };
     });
-  }, [iY, eY, year, liveRate]);
+  }, [iY, eY, year, liveRate, settlements, chatterSettings, clientSettings]);
 
   const cumData = useMemo(() => { let ci = 0, ct = 0; return mbd.map(d => { ci += d.inc; ct += d.tgt1; return { ...d, cumInc: ci, cumTgt: ct }; }); }, [mbd]);
   const yearTotInc = cumData[11]?.cumInc || 0, yearTotTgt = cumData[11]?.cumTgt || 0;
@@ -1285,18 +1314,20 @@ function DashPage() {
         { label: "חודש", key: "month" },
         { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.inc)}</span> },
         { label: "הוצאות", render: r => <span style={{ color: C.red }}>{fmtC(r.exp)}</span> },
+        { label: "פערים", render: r => <span style={{ color: r.gap > 0 ? C.red : r.gap < 0 ? C.grn : C.mut }}>{fmtC(Math.abs(r.gap))}</span> },
         { label: "ל.מ", render: () => <span style={{ color: C.dim }}>—</span> },
         { label: "צפי מע״מ", render: r => <span style={{ color: C.ylw }}>{fmtC(r.inc * 0.17)}</span> },
         { label: "צפי מס", render: r => { const profit = r.inc - r.exp; const tax = profit > 0 ? profit * 0.23 : 0; return <span style={{ color: C.ylw }}>{fmtC(tax)}</span>; } },
-        { label: "רווח נטו", render: r => { const profit = r.inc - r.exp; const vat = r.inc * 0.17; const tax = profit > 0 ? profit * 0.23 : 0; const net = profit - vat - tax; return <span style={{ color: net >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(net)}</span>; } },
+        { label: "רווח נטו", render: r => { const profit = r.inc - r.exp - r.gap; const vat = r.inc * 0.17; const tax = profit > 0 ? profit * 0.23 : 0; const net = profit - vat - tax; return <span style={{ color: net >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(net)}</span>; } },
       ]} rows={mbd} footer={(() => {
         const totInc = mbd.reduce((s, r) => s + r.inc, 0);
         const totExp = mbd.reduce((s, r) => s + r.exp, 0);
+        const totGap = mbd.reduce((s, r) => s + r.gap, 0);
         const totVat = totInc * 0.17;
-        const totProfit = totInc - totExp;
+        const totProfit = totInc - totExp - totGap;
         const totTax = totProfit > 0 ? totProfit * 0.23 : 0;
         const totNet = totProfit - totVat - totTax;
-        return ["סה״כ", fmtC(totInc), fmtC(totExp), "—", fmtC(totVat), fmtC(totTax), fmtC(totNet)];
+        return ["סה״כ", fmtC(totInc), fmtC(totExp), fmtC(Math.abs(totGap)), "—", fmtC(totVat), fmtC(totTax), fmtC(totNet)];
       })()} />
     </>}
 
@@ -2086,7 +2117,8 @@ function ChattersOverviewPage({ onSelectChatter }) {
       const cfg = chatterSettings[name] || {};
       const sal = Calc.chatterSalary(rows, cfg, ymi);
       const total = rows.reduce((s, r) => s + r.amountILS, 0);
-      return { name, total, salary: sal.total, netProfit: total - sal.total, txCount: rows.length };
+      const roi = sal.total > 0 ? ((total - sal.total) / sal.total * 100) : 0;
+      return { name, total, salary: sal.total, netProfit: total - sal.total, roi, txCount: rows.length };
     }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
   }, [incD, chatters, chatterSettings, ymi]);
 
@@ -2130,14 +2162,16 @@ function ChattersOverviewPage({ onSelectChatter }) {
         </ResponsiveContainer></div>
       </Card>
       <Card>
-        <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>💵 מכירות vs משכורת</div>
+        <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📊 השוואת ROI לפי צ'אטר</div>
         <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(200, chatterStats.length * 44)}>
-          <BarChart data={chatterStats} layout="vertical" margin={{ top: 5, right: 130, bottom: 5, left: 10 }}>
-            <XAxis type="number" reversed tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} />
+          <BarChart data={[...chatterStats].sort((a, b) => b.roi - a.roi)} layout="vertical" margin={{ top: 5, right: 130, bottom: 5, left: 10 }}>
+            <XAxis type="number" reversed tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `${v.toFixed(0)}%`} />
             <YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={120} interval={0} />
-            <Tooltip content={<TT />} />
-            <Bar dataKey="total" fill={C.pri} name="מכירות" radius={[4,0,0,4]} />
-            <Bar dataKey="salary" fill={C.ylw} name="משכורת" radius={[4,0,0,4]} />
+            <Tooltip formatter={v => `${v.toFixed(0)}%`} />
+            <Bar dataKey="roi" name="ROI" radius={[4,0,0,4]}>
+              {[...chatterStats].sort((a, b) => b.roi - a.roi).map((c, i) => <Cell key={i} fill={c.roi >= 0 ? C.grn : C.red} />)}
+              <LabelList dataKey="roi" position="insideLeft" formatter={v => `${v.toFixed(0)}%`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} />
+            </Bar>
           </BarChart>
         </ResponsiveContainer></div>
       </Card>
