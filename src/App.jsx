@@ -4158,10 +4158,16 @@ function DebtsPage() {
 
       {/* Chatters reconciliation table */}
       <h3 style={{ color: C.txt, fontSize: 17, fontWeight: 700, marginTop: 32, marginBottom: 12 }}>👥 התחשבנות צ'אטרים — {MONTHS_HE[month]}</h3>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-        <Stat icon="🔴" title="אנחנו חייבים לצ'אטרים" value={fmtC(chatterDebtRows.filter(r => r.balance > 0).reduce((s, r) => s + r.finalBalance, 0))} color={C.red} />
-        <Stat icon="🟢" title="צ'אטרים חייבים לנו" value={fmtC(chatterDebtRows.filter(r => r.balance < 0).reduce((s, r) => s + r.finalBalance, 0))} color={C.grn} />
-      </div>
+      {(() => {
+        const weOwe = chatterDebtRows.filter(r => r.balance > 0).reduce((s, r) => s + r.finalBalance, 0);
+        const theyOwe = chatterDebtRows.filter(r => r.balance < 0).reduce((s, r) => s + r.finalBalance, 0);
+        const net = weOwe - theyOwe;
+        const label = net > 0 ? "אנחנו חייבים לצ'אטרים" : net < 0 ? "צ'אטרים חייבים לנו" : "מאוזן";
+        const col = net > 0 ? C.red : net < 0 ? C.grn : C.mut;
+        return <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+          <Stat icon={net > 0 ? "🔴" : net < 0 ? "🟢" : "⚪"} title={label} value={fmtC(Math.abs(net))} color={col} />
+        </div>;
+      })()}
       <Card style={{ padding: 0, marginBottom: 32 }}>
         <DT columns={[
           { label: "צ'אטר", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
