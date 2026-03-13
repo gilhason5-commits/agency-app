@@ -1200,10 +1200,9 @@ function DashPage() {
       const pct = getRate(n, ymi);
       const bal = Calc.clientBal(activeI, n, pct, periodSets.filter(s => s.entityType !== "chatter"));
       const hasVat = (clientSettings[n] || {}).vatClient ?? false;
-      const finalDue = hasVat ? bal.actualDue * 1.18 : bal.actualDue;
-      return sum + finalDue;
+      return sum + bal.actualDue;
     }, 0);
-    // Chatter gaps (with VAT)
+    // Chatter gaps (without VAT, to match debts page totals)
     const chatterNames = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
     const chatterSets = periodSets.filter(s => s.entityType === "chatter");
     const chatterGap = chatterNames.reduce((sum, name) => {
@@ -1217,13 +1216,12 @@ function DashPage() {
         if (s.direction === "ChatterToAgency") netSettled -= s.amount;
       });
       const balance = sal - paidDirect - netSettled;
-      const hasVat = cfg.vatChatter ?? false;
-      return sum + (hasVat ? balance * 1.18 : balance);
+      return sum + balance;
     }, 0);
     return clientGap + chatterGap;
   }, [activeI, settlements, chatterSettings, ymi, view, month, year]);
 
-  const actualProfit = netProfit - paymentGap;
+  const actualProfit = netProfit + paymentGap;
 
   const mbd = useMemo(() => {
     let lastDays = 31, lastInc = 0;
