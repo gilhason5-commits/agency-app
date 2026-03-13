@@ -2288,20 +2288,38 @@ function ClientsOverviewPage({ onSelectClient }) {
       <Stat icon="📊" title="רווח נקי לעסק" value={fmtC(totalIncome - totalEntitlement)} color={totalIncome - totalEntitlement >= 0 ? C.grn : C.red} />
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
-      <Card>
-        <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📊 הכנסות לפי לקוחה</div>
-        <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(200, clientStats.length * 44)}>
-          <BarChart data={clientStats} layout="vertical" margin={{ top: 5, right: 130, bottom: 5, left: 10 }}>
-            <XAxis type="number" reversed tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} />
-            <YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={120} interval={0} />
-            <Tooltip content={<TT />} />
-            <Bar dataKey="total" name="הכנסות" radius={[4,0,0,4]}>
-              {clientStats.map((_, i) => <Cell key={i} fill={ENTITY_COLORS[i % ENTITY_COLORS.length]} />)}
-              <LabelList dataKey="total" position="insideLeft" formatter={v => `₪${v>=1000?(v/1000).toFixed(0)+'k':v}`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} />
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer></div>
-      </Card>
+      {(() => {
+        const hourlyByClient = (() => {
+          const map = {};
+          for (let h = 0; h < 24; h++) map[h] = { hour: h };
+          incD.forEach(r => {
+            let hStr = r.hour;
+            if (!hStr) return;
+            if (typeof hStr === "string" && hStr.includes("1899-") && hStr.includes("T")) hStr = hStr.split("T")[1].substring(0, 5);
+            const hNum = parseInt(hStr, 10);
+            if (isNaN(hNum) || hNum < 0 || hNum > 23) return;
+            const name = r.modelName;
+            if (!name) return;
+            if (!map[hNum][name]) map[hNum][name] = 0;
+            map[hNum][name] += r.amountILS;
+          });
+          return Object.values(map).sort((a, b) => a.hour - b.hour);
+        })();
+        const activeClients = clientStats.map(c => c.name);
+        return <Card>
+          <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📈 מכירות לפי שעה ביום</div>
+          <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={280}>
+            <LineChart data={hourlyByClient} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
+              <XAxis dataKey="hour" tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `${v}:00`} />
+              <YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => fmtC(v)} />
+              <Tooltip formatter={v => fmtC(v)} labelFormatter={v => `שעה ${v}:00`} />
+              <Legend />
+              {activeClients.map((name, i) => <Line key={name} type="monotone" dataKey={name} stroke={ENTITY_COLORS[i % ENTITY_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />)}
+            </LineChart>
+          </ResponsiveContainer></div>
+        </Card>;
+      })()}
       <Card>
         <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>💵 הכנסות vs זכאות</div>
         <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(200, clientStats.length * 44)}>
