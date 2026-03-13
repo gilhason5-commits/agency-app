@@ -1200,10 +1200,9 @@ function DashPage() {
       const pct = getRate(n, ymi);
       const bal = Calc.clientBal(activeI, n, pct, periodSets.filter(s => s.entityType !== "chatter"));
       const hasVat = (clientSettings[n] || {}).vatClient ?? false;
-      const finalDue = hasVat ? bal.actualDue * 1.18 : bal.actualDue;
-      return sum + finalDue;
+      return sum + bal.actualDue;
     }, 0);
-    // Chatter gaps (with VAT)
+    // Chatter gaps (without VAT, to match debts page totals)
     const chatterNames = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
     const chatterSets = periodSets.filter(s => s.entityType === "chatter");
     const chatterGap = chatterNames.reduce((sum, name) => {
@@ -1217,13 +1216,12 @@ function DashPage() {
         if (s.direction === "ChatterToAgency") netSettled -= s.amount;
       });
       const balance = sal - paidDirect - netSettled;
-      const hasVat = cfg.vatChatter ?? false;
-      return sum + (hasVat ? balance * 1.18 : balance);
+      return sum + balance;
     }, 0);
     return clientGap + chatterGap;
   }, [activeI, settlements, chatterSettings, ymi, view, month, year]);
 
-  const actualProfit = netProfit - paymentGap;
+  const actualProfit = netProfit + paymentGap;
 
   const mbd = useMemo(() => {
     let lastDays = 31, lastInc = 0;
@@ -2189,17 +2187,36 @@ function ChattersOverviewPage({ onSelectChatter }) {
         </LineChart>
       </ResponsiveContainer></div>
     </Card>}
-    {chatterStats.length > 0 && <Card style={{ marginBottom: 16 }}>
-      <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>🥧 חלוקת מכירות</div>
-      <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={220}>
-        <PieChart>
-          <Pie data={chatterStats.map(c => ({ name: c.name, value: c.total || 1 }))} cx="50%" cy="50%" outerRadius={85} dataKey="value" label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`} labelLine={false} fontSize={11}>
-            {chatterStats.map((_, i) => <Cell key={i} fill={ENTITY_COLORS[i % ENTITY_COLORS.length]} />)}
-          </Pie>
-          <Tooltip formatter={v => fmtC(v)} />
-        </PieChart>
-      </ResponsiveContainer></div>
-    </Card>}
+    {(() => {
+      const hourlyData = (() => {
+        const map = {};
+        for (let h = 0; h < 24; h++) map[h] = { hour: h };
+        incD.forEach(r => {
+          let hStr = r.hour;
+          if (!hStr) return;
+          if (typeof hStr === "string" && hStr.includes("1899-") && hStr.includes("T")) hStr = hStr.split("T")[1].substring(0, 5);
+          const hNum = parseInt(hStr, 10);
+          if (isNaN(hNum) || hNum < 0 || hNum > 23) return;
+          const name = r.chatterName;
+          if (!map[hNum][name]) map[hNum][name] = 0;
+          map[hNum][name] += r.amountILS;
+        });
+        return Object.values(map).sort((a, b) => a.hour - b.hour);
+      })();
+      const activeNames = chatterStats.map(c => c.name);
+      return activeNames.length > 0 && <Card style={{ marginBottom: 16 }}>
+        <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📈 מכירות לפי שעה ביום</div>
+        <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={280}>
+          <LineChart data={hourlyData} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+            <XAxis dataKey="hour" tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `${v}:00`} />
+            <YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => fmtC(v)} />
+            <Tooltip formatter={v => fmtC(v)} labelFormatter={v => `שעה ${v}:00`} />
+            <Legend />
+            {activeNames.map((name, i) => <Line key={name} type="monotone" dataKey={name} stroke={ENTITY_COLORS[i % ENTITY_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />)}
+          </LineChart>
+        </ResponsiveContainer></div>
+      </Card>;
+    })()}
     <Card style={{ marginBottom: 16 }}>
       <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📋 סיכום וניהול אחוזים</div>
       <DT columns={[
