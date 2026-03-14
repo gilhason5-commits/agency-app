@@ -666,13 +666,24 @@ const Calc = {
     const total = salaryType === "hourly" ? hourlySalary : salaryType === "sales" ? salesSalary : salesSalary + hourlySalary;
     return { oSales: o, rSales: r, oSal, rSal, officePct: officePct * 100, fieldPct: fieldPct * 100, salesSalary, hourlySalary, hours, hourlyRate, salaryType, total };
   },
-  clientBal(rows, cn, pct, settlements = []) {
+  clientBal(rows, cn, agencyPct, settlements = [], chatterSettings = {}) {
     const clRows = rows.filter(r => r.modelName === cn);
     const tot = clRows.reduce((s, r) => s + r.amountILS, 0);
     const direct = clRows.filter(r => r.paymentTarget === "client" || (!r.paymentTarget && r.paidToClient)).reduce((s, r) => s + r.amountILS, 0);
-    const ent = tot * (pct / 100);
+    // Agency takes agencyPct% of total income
+    const agencyShare = tot * (agencyPct / 100);
+    // Chatter salary for this client's transactions
+    let chatterSalaryForClient = 0;
+    clRows.forEach(r => {
+      const cfg = chatterSettings[r.chatterName] || {};
+      const oPct = (cfg.officePct ?? 17) / 100;
+      const fPct = (cfg.fieldPct ?? 15) / 100;
+      chatterSalaryForClient += r.amountILS * (r.shiftLocation === "משרד" ? oPct : fPct);
+    });
+    // Client entitlement = total income - agency share - chatter salary
+    const ent = tot - agencyShare - chatterSalaryForClient;
 
-    // settlements logic: 
+    // settlements logic:
     // AgencyToClient decreases the agency's debt to the client (or increases client debt to agency)
     // ClientToAgency decreases the client's debt to the agency (or increases agency debt to client)
     // Positive actualDue = Agency owes client. Negative = Client owes agency.
@@ -685,7 +696,7 @@ const Calc = {
     // actualDue is the pure mathematical debt before settlements: (entitlement - what they already got directly)
     // then subtract the net amount the agency has manually settled
     const actualDue = ent - direct - netSettled;
-    return { totalIncome: tot, direct, through: tot - direct, pct, ent, bal: ent - direct, netSettled, actualDue };
+    return { totalIncome: tot, direct, through: tot - direct, pct: agencyPct, ent, bal: ent - direct, netSettled, actualDue, agencyShare, chatterSalaryForClient };
   },
   offset(exps) { const d = exps.filter(e => e.paidBy === "דור").reduce((s, e) => s + e.amount, 0); const y = exps.filter(e => e.paidBy === "יוראי").reduce((s, e) => s + e.amount, 0); return { dor: d, yurai: y, off: Math.abs(d - y) / 2, owes: d > y ? "יוראי" : "דור", paid: d > y ? "דור" : "יוראי" }; },
   profit(inc, exp) { const i = inc.reduce((s, r) => s + r.amountILS, 0); const e = exp.reduce((s, x) => s + x.amount, 0); return { inc: i, exp: e, profit: i - e }; },
@@ -1189,7 +1200,7 @@ function DashPage() {
     const names = [...new Set(activeI.map(r => r.modelName).filter(Boolean))];
     return names.reduce((sum, n) => {
       const pct = getRate(n, ymi);
-      return sum + Calc.clientBal(activeI, n, pct).ent;
+      return sum + Calc.clientBal(activeI, n, pct, [], chatterSettings).ent;
     }, 0);
   }, [activeI, ymi]);
   const netProfit = mp.profit - totalClientSalary - totalChatterSalary;
@@ -1205,7 +1216,7 @@ function DashPage() {
     const clientNames = [...new Set(activeI.map(r => r.modelName).filter(Boolean))];
     const clientGap = clientNames.reduce((sum, n) => {
       const pct = getRate(n, ymi);
-      const bal = Calc.clientBal(activeI, n, pct, periodSets.filter(s => s.entityType !== "chatter"));
+      const bal = Calc.clientBal(activeI, n, pct, periodSets.filter(s => s.entityType !== "chatter"), chatterSettings);
       const hasVat = (clientSettings[n] || {}).vatClient ?? false;
       return sum + bal.actualDue;
     }, 0);
@@ -1244,7 +1255,7 @@ function DashPage() {
       const clNames = [...new Set(mi.map(r => r.modelName).filter(Boolean))];
       const clGap = clNames.reduce((sum, n) => {
         const pct = getRate(n, ymiM);
-        const bal = Calc.clientBal(mi, n, pct, mSets.filter(s => s.entityType !== "chatter"));
+        const bal = Calc.clientBal(mi, n, pct, mSets.filter(s => s.entityType !== "chatter"), chatterSettings);
         const hasVat = (clientSettings[n] || {}).vatClient ?? false;
         return sum + (hasVat ? bal.actualDue * 1.18 : bal.actualDue);
       }, 0);
@@ -1262,7 +1273,7 @@ function DashPage() {
         return sum + (hasVat ? balance * 1.18 : balance);
       }, 0);
       const gap = clGap + chGap;
-      const clEnt = clNames.reduce((sum, n) => sum + Calc.clientBal(mi, n, getRate(n, ymiM)).ent, 0);
+      const clEnt = clNames.reduce((sum, n) => sum + Calc.clientBal(mi, n, getRate(n, ymiM), [], chatterSettings).ent, 0);
       const chSalMo = chNames.reduce((sum, name) => sum + Calc.chatterSalary(mi.filter(r => r.chatterName === name), chatterSettings[name] || {}, ymiM).total, 0);
       const agencyInc = inc - clEnt;
       return { month: m, ms: MONTHS_SHORT[i], idx: i, inc, exp, gap, agencyInc, clEnt, chSalMo, tgt1: t.t1, tgt2: t.t2, tgt3: t.t3, dailyAvg: t.daily, days: daysInMonth };
@@ -1874,7 +1885,7 @@ function ExpPage() {
   const chNames = [...new Set(incD.map(r => r.chatterName).filter(Boolean))];
   const chSal = chNames.map(n => { const cfg = chatterSettings[n] || {}; const s = Calc.chatterSalary(incD.filter(r => r.chatterName === n), cfg, ymi); return { name: n, ...s }; }).sort((a, b) => b.total - a.total);
   const clNames = [...new Set(incD.map(r => r.modelName).filter(Boolean))];
-  const clSal = clNames.map(n => { const p = getRate(n, ym(year, month)); const b = Calc.clientBal(incD, n, p); return { name: n, ...b }; }).sort((a, b) => b.totalIncome - a.totalIncome);
+  const clSal = clNames.map(n => { const p = getRate(n, ym(year, month)); const b = Calc.clientBal(incD, n, p, [], chatterSettings); return { name: n, ...b }; }).sort((a, b) => b.totalIncome - a.totalIncome);
   const updCat = async (e, newCat) => { const updated = { ...e, classification: newCat }; setExpenses(prev => prev.map(x => x.id === e.id ? updated : x)); try { await ExpSvc.edit(updated); } catch (err) { console.error(err); } };
   const updField = async (e, field, val) => { const updated = { ...e, [field]: val }; setExpenses(prev => prev.map(x => x.id === e.id ? updated : x)); try { await ExpSvc.edit(updated); } catch (err) { console.error(err); } };
   const handleDelete = async (e) => { if (demo) { setExpenses(expenses.filter(x => x.id !== e.id)); setDelExp(null); setPopCat(null); return; } try { await ExpSvc.remove(e); setExpenses(expenses.filter(x => x.id !== e.id)); setDelExp(null); setPopCat(null); } catch (err) { alert(err.message); } };
@@ -2333,7 +2344,7 @@ function ChatterHub() {
 // PAGE: CLIENTS OVERVIEW + HUB
 // ═══════════════════════════════════════════════════════
 function ClientsOverviewPage({ onSelectClient }) {
-  const { year, month, view, rv, updRate, clientSettings, saveClientSetting } = useApp();
+  const { year, month, view, rv, updRate, clientSettings, saveClientSetting, chatterSettings } = useApp();
   const { iM, iY, iRange, clients } = useFD();
   const incD = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const ymi = ym(year, month);
@@ -2343,7 +2354,7 @@ function ClientsOverviewPage({ onSelectClient }) {
       const rows = incD.filter(r => r.modelName === name);
       const total = rows.reduce((s, r) => s + r.amountILS, 0);
       const pct = getRate(name, ymi);
-      const bal = Calc.clientBal(incD, name, pct);
+      const bal = Calc.clientBal(incD, name, pct, [], chatterSettings);
       return { name, total, pct, entitlement: bal.ent, direct: bal.direct, balance: bal.actualDue, txCount: rows.length };
     }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
   }, [incD, clients, ymi, rv]);
@@ -2432,7 +2443,7 @@ function ClientsOverviewPage({ onSelectClient }) {
       <DT columns={[
         { label: "לקוחה", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontWeight: 700, fontSize: 13, padding: 0 }}>{r.name}</button> },
         { label: "הכנסות", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.total)}</span> },
-        { label: "אחוז %", render: r => <InlinePctInput value={r.pct} onSave={v => updRate(r.name, ymi, v)} /> },
+        { label: "% סוכנות", render: r => <InlinePctInput value={r.pct} onSave={v => updRate(r.name, ymi, v)} /> },
         { label: "זכאות", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.entitlement)}</span> },
         { label: "שולם ישירות", render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
         { label: "יתרה", render: r => <span style={{ color: r.balance >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(Math.abs(r.balance))}</span> },
@@ -2452,7 +2463,7 @@ function ClientHub() {
 // PAGE: CLIENTS
 // ═══════════════════════════════════════════════════════
 function ClientPage({ forceSel, onBack } = {}) {
-  const { year, month, setMonth, view, setView, rv, updRate, setIncome, clientSettings, saveClientSetting } = useApp(); const { iM, iY, iRange, clients } = useFD();
+  const { year, month, setMonth, view, setView, rv, updRate, setIncome, clientSettings, saveClientSetting, chatterSettings } = useApp(); const { iM, iY, iRange, clients } = useFD();
   const [sel, setSel] = useState(forceSel || ""), [editPct, setEditPct] = useState(false), [pv, setPv] = useState(0);
   const incD = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const sortedClients = useMemo(() => {
@@ -2464,7 +2475,7 @@ function ClientPage({ forceSel, onBack } = {}) {
   }, [clients, incD]);
   useEffect(() => { if (sortedClients.length && !sel) setSel(sortedClients[0]); }, [sortedClients, sel]);
   const vatClient = (clientSettings[sel] || {}).vatClient ?? false;
-  const ymi = ym(year, month), pct = getRate(sel, ymi); const bal = Calc.clientBal(incD, sel, pct); const clientTxCount = incD.filter(r => r.modelName === sel).length;
+  const ymi = ym(year, month), pct = getRate(sel, ymi); const bal = Calc.clientBal(incD, sel, pct, [], chatterSettings); const clientTxCount = incD.filter(r => r.modelName === sel).length;
 
   const togglePaid = async (r) => {
     try {
@@ -2474,7 +2485,7 @@ function ClientPage({ forceSel, onBack } = {}) {
   };
   const byCh = useMemo(() => { const m = {}; incD.filter(r => r.modelName === sel).forEach(r => { if (r.chatterName) m[r.chatterName] = (m[r.chatterName] || 0) + r.amountILS; }); return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value })); }, [incD, sel]);
   const byType = useMemo(() => { const m = {}; incD.filter(r => r.modelName === sel).forEach(r => { if (r.incomeType) m[r.incomeType] = (m[r.incomeType] || 0) + r.amountILS; }); return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value })); }, [incD, sel]);
-  const ybd = useMemo(() => { if (view !== "yearly") return []; return MONTHS_HE.map((m, i) => { const yi = ym(year, i); const p = getRate(sel, yi); const mr = iY.filter(r => r.modelName === sel && r.date && r.date.getMonth() === i); const b = Calc.clientBal(mr, sel, p); return { month: m, ms: MONTHS_SHORT[i], ...b }; }); }, [iY, sel, view, year, rv]);
+  const ybd = useMemo(() => { if (view !== "yearly") return []; return MONTHS_HE.map((m, i) => { const yi = ym(year, i); const p = getRate(sel, yi); const mr = iY.filter(r => r.modelName === sel && r.date && r.date.getMonth() === i); const b = Calc.clientBal(mr, sel, p, [], chatterSettings); return { month: m, ms: MONTHS_SHORT[i], ...b }; }); }, [iY, sel, view, year, rv, chatterSettings]);
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👩 לקוחות{sel ? ` — ${sel}` : ""}</h2>
@@ -2491,11 +2502,11 @@ function ClientPage({ forceSel, onBack } = {}) {
           <span style={{ color: C.dim, fontSize: 13 }}>💵 משכורת — {MONTHS_HE[month]}</span>
           <div style={{ display: "flex", gap: 8 }}>
             <Btn variant={vatClient ? "warning" : "ghost"} size="sm" onClick={async () => { await saveClientSetting(sel, { vatClient: !vatClient }); }}>🧾 {vatClient ? "מע״מ 18% ✓" : "משלם מע״מ"}</Btn>
-            <Btn variant="ghost" size="sm" onClick={() => { setPv(pct); setEditPct(true); }}>✏️ ערוך אחוז</Btn>
+            <Btn variant="ghost" size="sm" onClick={() => { setPv(pct); setEditPct(true); }}>✏️ ערוך אחוז סוכנות</Btn>
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(100px,1fr))", gap: 12 }}>
-          <div><div style={{ color: C.mut, fontSize: 11 }}>אחוז</div><div style={{ fontSize: 22, fontWeight: 700, color: C.pri }}>{pct}%</div></div>
+          <div><div style={{ color: C.mut, fontSize: 11 }}>אחוז סוכנות</div><div style={{ fontSize: 22, fontWeight: 700, color: C.pri }}>{pct}%</div></div>
           <div><div style={{ color: C.mut, fontSize: 11 }}>זכאות (שכר)</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(bal.ent)}</div></div>
           <div><div style={{ color: C.mut, fontSize: 11 }}>כבר שולם לה</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(bal.direct)}</div></div>
           <div style={{ borderRight: `2px solid ${C.bdr}`, paddingRight: 12 }}>
@@ -2509,12 +2520,12 @@ function ClientPage({ forceSel, onBack } = {}) {
           </div>
         </div>
       </Card>
-      <Modal open={editPct} onClose={() => setEditPct(false)} title={`עריכת אחוז — ${sel} — ${MONTHS_HE[month]}`} width={340}><input type="number" min="0" max="100" value={pv} onChange={e => setPv(e.target.value)} style={{ width: "100%", padding: "12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 20, outline: "none", boxSizing: "border-box", marginBottom: 14 }} /><div style={{ display: "flex", gap: 8 }}><Btn variant="success" onClick={() => { updRate(sel, ymi, +pv); setEditPct(false); }}>💾 שמור</Btn><Btn variant="ghost" onClick={() => setEditPct(false)}>ביטול</Btn></div></Modal>
+      <Modal open={editPct} onClose={() => setEditPct(false)} title={`עריכת אחוז סוכנות — ${sel} — ${MONTHS_HE[month]}`} width={340}><input type="number" min="0" max="100" value={pv} onChange={e => setPv(e.target.value)} style={{ width: "100%", padding: "12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 20, outline: "none", boxSizing: "border-box", marginBottom: 14 }} /><div style={{ display: "flex", gap: 8 }}><Btn variant="success" onClick={() => { updRate(sel, ymi, +pv); setEditPct(false); }}>💾 שמור</Btn><Btn variant="ghost" onClick={() => setEditPct(false)}>ביטול</Btn></div></Modal>
       <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>🧾 עסקאות ({MONTHS_HE[month]})</h3>
         <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }]} rows={incD.filter(r => r.modelName === sel).sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(incD.filter(r => r.modelName === sel).reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome)]} /></div>
     </> : <>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><ComposedChart data={ybd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="totalIncome" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Line type="monotone" dataKey="ent" stroke={C.pri} strokeWidth={2} name="זכאות" /><Line type="monotone" dataKey="bal" stroke={C.ylw} strokeWidth={2} strokeDasharray="5 5" name="יתרה" /></ComposedChart></ResponsiveContainer></Card>
-      <DT columns={[{ label: "חודש", key: "month" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "דרך סוכנות", render: r => fmtC(r.through) }, { label: "ישירות", render: r => fmtC(r.direct) }, { label: "%", render: r => `${r.pct}%` }, { label: "זכאות", render: r => fmtC(r.ent) }, { label: "יתרה", render: r => <span style={{ color: r.bal >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.bal)}</span> }]} rows={ybd} footer={["סה״כ", fmtC(ybd.reduce((s, r) => s + r.totalIncome, 0)), "", "", "", fmtC(ybd.reduce((s, r) => s + r.ent, 0)), ""]} />
+      <DT columns={[{ label: "חודש", key: "month" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "דרך סוכנות", render: r => fmtC(r.through) }, { label: "ישירות", render: r => fmtC(r.direct) }, { label: "% סוכנות", render: r => `${r.pct}%` }, { label: "זכאות", render: r => fmtC(r.ent) }, { label: "יתרה", render: r => <span style={{ color: r.bal >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.bal)}</span> }]} rows={ybd} footer={["סה״כ", fmtC(ybd.reduce((s, r) => s + r.totalIncome, 0)), "", "", "", fmtC(ybd.reduce((s, r) => s + r.ent, 0)), ""]} />
     </>}
   </div>;
 }
@@ -3834,7 +3845,7 @@ function ApprovalsPage() {
 // CLIENT PORTAL (for client login)
 // ═══════════════════════════════════════════════════════
 function ClientPortal() {
-  const { user, logout, income, year, month, setMonth, loading, load, connected, setConnected, demo, loadDemo, liveRate, clientSettings, settlements } = useApp();
+  const { user, logout, income, year, month, setMonth, loading, load, connected, setConnected, demo, loadDemo, liveRate, clientSettings, settlements, chatterSettings } = useApp();
   const w = useWin();
   const [view, setView] = useState("monthly");
 
@@ -3856,7 +3867,7 @@ function ClientPortal() {
     const d = new Date(s.timestamp || s.date || Date.now());
     return view === "monthly" ? (d.getFullYear() === year && d.getMonth() === month) : d.getFullYear() === year;
   }), [settlements, view, year, month]);
-  const bal = useMemo(() => Calc.clientBal(data, clientName, pct, relevantSettlements), [data, clientName, pct, relevantSettlements]);
+  const bal = useMemo(() => Calc.clientBal(data, clientName, pct, relevantSettlements, chatterSettings), [data, clientName, pct, relevantSettlements, chatterSettings]);
   const txCount = data.length;
 
   // Targets: based on previous month's performance
@@ -4187,7 +4198,7 @@ function DebtsPage() {
   const debtRows = useMemo(() => {
     return allClientNames.map(clientName => {
       const pct = getRate(clientName, ym(year, month));
-      const bal = Calc.clientBal(monthData, clientName, pct, settlements.filter(s => new Date(s.timestamp || s.date || Date.now()).getMonth() === month && new Date(s.timestamp || s.date || Date.now()).getFullYear() === year));
+      const bal = Calc.clientBal(monthData, clientName, pct, settlements.filter(s => new Date(s.timestamp || s.date || Date.now()).getMonth() === month && new Date(s.timestamp || s.date || Date.now()).getFullYear() === year), chatterSettings);
       const hasVat = (clientSettings[clientName] || {}).vatClient ?? false;
       const vatAmt = Math.abs(bal.actualDue) * 0.18;
       const finalDue = Math.abs(bal.actualDue) * (hasVat ? 1.18 : 1);
@@ -4216,7 +4227,7 @@ function DebtsPage() {
       let totalIncome = 0, totalEntitlement = 0, totalSettled = 0, totalDue = 0;
       allClientNames.forEach(clientName => {
         const pct = getRate(clientName, ym(year, mi));
-        const bal = Calc.clientBal(mIncome, clientName, pct, mSettlements);
+        const bal = Calc.clientBal(mIncome, clientName, pct, mSettlements, chatterSettings);
         totalIncome += bal.totalIncome;
         totalEntitlement += bal.ent;
         totalSettled += bal.netSettled;
@@ -4231,7 +4242,7 @@ function DebtsPage() {
     return allClientNames.map(clientName => {
       const pct = getRate(clientName, ym(year, 0));
       const yearSets = settlements.filter(s => new Date(s.timestamp || s.date || Date.now()).getFullYear() === year);
-      const bal = Calc.clientBal(yearIncome, clientName, pct, yearSets);
+      const bal = Calc.clientBal(yearIncome, clientName, pct, yearSets, chatterSettings);
       const hasVat = (clientSettings[clientName] || {}).vatClient ?? false;
       const finalDue = Math.abs(bal.actualDue) * (hasVat ? 1.18 : 1);
       return { name: clientName, totalIncome: bal.totalIncome, entitlement: bal.ent, netSettled: bal.netSettled, actualDue: bal.actualDue, hasVat, finalDue };
@@ -4301,7 +4312,7 @@ function DebtsPage() {
             { label: 'סה״כ הכנסות', render: r => <span style={{ color: C.dim }}>{fmtC(r.totalIncome)}</span> },
             { label: 'דרך סוכנות', render: r => <span style={{ color: C.dim }}>{fmtC(r.throughAgency)}</span> },
             { label: 'שולם ללקוחה ישירות', render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
-            { label: 'אחוז הלקוחה', render: r => <span style={{ color: C.dim }}>{r.pct}%</span> },
+            { label: '% סוכנות', render: r => <span style={{ color: C.dim }}>{r.pct}%</span> },
             { label: 'שכר מגיע ללקוחה', render: r => <span style={{ color: C.pri }}>{fmtC(r.entitlement)}</span> },
             { label: 'קוזז החודש', render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
             {
