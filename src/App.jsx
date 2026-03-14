@@ -1484,14 +1484,17 @@ function TierCubes({ income }) {
 // ═══════════════════════════════════════════════════════
 function IncPage() {
   const { year, month, setMonth, view, setView, setIncome, liveRate } = useApp();
-  const { iM, iY, iRange, platforms } = useFD();
+  const { iM, iY, iRange } = useFD();
   const activeInc = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const incTypes = useMemo(() => [...new Set(activeInc.map(r => r.incomeType).filter(Boolean))].sort(), [activeInc]);
   const activeChatters = useMemo(() => [...new Set(activeInc.map(r => r.chatterName).filter(Boolean))].sort(), [activeInc]);
   const activeClients = useMemo(() => [...new Set(activeInc.map(r => r.modelName).filter(Boolean))].sort(), [activeInc]);
+  const activePlatforms = useMemo(() => [...new Set(activeInc.map(r => r.platform).filter(Boolean))].sort(), [activeInc]);
   const [fP, setFP] = useState("all"), [fC, setFC] = useState("all"), [fCh, setFCh] = useState("all"), [fL, setFL] = useState("all"), [fT, setFT] = useState("all"), [xAxis, setXAxis] = useState("date");
   useEffect(() => { if (fCh !== "all" && !activeChatters.includes(fCh)) setFCh("all"); }, [activeChatters]);
   useEffect(() => { if (fC !== "all" && !activeClients.includes(fC)) setFC("all"); }, [activeClients]);
+  useEffect(() => { if (fP !== "all" && !activePlatforms.includes(fP)) setFP("all"); }, [activePlatforms]);
+  useEffect(() => { if (fT !== "all" && !incTypes.includes(fT)) setFT("all"); }, [incTypes]);
   const [showIncForm, setShowIncForm] = useState(false);
   const [editTx, setEditTx] = useState(null);
 
@@ -1544,7 +1547,7 @@ function IncPage() {
       </div>
     </div>
     <FB><ViewFilter /></FB>
-    <FB><Sel label="פלטפורמה:" value={fP} onChange={setFP} options={[{ value: "all", label: "הכל" }, ...platforms.map(p => ({ value: p, label: p }))]} /><Sel label="סוג הכנסה:" value={fT} onChange={setFT} options={[{ value: "all", label: "הכל" }, ...incTypes.map(t => ({ value: t, label: t }))]} /><Sel label="לקוחה:" value={fC} onChange={setFC} options={[{ value: "all", label: "הכל" }, ...activeClients.map(c => ({ value: c, label: c }))]} /><Sel label="צ'אטר:" value={fCh} onChange={setFCh} options={[{ value: "all", label: "הכל" }, ...activeChatters.map(c => ({ value: c, label: c }))]} /><Sel label="מיקום:" value={fL} onChange={setFL} options={[{ value: "all", label: "הכל" }, { value: "משרד", label: "משרד" }, { value: "חוץ", label: "חוץ" }]} /></FB>
+    <FB><Sel label="פלטפורמה:" value={fP} onChange={setFP} options={[{ value: "all", label: "הכל" }, ...activePlatforms.map(p => ({ value: p, label: p }))]} /><Sel label="סוג הכנסה:" value={fT} onChange={setFT} options={[{ value: "all", label: "הכל" }, ...incTypes.map(t => ({ value: t, label: t }))]} /><Sel label="לקוחה:" value={fC} onChange={setFC} options={[{ value: "all", label: "הכל" }, ...activeClients.map(c => ({ value: c, label: c }))]} /><Sel label="צ'אטר:" value={fCh} onChange={setFCh} options={[{ value: "all", label: "הכל" }, ...activeChatters.map(c => ({ value: c, label: c }))]} /><Sel label="מיקום:" value={fL} onChange={setFL} options={[{ value: "all", label: "הכל" }, { value: "משרד", label: "משרד" }, { value: "חוץ", label: "חוץ" }]} /></FB>
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
       <Stat icon="💰" title="סה״כ ₪" value={fmtC(grandTotal)} color={C.grn} sub={`${data.length} עסקאות • שער $: ₪${liveRate.toFixed(2)}`} />
       <Stat icon="🏦" title='סה״כ ₪ (שקל)' value={fmtC(ilsOnlyTotal)} color={C.grn} sub="עסקאות שנכנסו בשקל" />
@@ -1671,8 +1674,9 @@ import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase.js";
 
 function RecordIncomeAdmin({ onClose }) {
-  const { setIncome, liveRate, income } = useApp();
-  const { chatters, clients } = useFD();
+  const { setIncome, liveRate, income, sheetUsers } = useApp();
+  const registeredChatters = useMemo(() => (sheetUsers || []).filter(u => u.role === "chatter").map(u => u.name).sort(), [sheetUsers]);
+  const registeredClients = useMemo(() => (sheetUsers || []).filter(u => u.role === "client").map(u => u.name).sort(), [sheetUsers]);
   const [form, setForm] = useState({
     chatterName: "",
     modelName: "",
@@ -1761,14 +1765,14 @@ function RecordIncomeAdmin({ onClose }) {
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>צ'אטר *</label>
         <select value={form.chatterName} onChange={e => upd("chatterName", e.target.value)} style={inputStyle}>
           <option value="">בחר צ'אטר...</option>
-          {(chatters || []).map(c => <option key={c} value={c}>{c}</option>)}
+          {registeredChatters.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
       <div>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>לקוחה *</label>
         <select value={form.modelName} onChange={e => upd("modelName", e.target.value)} style={inputStyle}>
           <option value="">בחר לקוחה...</option>
-          {(clients || []).map(m => <option key={m} value={m}>{m}</option>)}
+          {registeredClients.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
       </div>
 
