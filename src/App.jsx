@@ -4291,7 +4291,7 @@ function DebtsPage() {
 
     {debtsView === "monthly" ? <>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon="🏦" title={`סה״כ פער דורש קיזוז — ${MONTHS_HE[month]}`} value={fmtC(Math.abs(totalDue))} color={totalDue > 0 ? C.grn : C.red} sub={totalDue > 0 ? "הסוכנות חייבת בסך הכל" : "לקוחות חייבות בסך הכל"} />
+        <Stat icon={totalDue > 0 ? "🔴" : totalDue < 0 ? "🟢" : "⚪"} title={`סה״כ פער דורש קיזוז — ${MONTHS_HE[month]}`} value={Math.abs(totalDue) < 1 ? "מאוזן" : fmtC(Math.abs(totalDue))} color={totalDue > 0 ? C.red : totalDue < 0 ? C.grn : C.mut} sub={totalDue > 0 ? "הסוכנות חייבת ללקוחות" : totalDue < 0 ? "לקוחות חייבות לסוכנות" : ""} />
       </div>
 
       <Card style={{ padding: "0" }}>
@@ -4338,7 +4338,7 @@ function DebtsPage() {
         const weOwe = chatterDebtRows.filter(r => r.balance > 0).reduce((s, r) => s + r.finalBalance, 0);
         const theyOwe = chatterDebtRows.filter(r => r.balance < 0).reduce((s, r) => s + r.finalBalance, 0);
         const net = weOwe - theyOwe;
-        const label = net > 0 ? "אנחנו חייבים לצ'אטרים" : net < 0 ? "צ'אטרים חייבים לנו" : "מאוזן";
+        const label = net > 0 ? "הסוכנות חייבת לצ'אטרים" : net < 0 ? "צ'אטרים חייבים לסוכנות" : "מאוזן";
         const col = net > 0 ? C.red : net < 0 ? C.grn : C.mut;
         return <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
           <Stat icon={net > 0 ? "🔴" : net < 0 ? "🟢" : "⚪"} title={label} value={fmtC(Math.abs(net))} color={col} />
