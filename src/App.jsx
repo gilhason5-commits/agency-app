@@ -1046,7 +1046,7 @@ const TT = ({ active, payload, label }) => { if (!active || !payload?.length) re
 // ═══════════════════════════════════════════════════════
 const NAV = [
   { key: "dashboard", label: "דאשבורד", icon: "📊" },
-  { key: "income", label: "הכנסות", icon: "💰" },
+  { key: "income", label: "מכירות", icon: "💰" },
   { key: "approvals", label: "אישורים", icon: "✅" },
   { key: "debts", label: "דוח התחשבנות", icon: "🤝" },
   { key: "expenses", label: "הוצאות", icon: "💳" },
@@ -1316,7 +1316,7 @@ function DashPage() {
     <FB><ViewFilter /></FB>
     {view === "monthly" ? <div>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-        <Stat icon="💰" title={`צפי הכנסות — ${MONTHS_HE[month]}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iM.length} עסקאות`} />
+        <Stat icon="💰" title={`צפי מכירות — ${MONTHS_HE[month]}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iM.length} עסקאות`} />
         <Stat icon="💳" title="הוצאות" value={fmtC(mp.exp)} color={C.red} />
         <Stat icon="👑" title="צפי שכר לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
         <Stat icon="💬" title="צפי שכר צאטים" value={fmtC(totalChatterSalary)} color={C.ylw} />
@@ -1330,7 +1330,7 @@ function DashPage() {
       </div>
     </div> : <>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-        <Stat icon="💰" title={`צפי הכנסות — ${year}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iY.length} עסקאות`} />
+        <Stat icon="💰" title={`צפי מכירות — ${year}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iY.length} עסקאות`} />
         <Stat icon="💳" title="הוצאות" value={fmtC(mp.exp)} color={C.red} />
         <Stat icon="👑" title="צפי שכר לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
         <Stat icon="💬" title="צפי שכר צ'אטים" value={fmtC(totalChatterSalary)} color={C.ylw} />
@@ -1511,6 +1511,7 @@ function IncPage() {
   useEffect(() => { if (fP !== "all" && !activePlatforms.includes(fP)) setFP("all"); }, [activePlatforms]);
   useEffect(() => { if (fT !== "all" && !incTypes.includes(fT)) setFT("all"); }, [incTypes]);
   const [showIncForm, setShowIncForm] = useState(false);
+  const [showIncTypesMgr, setShowIncTypesMgr] = useState(false);
   const [editTx, setEditTx] = useState(null);
 
   const data = activeInc.filter(r => (fP === "all" || r.platform === fP) && (fC === "all" || r.modelName === fC) && (fCh === "all" || r.chatterName === fCh) && (fL === "all" || r.shiftLocation === fL) && (fT === "all" || r.incomeType === fT));
@@ -1556,9 +1557,10 @@ function IncPage() {
 
   return <div style={{ direction: "rtl" }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, margin: 0 }}>💰 פירוט הכנסות</h2>
+      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, margin: 0 }}>💰 פירוט מכירות</h2>
       <div style={{ display: "flex", gap: 8 }}>
-        <Btn variant="success" size="sm" onClick={() => setShowIncForm(true)}>➕ הוסף הכנסה ידנית</Btn>
+        <Btn variant="success" size="sm" onClick={() => setShowIncForm(true)}>➕ הוסף מכירה ידנית</Btn>
+        <Btn variant="ghost" size="sm" onClick={() => setShowIncTypesMgr(true)}>✏️ עריכת סוגי מכירה</Btn>
       </div>
     </div>
     <FB><ViewFilter /></FB>
@@ -1574,12 +1576,126 @@ function IncPage() {
     </Card>
     {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(grandTotal), "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
 
-    {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד הכנסה ידני" width={500}>
+    {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד מכירה ידנית" width={500}>
       <RecordIncomeAdmin onClose={() => setShowIncForm(false)} />
     </Modal>}
     {editTx && <Modal open={true} onClose={() => setEditTx(null)} title="✏️ עריכת עסקה" width={420}>
       <EditIncomeModal record={editTx} onClose={() => setEditTx(null)} />
     </Modal>}
+    {showIncTypesMgr && <Modal open={true} onClose={() => setShowIncTypesMgr(false)} title="✏️ עריכת סוגי מכירה" width={480}>
+      <IncomeTypesModal onClose={() => setShowIncTypesMgr(false)} />
+    </Modal>}
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════
+// INCOME TYPES MANAGER MODAL
+// ═══════════════════════════════════════════════════════
+function IncomeTypesModal({ onClose }) {
+  const { income, setIncome } = useApp();
+  const [editingType, setEditingType] = useState(null);
+  const [editName, setEditName] = useState("");
+  const [newType, setNewType] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [customTypes, setCustomTypes] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("CUSTOM_INCOME_TYPES") || "[]"); } catch { return []; }
+  });
+
+  const dataTypes = [...new Set(income.map(r => r.incomeType).filter(Boolean))].sort();
+  const allTypes = [...new Set([...dataTypes, ...customTypes])].sort();
+
+  const inputStyle = { padding: "8px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", flex: 1 };
+
+  const startEdit = (type) => { setEditingType(type); setEditName(type); };
+  const cancelEdit = () => { setEditingType(null); setEditName(""); };
+
+  const saveRename = async (oldName) => {
+    const newName = editName.trim();
+    if (!newName || newName === oldName) { cancelEdit(); return; }
+    setSaving(true);
+    try {
+      const toUpdate = income.filter(r => r.incomeType === oldName && !r._fromPending);
+      const toUpdatePending = income.filter(r => r.incomeType === oldName && r._fromPending);
+      await Promise.all([
+        ...toUpdate.map(r => updateIncome(r.id, { incomeType: newName })),
+        ...toUpdatePending.map(r => updatePending(r.id, { incomeType: newName })),
+      ]);
+      setIncome(prev => prev.map(r => r.incomeType === oldName ? { ...r, incomeType: newName } : r));
+      setCustomTypes(prev => {
+        const updated = prev.map(t => t === oldName ? newName : t);
+        localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
+        return updated;
+      });
+      cancelEdit();
+    } catch (e) { alert("שגיאה: " + e.message); }
+    setSaving(false);
+  };
+
+  const deleteType = async (type) => {
+    const count = income.filter(r => r.incomeType === type).length;
+    if (!confirm(`למחוק את הסוג "${type}"?${count > 0 ? ` זה ינקה את הסוג מ-${count} עסקאות.` : ""}`)) return;
+    setSaving(true);
+    try {
+      const toUpdate = income.filter(r => r.incomeType === type && !r._fromPending);
+      const toUpdatePending = income.filter(r => r.incomeType === type && r._fromPending);
+      await Promise.all([
+        ...toUpdate.map(r => updateIncome(r.id, { incomeType: "" })),
+        ...toUpdatePending.map(r => updatePending(r.id, { incomeType: "" })),
+      ]);
+      setIncome(prev => prev.map(r => r.incomeType === type ? { ...r, incomeType: "" } : r));
+      setCustomTypes(prev => {
+        const updated = prev.filter(t => t !== type);
+        localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
+        return updated;
+      });
+    } catch (e) { alert("שגיאה: " + e.message); }
+    setSaving(false);
+  };
+
+  const addType = () => {
+    const name = newType.trim();
+    if (!name) return;
+    if (allTypes.includes(name)) { alert("סוג זה כבר קיים"); return; }
+    setCustomTypes(prev => {
+      const updated = [...prev, name];
+      localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
+      return updated;
+    });
+    setNewType("");
+  };
+
+  return <div style={{ direction: "rtl" }}>
+    {allTypes.length === 0 ? (
+      <div style={{ color: C.dim, textAlign: "center", padding: 20 }}>אין סוגי מכירה עדיין</div>
+    ) : (
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20, maxHeight: 360, overflowY: "auto" }}>
+        {allTypes.map(type => (
+          <div key={type} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: C.card, borderRadius: 8, border: `1px solid ${C.bdr}` }}>
+            {editingType === type ? (
+              <>
+                <input value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") saveRename(type); if (e.key === "Escape") cancelEdit(); }} style={{ ...inputStyle, flex: 1 }} autoFocus disabled={saving} />
+                <Btn size="sm" variant="success" onClick={() => saveRename(type)} disabled={saving}>✓</Btn>
+                <Btn size="sm" variant="ghost" onClick={cancelEdit} disabled={saving}>✕</Btn>
+              </>
+            ) : (
+              <>
+                <span style={{ flex: 1, color: C.txt, fontSize: 14 }}>{type}</span>
+                <span style={{ color: C.dim, fontSize: 11 }}>{income.filter(r => r.incomeType === type).length} עסקאות</span>
+                <Btn size="sm" variant="ghost" onClick={() => startEdit(type)} disabled={saving} style={{ color: C.pri }}>✏️</Btn>
+                <Btn size="sm" variant="ghost" onClick={() => deleteType(type)} disabled={saving} style={{ color: C.red }}>🗑️</Btn>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    )}
+    <div style={{ display: "flex", gap: 8, borderTop: `1px solid ${C.bdr}`, paddingTop: 14 }}>
+      <input value={newType} onChange={e => setNewType(e.target.value)} onKeyDown={e => e.key === "Enter" && addType()} placeholder="הוספת סוג חדש..." style={inputStyle} />
+      <Btn variant="primary" size="sm" onClick={addType}>+ הוסף</Btn>
+    </div>
+    <div style={{ marginTop: 14, textAlign: "center" }}>
+      <Btn variant="ghost" onClick={onClose}>סגור</Btn>
+    </div>
   </div>;
 }
 
