@@ -1444,10 +1444,14 @@ function TierCubes({ income }) {
 // ═══════════════════════════════════════════════════════
 function IncPage() {
   const { year, month, setMonth, view, setView, setIncome, liveRate } = useApp();
-  const { iM, iY, iRange, chatters, clients, platforms } = useFD();
+  const { iM, iY, iRange, platforms } = useFD();
   const activeInc = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const incTypes = useMemo(() => [...new Set(activeInc.map(r => r.incomeType).filter(Boolean))].sort(), [activeInc]);
+  const activeChatters = useMemo(() => [...new Set(activeInc.map(r => r.chatterName).filter(Boolean))].sort(), [activeInc]);
+  const activeClients = useMemo(() => [...new Set(activeInc.map(r => r.modelName).filter(Boolean))].sort(), [activeInc]);
   const [fP, setFP] = useState("all"), [fC, setFC] = useState("all"), [fCh, setFCh] = useState("all"), [fL, setFL] = useState("all"), [fT, setFT] = useState("all"), [xAxis, setXAxis] = useState("date");
+  useEffect(() => { if (fCh !== "all" && !activeChatters.includes(fCh)) setFCh("all"); }, [activeChatters]);
+  useEffect(() => { if (fC !== "all" && !activeClients.includes(fC)) setFC("all"); }, [activeClients]);
   const [showIncForm, setShowIncForm] = useState(false);
   const [editTx, setEditTx] = useState(null);
 
@@ -1500,7 +1504,7 @@ function IncPage() {
       </div>
     </div>
     <FB><ViewFilter /></FB>
-    <FB><Sel label="פלטפורמה:" value={fP} onChange={setFP} options={[{ value: "all", label: "הכל" }, ...platforms.map(p => ({ value: p, label: p }))]} /><Sel label="סוג הכנסה:" value={fT} onChange={setFT} options={[{ value: "all", label: "הכל" }, ...incTypes.map(t => ({ value: t, label: t }))]} /><Sel label="לקוחה:" value={fC} onChange={setFC} options={[{ value: "all", label: "הכל" }, ...clients.map(c => ({ value: c, label: c }))]} /><Sel label="צ'אטר:" value={fCh} onChange={setFCh} options={[{ value: "all", label: "הכל" }, ...chatters.map(c => ({ value: c, label: c }))]} /><Sel label="מיקום:" value={fL} onChange={setFL} options={[{ value: "all", label: "הכל" }, { value: "משרד", label: "משרד" }, { value: "חוץ", label: "חוץ" }]} /></FB>
+    <FB><Sel label="פלטפורמה:" value={fP} onChange={setFP} options={[{ value: "all", label: "הכל" }, ...platforms.map(p => ({ value: p, label: p }))]} /><Sel label="סוג הכנסה:" value={fT} onChange={setFT} options={[{ value: "all", label: "הכל" }, ...incTypes.map(t => ({ value: t, label: t }))]} /><Sel label="לקוחה:" value={fC} onChange={setFC} options={[{ value: "all", label: "הכל" }, ...activeClients.map(c => ({ value: c, label: c }))]} /><Sel label="צ'אטר:" value={fCh} onChange={setFCh} options={[{ value: "all", label: "הכל" }, ...activeChatters.map(c => ({ value: c, label: c }))]} /><Sel label="מיקום:" value={fL} onChange={setFL} options={[{ value: "all", label: "הכל" }, { value: "משרד", label: "משרד" }, { value: "חוץ", label: "חוץ" }]} /></FB>
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
       <Stat icon="💰" title="סה״כ ₪" value={fmtC(grandTotal)} color={C.grn} sub={`${data.length} עסקאות • שער $: ₪${liveRate.toFixed(2)}`} />
       <Stat icon="🏦" title='סה״כ ₪ (שקל)' value={fmtC(ilsOnlyTotal)} color={C.grn} sub="עסקאות שנכנסו בשקל" />
@@ -2145,7 +2149,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👥 סקירת כל הצ'אטרים</h2>
     <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value="" onChange={v => { if (v) onSelectChatter(v); }} options={[{ value: "", label: "סקירה כללית" }, ...chatterStats.map(c => ({ value: c.name, label: c.name }))]} />} /></FB>
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-      <Stat icon="👥" title="מספר צ'אטרים" value={chatters.length} />
+      <Stat icon="👥" title="מספר צ'אטרים" value={chatterStats.length} />
       <Stat icon="💰" title="סה״כ מכירות" value={fmtC(totalSales)} color={C.grn} />
       <Stat icon="💵" title="סה״כ משכורות" value={fmtC(totalSalary)} color={C.ylw} />
       <Stat icon="📊" title="רווח נקי לעסק" value={fmtC(totalSales - totalSalary)} color={totalSales - totalSalary >= 0 ? C.grn : C.red} />
@@ -2282,7 +2286,7 @@ function ClientsOverviewPage({ onSelectClient }) {
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👩 סקירת כל הלקוחות</h2>
     <FB><ViewFilter extraBefore={<Sel label="לקוחה:" value="" onChange={v => { if (v) onSelectClient(v); }} options={[{ value: "", label: "סקירה כללית" }, ...clientStats.map(c => ({ value: c.name, label: c.name }))]} />} /></FB>
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-      <Stat icon="👩" title="מספר לקוחות" value={clients.length} />
+      <Stat icon="👩" title="מספר לקוחות" value={clientStats.length} />
       <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(totalIncome)} color={C.grn} />
       <Stat icon="💵" title="סה״כ זכאות" value={fmtC(totalEntitlement)} color={C.ylw} />
       <Stat icon="📊" title="רווח נקי לעסק" value={fmtC(totalIncome - totalEntitlement)} color={totalIncome - totalEntitlement >= 0 ? C.grn : C.red} />
