@@ -863,13 +863,16 @@ function Prov({ children }) {
   };
   const logout = () => { setUser(null); localStorage.removeItem("AGENCY_USER"); };
 
+  const [customCats, setCustomCats] = useState(() => { try { return JSON.parse(localStorage.getItem("CUSTOM_CATS") || "[]"); } catch { return []; } });
+  const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n) || EXPENSE_CATEGORIES.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); try { localStorage.setItem("CUSTOM_CATS", JSON.stringify(updated)); } catch {} return true; };
+
   const val = useMemo(() => ({
     year, setYear, month, setMonth, view, setView, dateRange, setDateRange, page, setPage,
     income, setIncome, expenses, setExpenses, settlements, setSettlements, models, setModels,
     history, setHistory, genParams, setGenParams, loading, error,
     connected, setConnected, demo, setDemo, load, loadDemo, rv, updRate,
     loadStep, user, login, logout, sheetUsers, loadSheetUsers, liveRate,
-    chatterTargets, setChatterTargets,
+    chatterTargets, setChatterTargets, customCats, addCustomCat,
     saveChatterTarget: async (name, targets) => {
       await setChatterTarget(name, targets);
       setChatterTargets(prev => ({ ...prev, [name]: targets }));
@@ -894,7 +897,7 @@ function Prov({ children }) {
       setSettlements(prev => [...prev, saved]);
       return saved;
     }
-  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate]);
+  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate, customCats]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
@@ -1845,7 +1848,10 @@ function RecordIncomeAdmin({ onClose }) {
 // PAGE: EXPENSES
 // ═══════════════════════════════════════════════════════
 function ExpPage() {
-  const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo, rv, chatterSettings } = useApp();
+  const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo, rv, chatterSettings, customCats, addCustomCat } = useApp();
+  const allCats = [...EXPENSE_CATEGORIES, ...customCats];
+  const [showAddCat, setShowAddCat] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
   const { eM, eY, iM, iY } = useFD();
   const ymi = ym(year, month); const w = useWin();
   const [src, setSrc] = useState("all"), [popCat, setPopCat] = useState(null), [editExp, setEditExp] = useState(null), [delExp, setDelExp] = useState(null);
@@ -1870,8 +1876,19 @@ function ExpPage() {
   return <div style={{ direction: "rtl" }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
       <h2 style={{ color: C.txt, fontSize: w < 768 ? 17 : 22, fontWeight: 700, margin: 0 }}>💳 הוצאות סוכנות</h2>
-      <Btn onClick={() => setPage("record")} variant="success">📱 תיעוד הוצאה</Btn>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn onClick={() => { setNewCatName(""); setShowAddCat(true); }} variant="ghost">➕ סיווג חדש</Btn>
+        <Btn onClick={() => setPage("record")} variant="success">📱 תיעוד הוצאה</Btn>
+      </div>
     </div>
+    <Modal open={showAddCat} onClose={() => setShowAddCat(false)} title="➕ הוספת סוג סיווג הוצאה" width={360}>
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>שם הסיווג</label>
+        <input value={newCatName} onChange={e => setNewCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { if (addCustomCat(newCatName)) setShowAddCat(false); else alert("שם קיים או ריק"); } }} placeholder="לדוגמה: ציוד משרדי" style={{ width: "100%", padding: "8px 12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", boxSizing: "border-box" }} autoFocus />
+      </div>
+      {customCats.length > 0 && <div style={{ marginBottom: 12 }}><div style={{ color: C.dim, fontSize: 11, marginBottom: 6 }}>סיווגים מותאמים אישית:</div>{customCats.map(c => <span key={c} style={{ display: "inline-block", background: `${C.pri}22`, color: C.priL, borderRadius: 4, padding: "2px 8px", fontSize: 11, margin: "2px" }}>{c}</span>)}</div>}
+      <div style={{ display: "flex", gap: 8 }}><Btn variant="primary" onClick={() => { if (addCustomCat(newCatName)) setShowAddCat(false); else alert("שם קיים או ריק"); }}>שמור</Btn><Btn variant="ghost" onClick={() => setShowAddCat(false)}>ביטול</Btn></div>
+    </Modal>
 
     {noExpenses ? <Card style={{ textAlign: "center", padding: 40 }}>
       <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
@@ -1928,7 +1945,7 @@ function ExpPage() {
       </>}
       <div style={{ marginTop: 28, overflowX: "auto" }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>🧾 כל החשבוניות</h3>
         <div style={{ fontSize: 11, whiteSpace: "nowrap" }}>
-          <DT textSm columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "סוג", key: "docType" }, { label: "ספק/סיבה", key: "category", wrap: true, tdStyle: { maxWidth: 100 } }, { label: "פירוט", key: "name", wrap: true, tdStyle: { minWidth: 100, maxWidth: 280 } }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "מעמ", render: r => <button onClick={() => updField(r, "vatRecognized", !r.vatRecognized)} style={{ background: r.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: r.vatRecognized ? C.grn : C.red, border: `1px solid ${r.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.vatRecognized ? "כן" : "לא"}</button> }, { label: "מס", render: r => <button onClick={() => updField(r, "taxRecognized", !r.taxRecognized)} style={{ background: r.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: r.taxRecognized ? C.grn : C.red, border: `1px solid ${r.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.taxRecognized ? "כן" : "לא"}</button> }, { label: "תשלום", key: "paidBy" }, { label: "מזהה", key: "hour", wrap: true, tdStyle: { maxWidth: 100 } }, { label: "מסמך", render: r => r.receiptImage ? <a href={r.receiptImage} target="_blank" rel="noreferrer" style={{ color: C.pri, fontWeight: "bold" }}>5</a> : "" }, { label: "סיווג הוצאה", render: r => <select value={EXPENSE_CATEGORIES.includes(r.classification) ? r.classification : ""} onChange={e => { if (e.target.value) updCat(r, e.target.value); }} style={{ background: C.card, color: C.txt, border: `1px solid ${C.bdr}`, borderRadius: 6, padding: "6px 4px", fontSize: 11, outline: "none", width: "100%", cursor: "pointer" }}><option value="">{r.classification || "בחר סיווג..."}</option>{EXPENSE_CATEGORIES.filter(c => c !== r.classification).map(c => <option key={c} value={c}>{c}</option>)}</select>, tdStyle: { minWidth: 120 } }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)} style={{ color: C.pri }}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", fmtC(total), "", "", "", "", "", "", ""]} />
+          <DT textSm columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "סוג", key: "docType" }, { label: "ספק/סיבה", key: "category", wrap: true, tdStyle: { maxWidth: 100 } }, { label: "פירוט", key: "name", wrap: true, tdStyle: { minWidth: 100, maxWidth: 280 } }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "מעמ", render: r => <button onClick={() => updField(r, "vatRecognized", !r.vatRecognized)} style={{ background: r.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: r.vatRecognized ? C.grn : C.red, border: `1px solid ${r.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.vatRecognized ? "כן" : "לא"}</button> }, { label: "מס", render: r => <button onClick={() => updField(r, "taxRecognized", !r.taxRecognized)} style={{ background: r.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: r.taxRecognized ? C.grn : C.red, border: `1px solid ${r.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.taxRecognized ? "כן" : "לא"}</button> }, { label: "תשלום", key: "paidBy" }, { label: "מזהה", key: "hour", wrap: true, tdStyle: { maxWidth: 100 } }, { label: "מסמך", render: r => r.receiptImage ? <a href={r.receiptImage} target="_blank" rel="noreferrer" style={{ color: C.pri, fontWeight: "bold" }}>5</a> : "" }, { label: "סיווג הוצאה", render: r => <select value={allCats.includes(r.classification) ? r.classification : ""} onChange={e => { if (e.target.value) updCat(r, e.target.value); }} style={{ background: C.card, color: C.txt, border: `1px solid ${C.bdr}`, borderRadius: 6, padding: "6px 4px", fontSize: 11, outline: "none", width: "100%", cursor: "pointer" }}><option value="">{r.classification || "בחר סיווג..."}</option>{allCats.filter(c => c !== r.classification).map(c => <option key={c} value={c}>{c}</option>)}</select>, tdStyle: { minWidth: 120 } }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)} style={{ color: C.pri }}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", fmtC(total), "", "", "", "", "", "", ""]} />
         </div>
       </div>
       <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>⚖️ קיזוז דור / יוראי</h3><Card style={{ display: "flex", gap: 20, flexWrap: "wrap" }}><div><div style={{ color: C.dim, fontSize: 11 }}>דור</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(off.dor)}</div></div><div><div style={{ color: C.dim, fontSize: 11 }}>יוראי</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(off.yurai)}</div></div><div><div style={{ color: C.dim, fontSize: 11 }}>קיזוז</div><div style={{ fontSize: 14, fontWeight: 700, color: C.ylw }}>{off.owes} → {off.paid}: {fmtC(off.off)}</div></div></Card></div>
@@ -2669,7 +2686,8 @@ function TgtPage() {
 // PAGE: RECORD EXPENSE (mobile-first)
 // ═══════════════════════════════════════════════════════
 function RecordExpensePage({ editMode, onDone }) {
-  const { setPage, demo, expenses, setExpenses } = useApp(); const w = useWin();
+  const { setPage, demo, expenses, setExpenses, customCats } = useApp(); const w = useWin();
+  const allCats = [...EXPENSE_CATEGORIES, ...customCats];
   const [mode, setMode] = useState(editMode ? "manual" : null);
   const [form, setForm] = useState(editMode ? { category: editMode.category, name: editMode.name, amount: String(editMode.amount), date: editMode.date ? `${editMode.date.getFullYear()}-${String(editMode.date.getMonth() + 1).padStart(2, "0")}-${String(editMode.date.getDate()).padStart(2, "0")}` : new Date().toISOString().split("T")[0], hour: editMode.hour || "12:00", paidBy: editMode.paidBy, vatRecognized: editMode.vatRecognized, taxRecognized: editMode.taxRecognized } : { category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true });
   const [saving, setSaving] = useState(false), [saved, setSaved] = useState(false), [err, setErr] = useState(""), [scaning, setScaning] = useState(false);
@@ -2780,7 +2798,7 @@ function RecordExpensePage({ editMode, onDone }) {
 
   function renderForm() {
     return <><div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>קטגוריה *</label><select value={form.category} onChange={e => upd("category", e.target.value)} style={inputStyle}><option value="">בחר...</option>{EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+      <div><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>קטגוריה *</label><select value={form.category} onChange={e => upd("category", e.target.value)} style={inputStyle}><option value="">בחר...</option>{allCats.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
       <div><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שם ההוצאה *</label><input value={form.name} onChange={e => upd("name", e.target.value)} placeholder="למשל: חשבונית חשמל" style={inputStyle} /></div>
       <div><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סכום (₪) *</label><input type="number" value={form.amount} onChange={e => upd("amount", e.target.value)} placeholder="0" style={{ ...inputStyle, fontSize: w < 768 ? 20 : 16, direction: "ltr" }} /></div>
       <div style={{ display: "flex", gap: 10 }}><div style={{ flex: 1 }}><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label><input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} /></div><div style={{ flex: 1 }}><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label><input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={inputStyle} /></div></div>
