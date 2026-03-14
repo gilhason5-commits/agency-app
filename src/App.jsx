@@ -22,11 +22,19 @@ const GROK_API_KEY_DEFAULT = import.meta.env.VITE_GROK_API_KEY || "";
 // Platform commission rates (%)
 const PLATFORM_COMMISSIONS = { "אונלי": 20 };
 // Income type commission rates (%)
-const INCOME_TYPE_COMMISSIONS = { "ווישלי": 8, "קארדקום": 13 };
+const _incomeTypeCommissions = (() => {
+  try { return JSON.parse(localStorage.getItem("INCOME_TYPE_COMMISSIONS_DB") || '{"ווישלי":8,"קארדקום":13}'); }
+  catch { return { "ווישלי": 8, "קארדקום": 13 }; }
+})();
+function saveIncomeTypeCommission(typeName, pct) {
+  if (pct > 0) _incomeTypeCommissions[typeName] = pct;
+  else delete _incomeTypeCommissions[typeName];
+  try { localStorage.setItem("INCOME_TYPE_COMMISSIONS_DB", JSON.stringify(_incomeTypeCommissions)); } catch {}
+}
 
 // Resolve commission % for a given platform + incomeType
 function resolveCommissionPct(platform, incomeType) {
-  return PLATFORM_COMMISSIONS[platform] || INCOME_TYPE_COMMISSIONS[incomeType] || 0;
+  return PLATFORM_COMMISSIONS[platform] || _incomeTypeCommissions[incomeType] || 0;
 }
 
 // Compute commission fields when saving income.
@@ -1560,7 +1568,7 @@ function IncPage() {
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, margin: 0 }}>💰 פירוט מכירות</h2>
       <div style={{ display: "flex", gap: 8 }}>
         <Btn variant="success" size="sm" onClick={() => setShowIncForm(true)}>➕ הוסף מכירה ידנית</Btn>
-        <Btn variant="ghost" size="sm" onClick={() => setShowIncTypesMgr(true)}>✏️ עריכת סוגי מכירה</Btn>
+        <Btn variant="ghost" size="sm" onClick={() => setShowIncTypesMgr(true)}>✏️ עריכת סוגי הכנסה</Btn>
       </div>
     </div>
     <FB><ViewFilter /></FB>
@@ -1582,7 +1590,7 @@ function IncPage() {
     {editTx && <Modal open={true} onClose={() => setEditTx(null)} title="✏️ עריכת עסקה" width={420}>
       <EditIncomeModal record={editTx} onClose={() => setEditTx(null)} />
     </Modal>}
-    {showIncTypesMgr && <Modal open={true} onClose={() => setShowIncTypesMgr(false)} title="✏️ עריכת סוגי מכירה" width={480}>
+    {showIncTypesMgr && <Modal open={true} onClose={() => setShowIncTypesMgr(false)} title="✏️ עריכת סוגי הכנסה" width={500}>
       <IncomeTypesModal onClose={() => setShowIncTypesMgr(false)} />
     </Modal>}
   </div>;
@@ -1595,8 +1603,11 @@ function IncomeTypesModal({ onClose }) {
   const { income, setIncome } = useApp();
   const [editingType, setEditingType] = useState(null);
   const [editName, setEditName] = useState("");
+  const [editComm, setEditComm] = useState("");
   const [newType, setNewType] = useState("");
+  const [newComm, setNewComm] = useState("");
   const [saving, setSaving] = useState(false);
+  const [commissions, setCommissions] = useState(() => ({ ..._incomeTypeCommissions }));
   const [customTypes, setCustomTypes] = useState(() => {
     try { return JSON.parse(localStorage.getItem("CUSTOM_INCOME_TYPES") || "[]"); } catch { return []; }
   });
@@ -1604,28 +1615,37 @@ function IncomeTypesModal({ onClose }) {
   const dataTypes = [...new Set(income.map(r => r.incomeType).filter(Boolean))].sort();
   const allTypes = [...new Set([...dataTypes, ...customTypes])].sort();
 
-  const inputStyle = { padding: "8px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", flex: 1 };
+  const inputStyle = { padding: "8px 10px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none" };
 
-  const startEdit = (type) => { setEditingType(type); setEditName(type); };
-  const cancelEdit = () => { setEditingType(null); setEditName(""); };
+  const startEdit = (type) => { setEditingType(type); setEditName(type); setEditComm(String(commissions[type] || "")); };
+  const cancelEdit = () => { setEditingType(null); setEditName(""); setEditComm(""); };
 
-  const saveRename = async (oldName) => {
+  const saveEdit = async (oldName) => {
     const newName = editName.trim();
-    if (!newName || newName === oldName) { cancelEdit(); return; }
+    if (!newName) { cancelEdit(); return; }
+    const pct = parseFloat(editComm) || 0;
     setSaving(true);
     try {
-      const toUpdate = income.filter(r => r.incomeType === oldName && !r._fromPending);
-      const toUpdatePending = income.filter(r => r.incomeType === oldName && r._fromPending);
-      await Promise.all([
-        ...toUpdate.map(r => updateIncome(r.id, { incomeType: newName })),
-        ...toUpdatePending.map(r => updatePending(r.id, { incomeType: newName })),
-      ]);
-      setIncome(prev => prev.map(r => r.incomeType === oldName ? { ...r, incomeType: newName } : r));
-      setCustomTypes(prev => {
-        const updated = prev.map(t => t === oldName ? newName : t);
-        localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
-        return updated;
-      });
+      // Save commission
+      saveIncomeTypeCommission(newName, pct);
+      if (newName !== oldName) saveIncomeTypeCommission(oldName, 0); // remove old key
+      setCommissions({ ..._incomeTypeCommissions });
+
+      // Rename in records if name changed
+      if (newName !== oldName) {
+        const toUpdate = income.filter(r => r.incomeType === oldName && !r._fromPending);
+        const toUpdatePending = income.filter(r => r.incomeType === oldName && r._fromPending);
+        await Promise.all([
+          ...toUpdate.map(r => updateIncome(r.id, { incomeType: newName })),
+          ...toUpdatePending.map(r => updatePending(r.id, { incomeType: newName })),
+        ]);
+        setIncome(prev => prev.map(r => r.incomeType === oldName ? { ...r, incomeType: newName } : r));
+        setCustomTypes(prev => {
+          const updated = prev.map(t => t === oldName ? newName : t);
+          localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
+          return updated;
+        });
+      }
       cancelEdit();
     } catch (e) { alert("שגיאה: " + e.message); }
     setSaving(false);
@@ -1643,6 +1663,8 @@ function IncomeTypesModal({ onClose }) {
         ...toUpdatePending.map(r => updatePending(r.id, { incomeType: "" })),
       ]);
       setIncome(prev => prev.map(r => r.incomeType === type ? { ...r, incomeType: "" } : r));
+      saveIncomeTypeCommission(type, 0);
+      setCommissions({ ..._incomeTypeCommissions });
       setCustomTypes(prev => {
         const updated = prev.filter(t => t !== type);
         localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
@@ -1656,44 +1678,63 @@ function IncomeTypesModal({ onClose }) {
     const name = newType.trim();
     if (!name) return;
     if (allTypes.includes(name)) { alert("סוג זה כבר קיים"); return; }
+    const pct = parseFloat(newComm) || 0;
+    if (pct > 0) { saveIncomeTypeCommission(name, pct); setCommissions({ ..._incomeTypeCommissions }); }
     setCustomTypes(prev => {
       const updated = [...prev, name];
       localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
       return updated;
     });
-    setNewType("");
+    setNewType(""); setNewComm("");
   };
 
   return <div style={{ direction: "rtl" }}>
+    {/* Header row */}
+    <div style={{ display: "flex", gap: 8, padding: "0 12px 8px", color: C.dim, fontSize: 12, fontWeight: 600 }}>
+      <span style={{ flex: 1 }}>סוג הכנסה</span>
+      <span style={{ width: 60, textAlign: "center" }}>עמלה %</span>
+      <span style={{ width: 70, textAlign: "center" }}>עסקאות</span>
+      <span style={{ width: 64 }}></span>
+    </div>
     {allTypes.length === 0 ? (
-      <div style={{ color: C.dim, textAlign: "center", padding: 20 }}>אין סוגי מכירה עדיין</div>
+      <div style={{ color: C.dim, textAlign: "center", padding: 20 }}>אין סוגי הכנסה עדיין</div>
     ) : (
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20, maxHeight: 360, overflowY: "auto" }}>
         {allTypes.map(type => (
           <div key={type} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: C.card, borderRadius: 8, border: `1px solid ${C.bdr}` }}>
             {editingType === type ? (
               <>
-                <input value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") saveRename(type); if (e.key === "Escape") cancelEdit(); }} style={{ ...inputStyle, flex: 1 }} autoFocus disabled={saving} />
-                <Btn size="sm" variant="success" onClick={() => saveRename(type)} disabled={saving}>✓</Btn>
+                <input value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") saveEdit(type); if (e.key === "Escape") cancelEdit(); }} style={{ ...inputStyle, flex: 1 }} autoFocus disabled={saving} placeholder="שם" />
+                <input value={editComm} onChange={e => setEditComm(e.target.value)} style={{ ...inputStyle, width: 60 }} disabled={saving} placeholder="%" type="number" min="0" max="100" />
+                <Btn size="sm" variant="success" onClick={() => saveEdit(type)} disabled={saving}>✓</Btn>
                 <Btn size="sm" variant="ghost" onClick={cancelEdit} disabled={saving}>✕</Btn>
               </>
             ) : (
               <>
                 <span style={{ flex: 1, color: C.txt, fontSize: 14 }}>{type}</span>
-                <span style={{ color: C.dim, fontSize: 11 }}>{income.filter(r => r.incomeType === type).length} עסקאות</span>
-                <Btn size="sm" variant="ghost" onClick={() => startEdit(type)} disabled={saving} style={{ color: C.pri }}>✏️</Btn>
-                <Btn size="sm" variant="ghost" onClick={() => deleteType(type)} disabled={saving} style={{ color: C.red }}>🗑️</Btn>
+                <span style={{ width: 60, textAlign: "center", color: commissions[type] > 0 ? C.ylw : C.dim, fontSize: 13, fontWeight: commissions[type] > 0 ? 700 : 400 }}>
+                  {commissions[type] > 0 ? `${commissions[type]}%` : "—"}
+                </span>
+                <span style={{ width: 70, textAlign: "center", color: C.dim, fontSize: 11 }}>{income.filter(r => r.incomeType === type).length}</span>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <Btn size="sm" variant="ghost" onClick={() => startEdit(type)} disabled={saving} style={{ color: C.pri }}>✏️</Btn>
+                  <Btn size="sm" variant="ghost" onClick={() => deleteType(type)} disabled={saving} style={{ color: C.red }}>🗑️</Btn>
+                </div>
               </>
             )}
           </div>
         ))}
       </div>
     )}
-    <div style={{ display: "flex", gap: 8, borderTop: `1px solid ${C.bdr}`, paddingTop: 14 }}>
-      <input value={newType} onChange={e => setNewType(e.target.value)} onKeyDown={e => e.key === "Enter" && addType()} placeholder="הוספת סוג חדש..." style={inputStyle} />
-      <Btn variant="primary" size="sm" onClick={addType}>+ הוסף</Btn>
+    <div style={{ borderTop: `1px solid ${C.bdr}`, paddingTop: 14, marginBottom: 14 }}>
+      <div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>הוספת סוג חדש:</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input value={newType} onChange={e => setNewType(e.target.value)} onKeyDown={e => e.key === "Enter" && addType()} placeholder="שם הסוג..." style={{ ...inputStyle, flex: 1 }} />
+        <input value={newComm} onChange={e => setNewComm(e.target.value)} style={{ ...inputStyle, width: 80 }} placeholder="עמלה %" type="number" min="0" max="100" />
+        <Btn variant="primary" size="sm" onClick={addType}>+ הוסף</Btn>
+      </div>
     </div>
-    <div style={{ marginTop: 14, textAlign: "center" }}>
+    <div style={{ textAlign: "center" }}>
       <Btn variant="ghost" onClick={onClose}>סגור</Btn>
     </div>
   </div>;
