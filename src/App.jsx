@@ -1167,6 +1167,8 @@ function DashPage() {
   const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
+  const [lmVals, setLmVals] = useState(() => { try { return JSON.parse(localStorage.getItem("LM_DB") || "{}"); } catch { return {}; } });
+  const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} };
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
@@ -1255,7 +1257,10 @@ function DashPage() {
         return sum + (hasVat ? balance * 1.18 : balance);
       }, 0);
       const gap = clGap + chGap;
-      return { month: m, ms: MONTHS_SHORT[i], idx: i, inc, exp, gap, tgt1: t.t1, tgt2: t.t2, tgt3: t.t3, dailyAvg: t.daily, days: daysInMonth };
+      const clEnt = clNames.reduce((sum, n) => sum + Calc.clientBal(mi, n, getRate(n, ymiM)).ent, 0);
+      const chSalMo = chNames.reduce((sum, name) => sum + Calc.chatterSalary(mi.filter(r => r.chatterName === name), chatterSettings[name] || {}, ymiM).total, 0);
+      const agencyInc = inc - clEnt;
+      return { month: m, ms: MONTHS_SHORT[i], idx: i, inc, exp, gap, agencyInc, clEnt, chSalMo, tgt1: t.t1, tgt2: t.t2, tgt3: t.t3, dailyAvg: t.daily, days: daysInMonth };
     });
   }, [iY, eY, year, liveRate, settlements, chatterSettings, clientSettings]);
 
@@ -1309,29 +1314,32 @@ function DashPage() {
       </div>
     </div> : <>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon="💰" title={`הכנסות ${year}`} value={fmtC(iY.reduce((s, r) => s + r.amountILS, 0))} color={C.grn} />
+        <Stat icon="💰" title={`הכנסות סוכנות ${year}`} value={fmtC(mbd.reduce((s, r) => s + r.agencyInc, 0))} color={C.grn} sub={`סה״כ מכירות: ${fmtC(iY.reduce((s, r) => s + r.amountILS, 0))}`} />
         <Stat icon="💳" title="הוצאות" value={fmtC(eY.reduce((s, e) => s + e.amount, 0))} color={C.red} />
-        <Stat icon="📈" title="רווח" value={fmtC(Calc.profit(iY, eY).profit)} color={Calc.profit(iY, eY).profit >= 0 ? C.grn : C.red} />
+        <Stat icon="📈" title="רווח סוכנות" value={fmtC(mbd.reduce((s, r) => s + r.agencyInc, 0) - eY.reduce((s, e) => s + e.amount, 0))} color={(mbd.reduce((s, r) => s + r.agencyInc, 0) - eY.reduce((s, e) => s + e.amount, 0)) >= 0 ? C.grn : C.red} />
       </div>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={240}><BarChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="inc" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Bar dataKey="exp" fill={C.red} radius={[4, 4, 0, 0]} name="הוצאות" /></BarChart></ResponsiveContainer></Card>
       <DT columns={[
         { label: "חודש", key: "month" },
-        { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.inc)}</span> },
+        { label: "הכנסות סוכנות", render: r => <span style={{ color: C.grn }}>{fmtC(r.agencyInc)}</span> },
         { label: "הוצאות", render: r => <span style={{ color: C.red }}>{fmtC(r.exp)}</span> },
         { label: "פערים", render: r => <span style={{ color: r.gap > 0 ? C.red : r.gap < 0 ? C.grn : C.mut }}>{fmtC(Math.abs(r.gap))}</span> },
-        { label: "ל.מ", render: () => <span style={{ color: C.dim }}>—</span> },
-        { label: "צפי מע״מ", render: r => <span style={{ color: C.ylw }}>{fmtC(r.inc * 0.17)}</span> },
-        { label: "צפי מס", render: r => { const profit = r.inc - r.exp; const tax = profit > 0 ? profit * 0.23 : 0; return <span style={{ color: C.ylw }}>{fmtC(tax)}</span>; } },
-        { label: "רווח נטו", render: r => { const profit = r.inc - r.exp - r.gap; const vat = r.inc * 0.17; const tax = profit > 0 ? profit * 0.23 : 0; const net = profit - vat - tax; return <span style={{ color: net >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(net)}</span>; } },
+        { label: "ל.מ", render: r => <input type="number" min="0" value={lmVals[year]?.[r.idx] || ""} placeholder="0" onChange={e => saveLm(r.idx, +e.target.value)} style={{ width: 72, padding: "2px 4px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 4, color: C.txt, fontSize: 12, textAlign: "center", outline: "none" }} /> },
+        { label: "צפי מע״מ", render: r => { const base = r.agencyInc - (lmVals[year]?.[r.idx] || 0); return <span style={{ color: C.ylw }}>{fmtC(base > 0 ? base * 0.17 : 0)}</span>; } },
+        { label: "צפי מס", render: r => { const lmVal = lmVals[year]?.[r.idx] || 0; const base = r.agencyInc - (lmVal); const vat = base > 0 ? base * 0.17 : 0; const taxBase = r.agencyInc - r.exp - r.chSalMo - lmVal - vat; const tax = taxBase > 0 ? taxBase * 0.23 : 0; return <span style={{ color: C.ylw }}>{fmtC(tax)}</span>; } },
+        { label: "רווח נטו", render: r => { const lmVal = lmVals[year]?.[r.idx] || 0; const base = r.agencyInc - lmVal; const vat = base > 0 ? base * 0.17 : 0; const taxBase = r.agencyInc - r.exp - r.chSalMo - lmVal - vat; const tax = taxBase > 0 ? taxBase * 0.23 : 0; const net = r.agencyInc - r.exp - r.chSalMo - lmVal - vat - tax; return <span style={{ color: net >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(net)}</span>; } },
       ]} rows={mbd} footer={(() => {
-        const totInc = mbd.reduce((s, r) => s + r.inc, 0);
+        const totAgencyInc = mbd.reduce((s, r) => s + r.agencyInc, 0);
         const totExp = mbd.reduce((s, r) => s + r.exp, 0);
         const totGap = mbd.reduce((s, r) => s + r.gap, 0);
-        const totVat = totInc * 0.17;
-        const totProfit = totInc - totExp - totGap;
-        const totTax = totProfit > 0 ? totProfit * 0.23 : 0;
-        const totNet = totProfit - totVat - totTax;
-        return ["סה״כ", fmtC(totInc), fmtC(totExp), fmtC(Math.abs(totGap)), "—", fmtC(totVat), fmtC(totTax), fmtC(totNet)];
+        const totLm = mbd.reduce((s, r) => s + (lmVals[year]?.[r.idx] || 0), 0);
+        const totChSal = mbd.reduce((s, r) => s + r.chSalMo, 0);
+        const totBase = totAgencyInc - totLm;
+        const totVat = totBase > 0 ? totBase * 0.17 : 0;
+        const totTaxBase = totAgencyInc - totExp - totChSal - totLm - totVat;
+        const totTax = totTaxBase > 0 ? totTaxBase * 0.23 : 0;
+        const totNet = totAgencyInc - totExp - totChSal - totLm - totVat - totTax;
+        return ["סה״כ", fmtC(totAgencyInc), fmtC(totExp), fmtC(Math.abs(totGap)), fmtC(totLm), fmtC(totVat), fmtC(totTax), fmtC(totNet)];
       })()} />
     </>}
 
