@@ -2512,9 +2512,12 @@ function ClientsOverviewPage({ onSelectClient }) {
       const total = rows.reduce((s, r) => s + r.amountILS, 0);
       const pct = getRate(name, ymi);
       const bal = Calc.clientBal(incD, name, pct, [], chatterSettings);
-      return { name, total, pct, entitlement: bal.ent, direct: bal.direct, balance: bal.actualDue, txCount: rows.length };
+      const avgPct = view === "yearly"
+        ? (() => { const rates = MONTHS_SHORT.map((_, i) => getRate(name, ym(year, i))).filter(r => r > 0); return rates.length ? rates.reduce((s, r) => s + r, 0) / rates.length : pct; })()
+        : pct;
+      return { name, total, pct, avgPct, entitlement: bal.ent, agencyShare: bal.agencyShare, direct: bal.direct, through: bal.through, balance: bal.actualDue, txCount: rows.length };
     }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
-  }, [incD, clients, ymi, rv]);
+  }, [incD, clients, ymi, rv, view, year]);
 
   const monthlyByClient = useMemo(() => {
     if (view !== "yearly") return [];
@@ -2529,6 +2532,8 @@ function ClientsOverviewPage({ onSelectClient }) {
 
   const totalIncome = clientStats.reduce((s, c) => s + c.total, 0);
   const totalEntitlement = clientStats.reduce((s, c) => s + c.entitlement, 0);
+  const totalAgencyShare = clientStats.reduce((s, c) => s + c.agencyShare, 0);
+  const totalThrough = clientStats.reduce((s, c) => s + c.through, 0);
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👩 סקירת כל הלקוחות</h2>
@@ -2600,12 +2605,14 @@ function ClientsOverviewPage({ onSelectClient }) {
       <DT columns={[
         { label: "לקוחה", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontWeight: 700, fontSize: 13, padding: 0 }}>{r.name}</button> },
         { label: "הכנסות", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.total)}</span> },
-        { label: "% סוכנות", render: r => <InlinePctInput value={r.pct} onSave={v => updRate(r.name, ymi, v)} /> },
-        { label: "זכאות", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.entitlement)}</span> },
-        { label: "שולם ישירות", render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
-        { label: "יתרה", render: r => <span style={{ color: r.balance >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(Math.abs(r.balance))}</span> },
+        { label: "% סוכנות", render: r => view === "yearly" ? <span style={{ color: C.dim }}>{r.avgPct.toFixed(1)}%</span> : <InlinePctInput value={r.pct} onSave={v => updRate(r.name, ymi, v)} /> },
+        { label: "זכאות סוכנות", render: r => <span style={{ color: C.pri, fontWeight: 600 }}>{fmtC(r.agencyShare)}</span> },
+        { label: "זכאות לקוחה", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.entitlement)}</span> },
+        { label: "שולם ישירות ללקוחה", render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
+        { label: "שולם ישירות אלינו", render: r => <span style={{ color: C.dim }}>{fmtC(r.through)}</span> },
+        { label: "יתרה", render: r => <div><span style={{ color: r.balance >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(Math.abs(r.balance))}</span><div style={{ fontSize: 10, color: r.balance >= 0 ? C.grn : C.red }}>{r.balance >= 0 ? "חייבים ללקוחה" : "לקוחה חייבת"}</div></div> },
         { label: "", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>פרטים ←</button> }
-      ]} rows={clientStats} footer={["סה״כ", fmtC(totalIncome), "", fmtC(totalEntitlement), "", "", ""]} />
+      ]} rows={clientStats} footer={["סה״כ", fmtC(totalIncome), "", fmtC(totalAgencyShare), fmtC(totalEntitlement), "", fmtC(totalThrough), "", ""]} />
     </Card>
   </div>;
 }
@@ -2682,7 +2689,7 @@ function ClientPage({ forceSel, onBack } = {}) {
         <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }]} rows={incD.filter(r => r.modelName === sel).sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(incD.filter(r => r.modelName === sel).reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome)]} /></div>
     </> : <>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><ComposedChart data={ybd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="totalIncome" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Line type="monotone" dataKey="ent" stroke={C.pri} strokeWidth={2} name="זכאות" /><Line type="monotone" dataKey="bal" stroke={C.ylw} strokeWidth={2} strokeDasharray="5 5" name="יתרה" /></ComposedChart></ResponsiveContainer></Card>
-      <DT columns={[{ label: "חודש", key: "month" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "דרך סוכנות", render: r => fmtC(r.through) }, { label: "ישירות", render: r => fmtC(r.direct) }, { label: "% סוכנות", render: r => `${r.pct}%` }, { label: "זכאות", render: r => fmtC(r.ent) }, { label: "יתרה", render: r => <span style={{ color: r.bal >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.bal)}</span> }]} rows={ybd} footer={["סה״כ", fmtC(ybd.reduce((s, r) => s + r.totalIncome, 0)), "", "", "", fmtC(ybd.reduce((s, r) => s + r.ent, 0)), ""]} />
+      <DT columns={[{ label: "חודש", key: "month" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "% סוכנות", render: r => `${r.pct}%` }, { label: "זכאות סוכנות", render: r => <span style={{ color: C.pri }}>{fmtC(r.agencyShare)}</span> }, { label: "זכאות לקוחה", render: r => <span style={{ color: C.ylw }}>{fmtC(r.ent)}</span> }, { label: "שולם ישירות ללקוחה", render: r => fmtC(r.direct) }, { label: "שולם ישירות אלינו", render: r => fmtC(r.through) }, { label: "יתרה", render: r => <div><span style={{ color: r.actualDue >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(Math.abs(r.actualDue))}</span><div style={{ fontSize: 10, color: r.actualDue >= 0 ? C.grn : C.red }}>{r.actualDue >= 0 ? "חייבים ללקוחה" : "לקוחה חייבת"}</div></div> }]} rows={ybd} footer={["סה״כ", fmtC(ybd.reduce((s, r) => s + r.totalIncome, 0)), "", fmtC(ybd.reduce((s, r) => s + r.agencyShare, 0)), fmtC(ybd.reduce((s, r) => s + r.ent, 0)), fmtC(ybd.reduce((s, r) => s + r.direct, 0)), fmtC(ybd.reduce((s, r) => s + r.through, 0)), ""]} />
     </>}
   </div>;
 }
