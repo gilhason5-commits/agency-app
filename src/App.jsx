@@ -2193,19 +2193,6 @@ function ChattersOverviewPage({ onSelectChatter }) {
         </ResponsiveContainer></div>
       </Card>
     </div>
-    {view === "yearly" && chatters.length > 0 && <Card style={{ marginBottom: 16 }}>
-      <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📈 טרנד חודשי לפי צ'אטר</div>
-      <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={240}>
-        <LineChart data={monthlyByChatter}>
-          <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
-          <XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} />
-          <YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} />
-          <Tooltip content={<TT />} />
-          <Legend />
-          {chatters.map((name, i) => <Line key={name} type="monotone" dataKey={name} stroke={ENTITY_COLORS[i % ENTITY_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} />)}
-        </LineChart>
-      </ResponsiveContainer></div>
-    </Card>}
     {(() => {
       const hourlyData = (() => {
         const map = {};
@@ -2346,19 +2333,6 @@ function ClientsOverviewPage({ onSelectClient }) {
         </ResponsiveContainer></div>
       </Card>
     </div>
-    {view === "yearly" && clients.length > 0 && <Card style={{ marginBottom: 16 }}>
-      <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📈 טרנד חודשי לפי לקוחה</div>
-      <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={240}>
-        <LineChart data={monthlyByClient}>
-          <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
-          <XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} />
-          <YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} />
-          <Tooltip content={<TT />} />
-          <Legend />
-          {clients.map((name, i) => <Line key={name} type="monotone" dataKey={name} stroke={ENTITY_COLORS[i % ENTITY_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} />)}
-        </LineChart>
-      </ResponsiveContainer></div>
-    </Card>}
     {clientStats.length > 0 && <Card style={{ marginBottom: 16 }}>
       <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>🥧 חלוקת הכנסות</div>
       <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={220}>
