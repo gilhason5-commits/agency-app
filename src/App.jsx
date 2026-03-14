@@ -1318,10 +1318,12 @@ function DashPage() {
         <Stat icon="💰" title="רווח נטו" value={fmtC(actualProfit > 0 ? actualProfit * 0.77 : actualProfit)} color={actualProfit >= 0 ? C.grn : C.red} sub="אחרי מס" />
       </div>
     </div> : <>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon="💰" title={`הכנסות סוכנות ${year}`} value={fmtC(mbd.reduce((s, r) => s + r.agencyInc, 0))} color={C.grn} sub={`סה״כ מכירות: ${fmtC(iY.reduce((s, r) => s + r.amountILS, 0))}`} />
-        <Stat icon="💳" title="הוצאות" value={fmtC(eY.reduce((s, e) => s + e.amount, 0))} color={C.red} />
-        <Stat icon="📈" title="רווח סוכנות" value={fmtC(mbd.reduce((s, r) => s + r.agencyInc, 0) - eY.reduce((s, e) => s + e.amount, 0))} color={(mbd.reduce((s, r) => s + r.agencyInc, 0) - eY.reduce((s, e) => s + e.amount, 0)) >= 0 ? C.grn : C.red} />
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+        <Stat icon="💰" title={`צפי הכנסות — ${year}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iY.length} עסקאות`} />
+        <Stat icon="💳" title="הוצאות" value={fmtC(mp.exp)} color={C.red} />
+        <Stat icon="👑" title="צפי שכר לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
+        <Stat icon="💬" title="צפי שכר צ'אטים" value={fmtC(totalChatterSalary)} color={C.ylw} />
+        <Stat icon="📈" title="צפי רווח לפני מס" value={fmtC(netProfit)} color={netProfit >= 0 ? C.grn : C.red} />
       </div>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={240}><BarChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="inc" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Bar dataKey="exp" fill={C.red} radius={[4, 4, 0, 0]} name="הוצאות" /></BarChart></ResponsiveContainer></Card>
       <DT columns={[
