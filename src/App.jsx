@@ -22,11 +22,19 @@ const GROK_API_KEY_DEFAULT = import.meta.env.VITE_GROK_API_KEY || "";
 // Platform commission rates (%)
 const PLATFORM_COMMISSIONS = { "אונלי": 20 };
 // Income type commission rates (%)
-const INCOME_TYPE_COMMISSIONS = { "ווישלי": 8, "קארדקום": 13 };
+const _incomeTypeCommissions = (() => {
+  try { return JSON.parse(localStorage.getItem("INCOME_TYPE_COMMISSIONS_DB") || '{"ווישלי":8,"קארדקום":13}'); }
+  catch { return { "ווישלי": 8, "קארדקום": 13 }; }
+})();
+function saveIncomeTypeCommission(typeName, pct) {
+  if (pct > 0) _incomeTypeCommissions[typeName] = pct;
+  else delete _incomeTypeCommissions[typeName];
+  try { localStorage.setItem("INCOME_TYPE_COMMISSIONS_DB", JSON.stringify(_incomeTypeCommissions)); } catch {}
+}
 
 // Resolve commission % for a given platform + incomeType
 function resolveCommissionPct(platform, incomeType) {
-  return PLATFORM_COMMISSIONS[platform] || INCOME_TYPE_COMMISSIONS[incomeType] || 0;
+  return PLATFORM_COMMISSIONS[platform] || _incomeTypeCommissions[incomeType] || 0;
 }
 
 // Compute commission fields when saving income.
@@ -1560,7 +1568,7 @@ function IncPage() {
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, margin: 0 }}>💰 פירוט מכירות</h2>
       <div style={{ display: "flex", gap: 8 }}>
         <Btn variant="success" size="sm" onClick={() => setShowIncForm(true)}>➕ הוסף מכירה ידנית</Btn>
-        <Btn variant="ghost" size="sm" onClick={() => setShowIncTypesMgr(true)}>✏️ עריכת סוגי מכירה</Btn>
+        <Btn variant="ghost" size="sm" onClick={() => setShowIncTypesMgr(true)}>✏️ עריכת סוגי הכנסה</Btn>
       </div>
     </div>
     <FB><ViewFilter /></FB>
@@ -1582,7 +1590,7 @@ function IncPage() {
     {editTx && <Modal open={true} onClose={() => setEditTx(null)} title="✏️ עריכת עסקה" width={420}>
       <EditIncomeModal record={editTx} onClose={() => setEditTx(null)} />
     </Modal>}
-    {showIncTypesMgr && <Modal open={true} onClose={() => setShowIncTypesMgr(false)} title="✏️ עריכת סוגי מכירה" width={480}>
+    {showIncTypesMgr && <Modal open={true} onClose={() => setShowIncTypesMgr(false)} title="✏️ עריכת סוגי הכנסה" width={500}>
       <IncomeTypesModal onClose={() => setShowIncTypesMgr(false)} />
     </Modal>}
   </div>;
@@ -1595,8 +1603,11 @@ function IncomeTypesModal({ onClose }) {
   const { income, setIncome } = useApp();
   const [editingType, setEditingType] = useState(null);
   const [editName, setEditName] = useState("");
+  const [editComm, setEditComm] = useState("");
   const [newType, setNewType] = useState("");
+  const [newComm, setNewComm] = useState("");
   const [saving, setSaving] = useState(false);
+  const [commissions, setCommissions] = useState(() => ({ ..._incomeTypeCommissions }));
   const [customTypes, setCustomTypes] = useState(() => {
     try { return JSON.parse(localStorage.getItem("CUSTOM_INCOME_TYPES") || "[]"); } catch { return []; }
   });
@@ -1604,28 +1615,37 @@ function IncomeTypesModal({ onClose }) {
   const dataTypes = [...new Set(income.map(r => r.incomeType).filter(Boolean))].sort();
   const allTypes = [...new Set([...dataTypes, ...customTypes])].sort();
 
-  const inputStyle = { padding: "8px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", flex: 1 };
+  const inputStyle = { padding: "8px 10px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none" };
 
-  const startEdit = (type) => { setEditingType(type); setEditName(type); };
-  const cancelEdit = () => { setEditingType(null); setEditName(""); };
+  const startEdit = (type) => { setEditingType(type); setEditName(type); setEditComm(String(commissions[type] || "")); };
+  const cancelEdit = () => { setEditingType(null); setEditName(""); setEditComm(""); };
 
-  const saveRename = async (oldName) => {
+  const saveEdit = async (oldName) => {
     const newName = editName.trim();
-    if (!newName || newName === oldName) { cancelEdit(); return; }
+    if (!newName) { cancelEdit(); return; }
+    const pct = parseFloat(editComm) || 0;
     setSaving(true);
     try {
-      const toUpdate = income.filter(r => r.incomeType === oldName && !r._fromPending);
-      const toUpdatePending = income.filter(r => r.incomeType === oldName && r._fromPending);
-      await Promise.all([
-        ...toUpdate.map(r => updateIncome(r.id, { incomeType: newName })),
-        ...toUpdatePending.map(r => updatePending(r.id, { incomeType: newName })),
-      ]);
-      setIncome(prev => prev.map(r => r.incomeType === oldName ? { ...r, incomeType: newName } : r));
-      setCustomTypes(prev => {
-        const updated = prev.map(t => t === oldName ? newName : t);
-        localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
-        return updated;
-      });
+      // Save commission
+      saveIncomeTypeCommission(newName, pct);
+      if (newName !== oldName) saveIncomeTypeCommission(oldName, 0); // remove old key
+      setCommissions({ ..._incomeTypeCommissions });
+
+      // Rename in records if name changed
+      if (newName !== oldName) {
+        const toUpdate = income.filter(r => r.incomeType === oldName && !r._fromPending);
+        const toUpdatePending = income.filter(r => r.incomeType === oldName && r._fromPending);
+        await Promise.all([
+          ...toUpdate.map(r => updateIncome(r.id, { incomeType: newName })),
+          ...toUpdatePending.map(r => updatePending(r.id, { incomeType: newName })),
+        ]);
+        setIncome(prev => prev.map(r => r.incomeType === oldName ? { ...r, incomeType: newName } : r));
+        setCustomTypes(prev => {
+          const updated = prev.map(t => t === oldName ? newName : t);
+          localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
+          return updated;
+        });
+      }
       cancelEdit();
     } catch (e) { alert("שגיאה: " + e.message); }
     setSaving(false);
@@ -1643,6 +1663,8 @@ function IncomeTypesModal({ onClose }) {
         ...toUpdatePending.map(r => updatePending(r.id, { incomeType: "" })),
       ]);
       setIncome(prev => prev.map(r => r.incomeType === type ? { ...r, incomeType: "" } : r));
+      saveIncomeTypeCommission(type, 0);
+      setCommissions({ ..._incomeTypeCommissions });
       setCustomTypes(prev => {
         const updated = prev.filter(t => t !== type);
         localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
@@ -1656,44 +1678,63 @@ function IncomeTypesModal({ onClose }) {
     const name = newType.trim();
     if (!name) return;
     if (allTypes.includes(name)) { alert("סוג זה כבר קיים"); return; }
+    const pct = parseFloat(newComm) || 0;
+    if (pct > 0) { saveIncomeTypeCommission(name, pct); setCommissions({ ..._incomeTypeCommissions }); }
     setCustomTypes(prev => {
       const updated = [...prev, name];
       localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
       return updated;
     });
-    setNewType("");
+    setNewType(""); setNewComm("");
   };
 
   return <div style={{ direction: "rtl" }}>
+    {/* Header row */}
+    <div style={{ display: "flex", gap: 8, padding: "0 12px 8px", color: C.dim, fontSize: 12, fontWeight: 600 }}>
+      <span style={{ flex: 1 }}>סוג הכנסה</span>
+      <span style={{ width: 60, textAlign: "center" }}>עמלה %</span>
+      <span style={{ width: 70, textAlign: "center" }}>עסקאות</span>
+      <span style={{ width: 64 }}></span>
+    </div>
     {allTypes.length === 0 ? (
-      <div style={{ color: C.dim, textAlign: "center", padding: 20 }}>אין סוגי מכירה עדיין</div>
+      <div style={{ color: C.dim, textAlign: "center", padding: 20 }}>אין סוגי הכנסה עדיין</div>
     ) : (
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20, maxHeight: 360, overflowY: "auto" }}>
         {allTypes.map(type => (
           <div key={type} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: C.card, borderRadius: 8, border: `1px solid ${C.bdr}` }}>
             {editingType === type ? (
               <>
-                <input value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") saveRename(type); if (e.key === "Escape") cancelEdit(); }} style={{ ...inputStyle, flex: 1 }} autoFocus disabled={saving} />
-                <Btn size="sm" variant="success" onClick={() => saveRename(type)} disabled={saving}>✓</Btn>
+                <input value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") saveEdit(type); if (e.key === "Escape") cancelEdit(); }} style={{ ...inputStyle, flex: 1 }} autoFocus disabled={saving} placeholder="שם" />
+                <input value={editComm} onChange={e => setEditComm(e.target.value)} style={{ ...inputStyle, width: 60 }} disabled={saving} placeholder="%" type="number" min="0" max="100" />
+                <Btn size="sm" variant="success" onClick={() => saveEdit(type)} disabled={saving}>✓</Btn>
                 <Btn size="sm" variant="ghost" onClick={cancelEdit} disabled={saving}>✕</Btn>
               </>
             ) : (
               <>
                 <span style={{ flex: 1, color: C.txt, fontSize: 14 }}>{type}</span>
-                <span style={{ color: C.dim, fontSize: 11 }}>{income.filter(r => r.incomeType === type).length} עסקאות</span>
-                <Btn size="sm" variant="ghost" onClick={() => startEdit(type)} disabled={saving} style={{ color: C.pri }}>✏️</Btn>
-                <Btn size="sm" variant="ghost" onClick={() => deleteType(type)} disabled={saving} style={{ color: C.red }}>🗑️</Btn>
+                <span style={{ width: 60, textAlign: "center", color: commissions[type] > 0 ? C.ylw : C.dim, fontSize: 13, fontWeight: commissions[type] > 0 ? 700 : 400 }}>
+                  {commissions[type] > 0 ? `${commissions[type]}%` : "—"}
+                </span>
+                <span style={{ width: 70, textAlign: "center", color: C.dim, fontSize: 11 }}>{income.filter(r => r.incomeType === type).length}</span>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <Btn size="sm" variant="ghost" onClick={() => startEdit(type)} disabled={saving} style={{ color: C.pri }}>✏️</Btn>
+                  <Btn size="sm" variant="ghost" onClick={() => deleteType(type)} disabled={saving} style={{ color: C.red }}>🗑️</Btn>
+                </div>
               </>
             )}
           </div>
         ))}
       </div>
     )}
-    <div style={{ display: "flex", gap: 8, borderTop: `1px solid ${C.bdr}`, paddingTop: 14 }}>
-      <input value={newType} onChange={e => setNewType(e.target.value)} onKeyDown={e => e.key === "Enter" && addType()} placeholder="הוספת סוג חדש..." style={inputStyle} />
-      <Btn variant="primary" size="sm" onClick={addType}>+ הוסף</Btn>
+    <div style={{ borderTop: `1px solid ${C.bdr}`, paddingTop: 14, marginBottom: 14 }}>
+      <div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>הוספת סוג חדש:</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input value={newType} onChange={e => setNewType(e.target.value)} onKeyDown={e => e.key === "Enter" && addType()} placeholder="שם הסוג..." style={{ ...inputStyle, flex: 1 }} />
+        <input value={newComm} onChange={e => setNewComm(e.target.value)} style={{ ...inputStyle, width: 80 }} placeholder="עמלה %" type="number" min="0" max="100" />
+        <Btn variant="primary" size="sm" onClick={addType}>+ הוסף</Btn>
+      </div>
     </div>
-    <div style={{ marginTop: 14, textAlign: "center" }}>
+    <div style={{ textAlign: "center" }}>
       <Btn variant="ghost" onClick={onClose}>סגור</Btn>
     </div>
   </div>;
@@ -2471,9 +2512,12 @@ function ClientsOverviewPage({ onSelectClient }) {
       const total = rows.reduce((s, r) => s + r.amountILS, 0);
       const pct = getRate(name, ymi);
       const bal = Calc.clientBal(incD, name, pct, [], chatterSettings);
-      return { name, total, pct, entitlement: bal.ent, direct: bal.direct, balance: bal.actualDue, txCount: rows.length };
+      const avgPct = view === "yearly"
+        ? (() => { const rates = MONTHS_SHORT.map((_, i) => getRate(name, ym(year, i))).filter(r => r > 0); return rates.length ? rates.reduce((s, r) => s + r, 0) / rates.length : pct; })()
+        : pct;
+      return { name, total, pct, avgPct, entitlement: bal.ent, agencyShare: bal.agencyShare, direct: bal.direct, through: bal.through, balance: bal.actualDue, txCount: rows.length };
     }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
-  }, [incD, clients, ymi, rv]);
+  }, [incD, clients, ymi, rv, view, year]);
 
   const monthlyByClient = useMemo(() => {
     if (view !== "yearly") return [];
@@ -2488,6 +2532,8 @@ function ClientsOverviewPage({ onSelectClient }) {
 
   const totalIncome = clientStats.reduce((s, c) => s + c.total, 0);
   const totalEntitlement = clientStats.reduce((s, c) => s + c.entitlement, 0);
+  const totalAgencyShare = clientStats.reduce((s, c) => s + c.agencyShare, 0);
+  const totalThrough = clientStats.reduce((s, c) => s + c.through, 0);
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👩 סקירת כל הלקוחות</h2>
@@ -2559,12 +2605,14 @@ function ClientsOverviewPage({ onSelectClient }) {
       <DT columns={[
         { label: "לקוחה", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontWeight: 700, fontSize: 13, padding: 0 }}>{r.name}</button> },
         { label: "הכנסות", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.total)}</span> },
-        { label: "% סוכנות", render: r => <InlinePctInput value={r.pct} onSave={v => updRate(r.name, ymi, v)} /> },
-        { label: "זכאות", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.entitlement)}</span> },
-        { label: "שולם ישירות", render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
-        { label: "יתרה", render: r => <span style={{ color: r.balance >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(Math.abs(r.balance))}</span> },
+        { label: "% סוכנות", render: r => view === "yearly" ? <span style={{ color: C.dim }}>{r.avgPct.toFixed(1)}%</span> : <InlinePctInput value={r.pct} onSave={v => updRate(r.name, ymi, v)} /> },
+        { label: "זכאות סוכנות", render: r => <span style={{ color: C.pri, fontWeight: 600 }}>{fmtC(r.agencyShare)}</span> },
+        { label: "זכאות לקוחה", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.entitlement)}</span> },
+        { label: "שולם ישירות ללקוחה", render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
+        { label: "שולם ישירות אלינו", render: r => <span style={{ color: C.dim }}>{fmtC(r.through)}</span> },
+        { label: "יתרה", render: r => <div><span style={{ color: r.balance >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(Math.abs(r.balance))}</span><div style={{ fontSize: 10, color: r.balance >= 0 ? C.grn : C.red }}>{r.balance >= 0 ? "חייבים ללקוחה" : "לקוחה חייבת"}</div></div> },
         { label: "", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>פרטים ←</button> }
-      ]} rows={clientStats} footer={["סה״כ", fmtC(totalIncome), "", fmtC(totalEntitlement), "", "", ""]} />
+      ]} rows={clientStats} footer={["סה״כ", fmtC(totalIncome), "", fmtC(totalAgencyShare), fmtC(totalEntitlement), "", fmtC(totalThrough), "", ""]} />
     </Card>
   </div>;
 }
@@ -2641,7 +2689,7 @@ function ClientPage({ forceSel, onBack } = {}) {
         <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }]} rows={incD.filter(r => r.modelName === sel).sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(incD.filter(r => r.modelName === sel).reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome)]} /></div>
     </> : <>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><ComposedChart data={ybd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="totalIncome" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Line type="monotone" dataKey="ent" stroke={C.pri} strokeWidth={2} name="זכאות" /><Line type="monotone" dataKey="bal" stroke={C.ylw} strokeWidth={2} strokeDasharray="5 5" name="יתרה" /></ComposedChart></ResponsiveContainer></Card>
-      <DT columns={[{ label: "חודש", key: "month" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "דרך סוכנות", render: r => fmtC(r.through) }, { label: "ישירות", render: r => fmtC(r.direct) }, { label: "% סוכנות", render: r => `${r.pct}%` }, { label: "זכאות", render: r => fmtC(r.ent) }, { label: "יתרה", render: r => <span style={{ color: r.bal >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.bal)}</span> }]} rows={ybd} footer={["סה״כ", fmtC(ybd.reduce((s, r) => s + r.totalIncome, 0)), "", "", "", fmtC(ybd.reduce((s, r) => s + r.ent, 0)), ""]} />
+      <DT columns={[{ label: "חודש", key: "month" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "% סוכנות", render: r => `${r.pct}%` }, { label: "זכאות סוכנות", render: r => <span style={{ color: C.pri }}>{fmtC(r.agencyShare)}</span> }, { label: "זכאות לקוחה", render: r => <span style={{ color: C.ylw }}>{fmtC(r.ent)}</span> }, { label: "שולם ישירות ללקוחה", render: r => fmtC(r.direct) }, { label: "שולם ישירות אלינו", render: r => fmtC(r.through) }, { label: "יתרה", render: r => <div><span style={{ color: r.actualDue >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(Math.abs(r.actualDue))}</span><div style={{ fontSize: 10, color: r.actualDue >= 0 ? C.grn : C.red }}>{r.actualDue >= 0 ? "חייבים ללקוחה" : "לקוחה חייבת"}</div></div> }]} rows={ybd} footer={["סה״כ", fmtC(ybd.reduce((s, r) => s + r.totalIncome, 0)), "", fmtC(ybd.reduce((s, r) => s + r.agencyShare, 0)), fmtC(ybd.reduce((s, r) => s + r.ent, 0)), fmtC(ybd.reduce((s, r) => s + r.direct, 0)), fmtC(ybd.reduce((s, r) => s + r.through, 0)), ""]} />
     </>}
   </div>;
 }
