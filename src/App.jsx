@@ -865,6 +865,8 @@ function Prov({ children }) {
 
   const [customCats, setCustomCats] = useState(() => { try { return JSON.parse(localStorage.getItem("CUSTOM_CATS") || "[]"); } catch { return []; } });
   const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n) || EXPENSE_CATEGORIES.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); try { localStorage.setItem("CUSTOM_CATS", JSON.stringify(updated)); } catch {} return true; };
+  const removeCustomCat = (name) => { const updated = customCats.filter(c => c !== name); setCustomCats(updated); try { localStorage.setItem("CUSTOM_CATS", JSON.stringify(updated)); } catch {}; };
+  const renameCustomCat = (oldName, newName) => { const n = newName.trim(); if (!n || n === oldName || customCats.includes(n) || EXPENSE_CATEGORIES.includes(n)) return false; const updated = customCats.map(c => c === oldName ? n : c); setCustomCats(updated); try { localStorage.setItem("CUSTOM_CATS", JSON.stringify(updated)); } catch {} return true; };
 
   const val = useMemo(() => ({
     year, setYear, month, setMonth, view, setView, dateRange, setDateRange, page, setPage,
@@ -872,7 +874,7 @@ function Prov({ children }) {
     history, setHistory, genParams, setGenParams, loading, error,
     connected, setConnected, demo, setDemo, load, loadDemo, rv, updRate,
     loadStep, user, login, logout, sheetUsers, loadSheetUsers, liveRate,
-    chatterTargets, setChatterTargets, customCats, addCustomCat,
+    chatterTargets, setChatterTargets, customCats, addCustomCat, removeCustomCat, renameCustomCat,
     saveChatterTarget: async (name, targets) => {
       await setChatterTarget(name, targets);
       setChatterTargets(prev => ({ ...prev, [name]: targets }));
@@ -1316,10 +1318,12 @@ function DashPage() {
         <Stat icon="💰" title="רווח נטו" value={fmtC(actualProfit > 0 ? actualProfit * 0.77 : actualProfit)} color={actualProfit >= 0 ? C.grn : C.red} sub="אחרי מס" />
       </div>
     </div> : <>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon="💰" title={`הכנסות סוכנות ${year}`} value={fmtC(mbd.reduce((s, r) => s + r.agencyInc, 0))} color={C.grn} sub={`סה״כ מכירות: ${fmtC(iY.reduce((s, r) => s + r.amountILS, 0))}`} />
-        <Stat icon="💳" title="הוצאות" value={fmtC(eY.reduce((s, e) => s + e.amount, 0))} color={C.red} />
-        <Stat icon="📈" title="רווח סוכנות" value={fmtC(mbd.reduce((s, r) => s + r.agencyInc, 0) - eY.reduce((s, e) => s + e.amount, 0))} color={(mbd.reduce((s, r) => s + r.agencyInc, 0) - eY.reduce((s, e) => s + e.amount, 0)) >= 0 ? C.grn : C.red} />
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+        <Stat icon="💰" title={`צפי הכנסות — ${year}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iY.length} עסקאות`} />
+        <Stat icon="💳" title="הוצאות" value={fmtC(mp.exp)} color={C.red} />
+        <Stat icon="👑" title="צפי שכר לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
+        <Stat icon="💬" title="צפי שכר צ'אטים" value={fmtC(totalChatterSalary)} color={C.ylw} />
+        <Stat icon="📈" title="צפי רווח לפני מס" value={fmtC(netProfit)} color={netProfit >= 0 ? C.grn : C.red} />
       </div>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={240}><BarChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="inc" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Bar dataKey="exp" fill={C.red} radius={[4, 4, 0, 0]} name="הוצאות" /></BarChart></ResponsiveContainer></Card>
       <DT columns={[
@@ -1852,10 +1856,12 @@ function RecordIncomeAdmin({ onClose }) {
 // PAGE: EXPENSES
 // ═══════════════════════════════════════════════════════
 function ExpPage() {
-  const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo, rv, chatterSettings, customCats, addCustomCat } = useApp();
+  const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo, rv, chatterSettings, customCats, addCustomCat, removeCustomCat, renameCustomCat } = useApp();
   const allCats = [...EXPENSE_CATEGORIES, ...customCats];
   const [showAddCat, setShowAddCat] = useState(false);
   const [newCatName, setNewCatName] = useState("");
+  const [editingCat, setEditingCat] = useState(null);
+  const [editingCatName, setEditingCatName] = useState("");
   const { eM, eY, iM, iY } = useFD();
   const ymi = ym(year, month); const w = useWin();
   const [src, setSrc] = useState("all"), [popCat, setPopCat] = useState(null), [editExp, setEditExp] = useState(null), [delExp, setDelExp] = useState(null);
@@ -1881,17 +1887,46 @@ function ExpPage() {
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
       <h2 style={{ color: C.txt, fontSize: w < 768 ? 17 : 22, fontWeight: 700, margin: 0 }}>💳 הוצאות סוכנות</h2>
       <div style={{ display: "flex", gap: 8 }}>
-        <Btn onClick={() => { setNewCatName(""); setShowAddCat(true); }} variant="ghost">➕ סיווג חדש</Btn>
+        <Btn onClick={() => { setNewCatName(""); setEditingCat(null); setEditingCatName(""); setShowAddCat(true); }} variant="ghost">✏️ עריכת סיווגים</Btn>
         <Btn onClick={() => setPage("record")} variant="success">📱 תיעוד הוצאה</Btn>
       </div>
     </div>
-    <Modal open={showAddCat} onClose={() => setShowAddCat(false)} title="➕ הוספת סוג סיווג הוצאה" width={360}>
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>שם הסיווג</label>
-        <input value={newCatName} onChange={e => setNewCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { if (addCustomCat(newCatName)) setShowAddCat(false); else alert("שם קיים או ריק"); } }} placeholder="לדוגמה: ציוד משרדי" style={{ width: "100%", padding: "8px 12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", boxSizing: "border-box" }} autoFocus />
+    <Modal open={showAddCat} onClose={() => { setShowAddCat(false); setEditingCat(null); }} title="✏️ עריכת סיווגים" width={420}>
+      <div style={{ maxHeight: 320, overflowY: "auto", marginBottom: 16 }}>
+        {customCats.length === 0 && <div style={{ color: C.dim, fontSize: 12, marginBottom: 8, textAlign: "center", padding: "12px 0" }}>אין סיווגים מותאמים אישית עדיין</div>}
+        {customCats.length > 0 && <div style={{ marginBottom: 8 }}>
+          <div style={{ color: C.dim, fontSize: 11, marginBottom: 8 }}>סיווגים מותאמים אישית:</div>
+          {customCats.map(c => (
+            <div key={c} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, background: `${C.pri}11`, borderRadius: 6, padding: "4px 8px" }}>
+              {editingCat === c ? (
+                <>
+                  <input value={editingCatName} onChange={e => setEditingCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { if (renameCustomCat(c, editingCatName)) setEditingCat(null); else alert("שם קיים או ריק"); } if (e.key === "Escape") setEditingCat(null); }} style={{ flex: 1, padding: "4px 8px", background: C.card, border: `1px solid ${C.pri}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} autoFocus />
+                  <Btn variant="primary" onClick={() => { if (renameCustomCat(c, editingCatName)) setEditingCat(null); else alert("שם קיים או ריק"); }} style={{ padding: "3px 10px", fontSize: 12 }}>✓</Btn>
+                  <Btn variant="ghost" onClick={() => setEditingCat(null)} style={{ padding: "3px 8px", fontSize: 12 }}>✕</Btn>
+                </>
+              ) : (
+                <>
+                  <span style={{ flex: 1, color: C.priL, fontSize: 13 }}>{c}</span>
+                  <Btn variant="ghost" onClick={() => { setEditingCat(c); setEditingCatName(c); }} style={{ padding: "3px 8px", fontSize: 11 }}>✏️</Btn>
+                  <Btn variant="ghost" onClick={() => { if (window.confirm(`למחוק את הסיווג "${c}"?`)) removeCustomCat(c); }} style={{ padding: "3px 8px", fontSize: 11, color: C.red }}>🗑️</Btn>
+                </>
+              )}
+            </div>
+          ))}
+        </div>}
+        {EXPENSE_CATEGORIES.length > 0 && <div>
+          <div style={{ color: C.dim, fontSize: 11, marginBottom: 6 }}>סיווגים קבועים (לא ניתן לערוך):</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{EXPENSE_CATEGORIES.map(c => <span key={c} style={{ background: `${C.bdr}44`, color: C.dim, borderRadius: 4, padding: "2px 7px", fontSize: 11 }}>{c}</span>)}</div>
+        </div>}
       </div>
-      {customCats.length > 0 && <div style={{ marginBottom: 12 }}><div style={{ color: C.dim, fontSize: 11, marginBottom: 6 }}>סיווגים מותאמים אישית:</div>{customCats.map(c => <span key={c} style={{ display: "inline-block", background: `${C.pri}22`, color: C.priL, borderRadius: 4, padding: "2px 8px", fontSize: 11, margin: "2px" }}>{c}</span>)}</div>}
-      <div style={{ display: "flex", gap: 8 }}><Btn variant="primary" onClick={() => { if (addCustomCat(newCatName)) setShowAddCat(false); else alert("שם קיים או ריק"); }}>שמור</Btn><Btn variant="ghost" onClick={() => setShowAddCat(false)}>ביטול</Btn></div>
+      <div style={{ borderTop: `1px solid ${C.bdr}`, paddingTop: 12 }}>
+        <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>הוספת סיווג חדש:</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={newCatName} onChange={e => setNewCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { if (addCustomCat(newCatName)) setNewCatName(""); else alert("שם קיים או ריק"); } }} placeholder="לדוגמה: ציוד משרדי" style={{ flex: 1, padding: "8px 12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none" }} />
+          <Btn variant="primary" onClick={() => { if (addCustomCat(newCatName)) setNewCatName(""); else alert("שם קיים או ריק"); }}>➕ הוסף</Btn>
+        </div>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}><Btn variant="ghost" onClick={() => { setShowAddCat(false); setEditingCat(null); }}>סגור</Btn></div>
     </Modal>
 
     {noExpenses ? <Card style={{ textAlign: "center", padding: 40 }}>
@@ -2211,7 +2246,6 @@ function ChattersOverviewPage({ onSelectChatter }) {
       <Stat icon="👥" title="מספר צ'אטרים" value={chatterStats.length} />
       <Stat icon="💰" title="סה״כ מכירות" value={fmtC(totalSales)} color={C.grn} />
       <Stat icon="💵" title="סה״כ משכורות" value={fmtC(totalSalary)} color={C.ylw} />
-      <Stat icon="📊" title="רווח נקי לעסק" value={fmtC(totalSales - totalSalary)} color={totalSales - totalSalary >= 0 ? C.grn : C.red} />
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
       <Card>
@@ -2335,7 +2369,6 @@ function ClientsOverviewPage({ onSelectClient }) {
       <Stat icon="👩" title="מספר לקוחות" value={clientStats.length} />
       <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(totalIncome)} color={C.grn} />
       <Stat icon="💵" title="סה״כ זכאות" value={fmtC(totalEntitlement)} color={C.ylw} />
-      <Stat icon="📊" title="רווח נקי לעסק" value={fmtC(totalIncome - totalEntitlement)} color={totalIncome - totalEntitlement >= 0 ? C.grn : C.red} />
     </div>
     {(() => {
       const hourlyByClient = (() => {
