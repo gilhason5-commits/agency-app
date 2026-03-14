@@ -2246,7 +2246,6 @@ function ChattersOverviewPage({ onSelectChatter }) {
       <Stat icon="👥" title="מספר צ'אטרים" value={chatterStats.length} />
       <Stat icon="💰" title="סה״כ מכירות" value={fmtC(totalSales)} color={C.grn} />
       <Stat icon="💵" title="סה״כ משכורות" value={fmtC(totalSalary)} color={C.ylw} />
-      <Stat icon="📊" title="רווח נקי לעסק" value={fmtC(totalSales - totalSalary)} color={totalSales - totalSalary >= 0 ? C.grn : C.red} />
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
       <Card>
@@ -2370,7 +2369,6 @@ function ClientsOverviewPage({ onSelectClient }) {
       <Stat icon="👩" title="מספר לקוחות" value={clientStats.length} />
       <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(totalIncome)} color={C.grn} />
       <Stat icon="💵" title="סה״כ זכאות" value={fmtC(totalEntitlement)} color={C.ylw} />
-      <Stat icon="📊" title="רווח נקי לעסק" value={fmtC(totalIncome - totalEntitlement)} color={totalIncome - totalEntitlement >= 0 ? C.grn : C.red} />
     </div>
     {(() => {
       const hourlyByClient = (() => {
