@@ -1334,7 +1334,7 @@ function DashPage() {
   const agencyIncome = mp.inc - totalClientSalary - totalChatterSalary;
   const lmCurr = view === "monthly" ? (lmVals[year]?.[month] || 0) : 0;
   const vatBase = agencyIncome - lmCurr;
-  const vat = vatBase > 0 ? vatBase * 0.17 : 0;
+  const vat = vatBase > 0 ? vatBase * 0.18 : 0;
   const grossProfit = agencyIncome - mp.exp - fixedMonthly - empMonthly;
   const taxBase = grossProfit - vat;
   const incomeTax = taxBase > 0 ? taxBase * 0.23 : 0;
@@ -1488,7 +1488,7 @@ function DashPage() {
       <Card style={{ marginBottom: 12, background: `${C.red}08`, border: `1px solid ${C.red}30` }}>
         <div style={{ color: C.ylw, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>🧾 מסים ותשלומים חובה</div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <Stat icon="📋" title="מע״מ (17%)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatBase)}`} />
+          <Stat icon="📋" title="מע״מ (18%)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatBase)}`} />
           <Stat icon="🏛️" title="מס הכנסה (23%)" value={fmtC(incomeTax)} color={C.ylw} sub={bizType} />
           <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + ידני" : "ידני"} />
           <Stat icon="💸" title="סה״כ מסים" value={fmtC(vat + incomeTax + niTotal)} color={C.red} sub="מע״מ + מס + ב.ל" />
@@ -1524,9 +1524,9 @@ function DashPage() {
         { label: "הוצאות", render: r => <span style={{ color: C.red }}>{fmtC(r.exp)}</span> },
         { label: "פערים", render: r => <span style={{ color: r.gap > 0 ? C.red : r.gap < 0 ? C.grn : C.mut }}>{fmtC(Math.abs(r.gap))}</span> },
         { label: "ל.מ", render: r => <input type="number" min="0" value={lmVals[year]?.[r.idx] || ""} placeholder="0" onChange={e => saveLm(r.idx, +e.target.value)} style={{ width: 72, padding: "2px 4px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 4, color: C.txt, fontSize: 12, textAlign: "center", outline: "none" }} /> },
-        { label: "צפי מע״מ", render: r => { const base = r.agencyInc - (lmVals[year]?.[r.idx] || 0); return <span style={{ color: C.ylw }}>{fmtC(base > 0 ? base * 0.17 : 0)}</span>; } },
-        { label: "צפי מס", render: r => { const lmVal = lmVals[year]?.[r.idx] || 0; const base = r.agencyInc - (lmVal); const vat = base > 0 ? base * 0.17 : 0; const taxBase = r.agencyInc - r.exp - r.chSalMo - lmVal - vat; const tax = taxBase > 0 ? taxBase * 0.23 : 0; return <span style={{ color: C.ylw }}>{fmtC(tax)}</span>; } },
-        { label: "רווח נטו", render: r => { const lmVal = lmVals[year]?.[r.idx] || 0; const base = r.agencyInc - lmVal; const vat = base > 0 ? base * 0.17 : 0; const taxBase = r.agencyInc - r.exp - r.chSalMo - lmVal - vat; const tax = taxBase > 0 ? taxBase * 0.23 : 0; const net = r.agencyInc - r.exp - r.chSalMo - lmVal - vat - tax; return <span style={{ color: net >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(net)}</span>; } },
+        { label: "צפי מע״מ", render: r => { const base = r.agencyInc - (lmVals[year]?.[r.idx] || 0); return <span style={{ color: C.ylw }}>{fmtC(base > 0 ? base * 0.18 : 0)}</span>; } },
+        { label: "צפי מס", render: r => { const lmVal = lmVals[year]?.[r.idx] || 0; const base = r.agencyInc - (lmVal); const vat = base > 0 ? base * 0.18 : 0; const taxBase = r.agencyInc - r.exp - r.chSalMo - lmVal - vat; const tax = taxBase > 0 ? taxBase * 0.23 : 0; return <span style={{ color: C.ylw }}>{fmtC(tax)}</span>; } },
+        { label: "רווח נטו", render: r => { const lmVal = lmVals[year]?.[r.idx] || 0; const base = r.agencyInc - lmVal; const vat = base > 0 ? base * 0.18 : 0; const taxBase = r.agencyInc - r.exp - r.chSalMo - lmVal - vat; const tax = taxBase > 0 ? taxBase * 0.23 : 0; const net = r.agencyInc - r.exp - r.chSalMo - lmVal - vat - tax; return <span style={{ color: net >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(net)}</span>; } },
       ]} rows={mbd} footer={(() => {
         const totAgencyInc = mbd.reduce((s, r) => s + r.agencyInc, 0);
         const totExp = mbd.reduce((s, r) => s + r.exp, 0);
@@ -1534,7 +1534,7 @@ function DashPage() {
         const totLm = mbd.reduce((s, r) => s + (lmVals[year]?.[r.idx] || 0), 0);
         const totChSal = mbd.reduce((s, r) => s + r.chSalMo, 0);
         const totBase = totAgencyInc - totLm;
-        const totVat = totBase > 0 ? totBase * 0.17 : 0;
+        const totVat = totBase > 0 ? totBase * 0.18 : 0;
         const totTaxBase = totAgencyInc - totExp - totChSal - totLm - totVat;
         const totTax = totTaxBase > 0 ? totTaxBase * 0.23 : 0;
         const totNet = totAgencyInc - totExp - totChSal - totLm - totVat - totTax;
