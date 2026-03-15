@@ -2455,6 +2455,10 @@ function ChatterPage({ forceSel, onBack } = {}) {
   const effectivePcts = getMonthlyPcts(cfg, ymi);
   const hasMonthlyOverride = !!(cfg.monthlyPcts?.[ymi]);
   const rows = incD.filter(r => r.chatterName === sel);
+  const approvedRows = rows.filter(r => isVerified(r.verified));
+  const pendingRows = rows.filter(r => !isVerified(r.verified));
+  const totalApproved = approvedRows.reduce((s, r) => s + r.amountILS, 0);
+  const totalPending = pendingRows.reduce((s, r) => s + r.amountILS, 0);
   const sal = Calc.chatterSalary(rows, cfg, ymi);
   const tot = rows.reduce((s, r) => s + r.amountILS, 0);
 
@@ -2496,7 +2500,9 @@ function ChatterPage({ forceSel, onBack } = {}) {
     <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value={sel} onChange={v => { if (v === "__overview__" && onBack) { onBack(); } else { setSel(v); } }} options={[...(onBack ? [{ value: "__overview__", label: "סקירה כללית" }] : []), ...sortedChatters.map(c => ({ value: c, label: c }))]} />} /></FB>
     {!sel ? <p style={{ color: C.mut }}>בחר צ'אטר</p> : (view === "monthly" || view === "range") ? <>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon="💰" title="מכירות" value={fmtC(tot)} color={C.grn} sub={`${rows.length} עסקאות`} />
+        <Stat icon="✅" title="מאושרות" value={fmtC(totalApproved)} sub={`${approvedRows.length} עסקאות`} color={C.grn} />
+        {totalPending > 0 && <Stat icon="⏳" title="ממתינות" value={fmtC(totalPending)} sub={`${pendingRows.length} עסקאות`} color={C.ylw} />}
+        <Stat icon="💰" title="סה״כ" value={fmtC(tot)} color={C.pri} sub={`${rows.length} עסקאות`} />
         <Stat icon="🏢" title="משרד" value={fmtC(sal.oSales)} sub={`שכר ${sal.officePct ?? 17}%: ${fmtC(sal.oSal)}`} />
         <Stat icon="🏠" title="חוץ" value={fmtC(sal.rSales)} sub={`שכר ${sal.fieldPct ?? 15}%: ${fmtC(sal.rSal)}`} />
         {sal.salaryType !== "sales" && <Stat icon="⏱️" title="שעתי" value={fmtC(sal.hourlySalary)} sub={`${sal.hours} שעות × ₪${sal.hourlyRate}`} />}
