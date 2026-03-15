@@ -55,12 +55,6 @@ const TelegramSvc = {
     const amount = exp.amount ? `₪${Number(exp.amount).toLocaleString("he-IL")}` : "";
     return this.send(`💳 <b>הוצאה תועדה</b>\nקטגוריה: ${exp.category || "—"}\nתיאור: ${exp.name || "—"}\nסכום: ${amount}\nשילם: ${exp.paidBy || "—"}`);
   },
-  notifySettlement(data) {
-    const amount = data.amount ? `₪${Number(data.amount).toLocaleString("he-IL")}` : "";
-    const dir = data.direction === "agency_to_client" ? "סוכנות ← לקוחה" : data.direction === "client_to_agency" ? "לקוחה ← סוכנות" : data.direction || "—";
-    const entity = data.entityType === "chatter" ? `צ'אטר: ${data.modelName}` : `לקוחה: ${data.modelName}`;
-    return this.send(`🤝 <b>קיזוז/התחשבנות נרשמה</b>\n${entity}\nסכום: ${amount}\nכיוון: ${dir}${data.notes ? `\nהערות: ${data.notes}` : ""}`);
-  },
 };
 
 // Income type commission rates (hardcoded, always applied)
@@ -4791,7 +4785,6 @@ function DebtsPage() {
         date: new Date().toISOString()
       };
       await addSettlement(settlementData);
-      TelegramSvc.notifySettlement(settlementData);
       setModalClient(null);
     } catch (e) {
       alert("שגיאה במערכת: " + e.message);
@@ -4812,7 +4805,6 @@ function DebtsPage() {
         date: new Date().toISOString()
       };
       await addSettlement(chatterSettlementData);
-      TelegramSvc.notifySettlement(chatterSettlementData);
       setModalChatter(null);
     } catch (e) {
       alert("שגיאה במערכת: " + e.message);
