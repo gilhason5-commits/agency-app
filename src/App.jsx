@@ -1362,6 +1362,8 @@ function DashPage() {
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
+  const moneyThroughAgency = activeI.filter(r => !r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
+  const moneyThroughAgencyCount = activeI.filter(r => !r.paidToClient).length;
   const ymi = ym(year, month);
   const totalChatterSalary = useMemo(() => {
     const names = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
@@ -1542,7 +1544,7 @@ function DashPage() {
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
         {nonDeductible > 0 && <Stat icon="🚫" title="הוצאות לא מוכרות" value={fmtC(nonDeductible)} color={C.red} sub="מוסיף לבסיס החייב במס" />}
-        <Stat icon="🔄" title="מחזור עסקאות" value={fmtC(mp.inc)} color={C.pri} sub={`${iM.length} עסקאות עברו דרכנו`} />
+        <Stat icon="🔄" title="כסף שעבר דרכנו" value={fmtC(moneyThroughAgency)} color={C.pri} sub={`${moneyThroughAgencyCount} עסקאות עברו דרכנו`} />
         <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
       </div>
 
@@ -3890,9 +3892,9 @@ function ChatterPortal() {
   // Target goals — use custom targets if set by admin, otherwise compute from last month
   const customT = chatterTargets[chatterName];
   const autoTargets = [
-    { label: "יעד 5%", val: Math.round(lastMonthTotal * 1.05), color: "#22c55e" },
-    { label: "יעד 10%", val: Math.round(lastMonthTotal * 1.10), color: "#f59e0b" },
-    { label: "יעד 15%", val: Math.round(lastMonthTotal * 1.15), color: "#ef4444" },
+    { label: "יעד 5%", val: Math.round(lastMonthTotal * 1.05), color: "#22c55e", pct: 5 },
+    { label: "יעד 10%", val: Math.round(lastMonthTotal * 1.10), color: "#f59e0b", pct: 10 },
+    { label: "יעד 15%", val: Math.round(lastMonthTotal * 1.15), color: "#ef4444", pct: 15 },
   ];
   const targets = customT
     ? [
@@ -4487,7 +4489,7 @@ function ClientPortal() {
       {data.length > 0 && <Card style={{ marginBottom: 16 }}>
         <ResponsiveContainer width="100%" height={180}>
           <PieChart>
-            <Pie data={[{ name: "סוכנות", value: throughAgency || 1 }, { name: "ישירות", value: direct || 1 }]} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} fontSize={11}>
+            <Pie data={[{ name: "סוכנות", value: bal.through || 1 }, { name: "ישירות", value: bal.direct || 1 }]} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} fontSize={11}>
               <Cell fill={C.pri} /><Cell fill={C.org} />
             </Pie>
             <Tooltip formatter={v => fmtC(v)} />
@@ -4532,7 +4534,7 @@ function ClientPortal() {
           { label: "עמ׳ ₪", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" },
           { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
           { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> },
-        ]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(data.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalIncome), ""]} />
+        ]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(data.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome), ""]} />
       </Card>
     </div>
   </div>;
