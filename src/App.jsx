@@ -882,10 +882,10 @@ function Prov({ children }) {
   };
   const logout = () => { setUser(null); localStorage.removeItem("AGENCY_USER"); };
 
-  const [customCats, setCustomCats] = useState(() => { try { return JSON.parse(localStorage.getItem("CUSTOM_CATS") || "[]"); } catch { return []; } });
-  const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n) || EXPENSE_CATEGORIES.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); try { localStorage.setItem("CUSTOM_CATS", JSON.stringify(updated)); } catch {} return true; };
-  const removeCustomCat = (name) => { const updated = customCats.filter(c => c !== name); setCustomCats(updated); try { localStorage.setItem("CUSTOM_CATS", JSON.stringify(updated)); } catch {}; };
-  const renameCustomCat = (oldName, newName) => { const n = newName.trim(); if (!n || n === oldName || customCats.includes(n) || EXPENSE_CATEGORIES.includes(n)) return false; const updated = customCats.map(c => c === oldName ? n : c); setCustomCats(updated); try { localStorage.setItem("CUSTOM_CATS", JSON.stringify(updated)); } catch {} return true; };
+  const [customCats, setCustomCats] = useState(() => { try { const saved = localStorage.getItem("ALL_CATS_V2"); if (saved !== null) return JSON.parse(saved); const oldCustom = JSON.parse(localStorage.getItem("CUSTOM_CATS") || "[]"); const merged = [...EXPENSE_CATEGORIES]; oldCustom.forEach(c => { if (!merged.includes(c)) merged.push(c); }); return merged; } catch { return [...EXPENSE_CATEGORIES]; } });
+  const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {} return true; };
+  const removeCustomCat = (name) => { const updated = customCats.filter(c => c !== name); setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {}; };
+  const renameCustomCat = (oldName, newName) => { const n = newName.trim(); if (!n || n === oldName || customCats.includes(n)) return false; const updated = customCats.map(c => c === oldName ? n : c); setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {} return true; };
 
   const val = useMemo(() => ({
     year, setYear, month, setMonth, view, setView, dateRange, setDateRange, page, setPage,
@@ -1185,6 +1185,88 @@ function SetupPage() {
 }
 
 // ═══════════════════════════════════════════════════════
+// COMPONENT: FIXED EXPENSES MANAGER
+// ═══════════════════════════════════════════════════════
+function FixedExpensesManager({ fixedExps, setFixedExps, employees, setEmployees }) {
+  const inpSt = { padding: "8px 10px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" };
+  const btnSt = { padding: "8px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, color: C.txt };
+  const [newItem, setNewItem] = useState({ name: "", amount: "", period: "monthly" });
+  const [newEmp, setNewEmp] = useState({ name: "", grossAmount: "", nationalInsurance: "" });
+  const toMonthly = (amount, period) => period === "monthly" ? amount : period === "quarterly" ? amount / 3 : amount / 12;
+  const periodLabel = { monthly: "חודשי", quarterly: "רבעוני", yearly: "שנתי" };
+  const saveFixed = (updated) => { setFixedExps(updated); localStorage.setItem("AGENCY_FIXED_EXP", JSON.stringify(updated)); };
+  const saveEmps = (updated) => { setEmployees(updated); localStorage.setItem("AGENCY_EMPLOYEES", JSON.stringify(updated)); };
+  const addFixed = () => {
+    if (!newItem.name || !newItem.amount) return;
+    saveFixed([...fixedExps, { id: Date.now().toString(), name: newItem.name, amount: +newItem.amount, period: newItem.period }]);
+    setNewItem({ name: "", amount: "", period: "monthly" });
+  };
+  const addEmployee = () => {
+    if (!newEmp.name || !newEmp.grossAmount) return;
+    saveEmps([...employees, { id: Date.now().toString(), name: newEmp.name, grossAmount: +newEmp.grossAmount, nationalInsurance: +newEmp.nationalInsurance || 0 }]);
+    setNewEmp({ name: "", grossAmount: "", nationalInsurance: "" });
+  };
+  return (
+    <Card style={{ marginBottom: 16, direction: "rtl" }}>
+      <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 14 }}>🔒 הוצאות קבועות</h3>
+      {fixedExps.length > 0 && <div style={{ marginBottom: 12 }}>
+        {fixedExps.map(e => (
+          <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.bdr}` }}>
+            <span style={{ color: C.txt, fontSize: 13 }}>{e.name}</span>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ color: C.dim, fontSize: 11, background: C.bg, padding: "2px 8px", borderRadius: 4 }}>{periodLabel[e.period]}</span>
+              <span style={{ color: C.red, fontSize: 13, fontWeight: 600 }}>{fmtC(e.amount)}</span>
+              {e.period !== "monthly" && <span style={{ color: C.mut, fontSize: 11 }}>≈{fmtC(toMonthly(e.amount, e.period))}/חו'</span>}
+              <button onClick={() => saveFixed(fixedExps.filter(x => x.id !== e.id))} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
+            </div>
+          </div>
+        ))}
+      </div>}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20, alignItems: "center" }}>
+        <input value={newItem.name} onChange={e => setNewItem(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === "Enter" && addFixed()} placeholder="שם הוצאה" style={{ ...inpSt, flex: 1, minWidth: 120 }} />
+        <input type="number" value={newItem.amount} onChange={e => setNewItem(p => ({ ...p, amount: e.target.value }))} onKeyDown={e => e.key === "Enter" && addFixed()} placeholder="סכום ₪" style={{ ...inpSt, width: 110 }} />
+        <select value={newItem.period} onChange={e => setNewItem(p => ({ ...p, period: e.target.value }))} style={inpSt}>
+          <option value="monthly">חודשי</option>
+          <option value="quarterly">רבעוני</option>
+          <option value="yearly">שנתי</option>
+        </select>
+        <button onClick={addFixed} style={{ ...btnSt, background: C.pri }}>+ הוסף הוצאה</button>
+      </div>
+      <div style={{ borderTop: `1px solid ${C.bdr}`, paddingTop: 14 }}>
+        <h4 style={{ color: C.txt, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>👥 שכירים</h4>
+        {employees.length > 0 && <div style={{ marginBottom: 12 }}>
+          {employees.map(emp => (
+            <div key={emp.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.bdr}` }}>
+              <span style={{ color: C.txt, fontSize: 13 }}>{emp.name}</span>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <span style={{ color: C.ylw, fontSize: 12 }}>ברוטו: <strong>{fmtC(emp.grossAmount)}</strong></span>
+                {emp.nationalInsurance > 0 && <span style={{ color: C.dim, fontSize: 12 }}>ב.ל: {fmtC(emp.nationalInsurance)}</span>}
+                <button onClick={() => saveEmps(employees.filter(x => x.id !== emp.id))} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
+              </div>
+            </div>
+          ))}
+        </div>}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ color: C.dim, fontSize: 11 }}>שם שכיר</label>
+            <input value={newEmp.name} onChange={e => setNewEmp(p => ({ ...p, name: e.target.value }))} placeholder="שם" style={{ ...inpSt, width: 130 }} />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ color: C.dim, fontSize: 11 }}>ברוטו ₪</label>
+            <input type="number" value={newEmp.grossAmount} onChange={e => setNewEmp(p => ({ ...p, grossAmount: e.target.value }))} placeholder="0" style={{ ...inpSt, width: 110 }} />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ color: newEmp.grossAmount ? C.dim : C.mut, fontSize: 11, transition: "color 0.2s" }}>ביטוח לאומי ₪</label>
+            <input type="number" value={newEmp.nationalInsurance} onChange={e => setNewEmp(p => ({ ...p, nationalInsurance: e.target.value }))} placeholder="0" disabled={!newEmp.grossAmount} style={{ ...inpSt, width: 130, opacity: newEmp.grossAmount ? 1 : 0.3, transition: "opacity 0.2s" }} />
+          </div>
+          <button onClick={addEmployee} style={{ ...btnSt, background: C.grn }}>+ הוסף שכיר</button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
@@ -1193,6 +1275,11 @@ function DashPage() {
   const w = useWin();
   const [lmVals, setLmVals] = useState(() => { try { return JSON.parse(localStorage.getItem("LM_DB") || "{}"); } catch { return {}; } });
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} };
+  const [bizType, setBizType] = useState(() => localStorage.getItem("AGENCY_BIZ_TYPE") || "עוסק");
+  const [manualNI, setManualNI] = useState(() => +localStorage.getItem("AGENCY_MANUAL_NI") || 0);
+  const [fixedExps, setFixedExps] = useState(() => { try { return JSON.parse(localStorage.getItem("AGENCY_FIXED_EXP") || "[]"); } catch { return []; } });
+  const [employees, setEmployees] = useState(() => { try { return JSON.parse(localStorage.getItem("AGENCY_EMPLOYEES") || "[]"); } catch { return []; } });
+  const [showFixedMgr, setShowFixedMgr] = useState(false);
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
@@ -1212,6 +1299,25 @@ function DashPage() {
     }, 0);
   }, [activeI, ymi]);
   const netProfit = mp.profit - totalClientSalary - totalChatterSalary;
+
+  // ─── New financial metrics ───────────────────────────────────────
+  const toMonthly = (amount, period) => period === "monthly" ? amount : period === "quarterly" ? amount / 3 : amount / 12;
+  const fixedMonthly = fixedExps.reduce((s, e) => s + toMonthly(e.amount, e.period), 0);
+  const empGrossMonthly = employees.reduce((s, e) => s + e.grossAmount, 0);
+  const empNIMonthly = employees.reduce((s, e) => s + e.nationalInsurance, 0);
+  const empMonthly = empGrossMonthly + empNIMonthly;
+  const burnRate = fixedMonthly + empMonthly;
+  const agencyIncome = mp.inc - totalClientSalary - totalChatterSalary;
+  const lmCurr = view === "monthly" ? (lmVals[year]?.[month] || 0) : 0;
+  const vatBase = agencyIncome - lmCurr;
+  const vat = vatBase > 0 ? vatBase * 0.17 : 0;
+  const grossProfit = agencyIncome - mp.exp - fixedMonthly - empMonthly;
+  const taxBase = grossProfit - vat;
+  const incomeTax = taxBase > 0 ? taxBase * 0.23 : 0;
+  const niTotal = empNIMonthly + manualNI;
+  const netProfitFull = grossProfit - vat - incomeTax - niTotal;
+  const cashToBank = netProfitFull - lmCurr;
+  // ────────────────────────────────────────────────────────────────
 
   const paymentGap = useMemo(() => {
     const isMonthly = view === "monthly";
@@ -1323,19 +1429,62 @@ function DashPage() {
     </div>
     <FB><ViewFilter /></FB>
     {view === "monthly" ? <div>
+      {/* Business type toggle + ל.מ */}
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 0, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.bdr}` }}>
+          <button onClick={() => { setBizType("עוסק"); localStorage.setItem("AGENCY_BIZ_TYPE", "עוסק"); }} style={{ padding: "7px 16px", background: bizType === "עוסק" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "עוסק" ? 700 : 400 }}>עוסק מורשה</button>
+          <button onClick={() => { setBizType("חברה"); localStorage.setItem("AGENCY_BIZ_TYPE", "חברה"); }} style={{ padding: "7px 16px", background: bizType === "חברה" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "חברה" ? 700 : 400 }}>חברה</button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <label style={{ color: C.dim, fontSize: 12 }}>ל.מ (ניכויים) ₪</label>
+          <input type="number" value={lmVals[year]?.[month] || ""} placeholder="0" onChange={e => saveLm(month, +e.target.value)} style={{ width: 90, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
+        </div>
+        {employees.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <label style={{ color: C.dim, fontSize: 12 }}>ב.ל נוסף (שכירים) ₪</label>
+          <input type="number" value={manualNI || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setManualNI(v); localStorage.setItem("AGENCY_MANUAL_NI", v); }} style={{ width: 100, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
+        </div>}
+      </div>
+
+      {/* Row 1: Sales breakdown → agency income */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-        <Stat icon="💰" title={`צפי מכירות — ${MONTHS_HE[month]}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iM.length} עסקאות`} />
-        <Stat icon="💳" title="הוצאות" value={fmtC(mp.exp)} color={C.red} />
-        <Stat icon="👑" title="צפי שכר לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
-        <Stat icon="💬" title="צפי שכר צאטים" value={fmtC(totalChatterSalary)} color={C.ylw} />
-        <Stat icon="📈" title="צפי רווח לפני מס" value={fmtC(netProfit)} color={netProfit >= 0 ? C.grn : C.red} />
+        <Stat icon="💰" title={`מכירות — ${MONTHS_HE[month]}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iM.length} עסקאות`} />
+        <Stat icon="👑" title="שכר לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
+        <Stat icon="💬" title="שכר צ'אטרים" value={fmtC(totalChatterSalary)} color={C.ylw} />
+        <Stat icon="📥" title="צפי הכנסה שלי" value={fmtC(agencyIncome)} color={agencyIncome >= 0 ? C.grn : C.red} sub="אחרי שכר לקוחות וצ'אטרים" />
       </div>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+
+      {/* Row 2: Expenses → gross profit */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+        <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
+        <Stat icon="🔒" title="הוצאות קבועות" value={fmtC(fixedMonthly + empMonthly)} color={C.red} sub={employees.length > 0 ? `כולל ${employees.length} שכיר${employees.length > 1 ? "ים" : ""}` : "חודשי"} />
+        <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
+      </div>
+
+      {/* Row 3: Tax / VAT / NI */}
+      <Card style={{ marginBottom: 12, background: `${C.red}08`, border: `1px solid ${C.red}30` }}>
+        <div style={{ color: C.ylw, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>🧾 מסים ותשלומים חובה</div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <Stat icon="📋" title="מע״מ (17%)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatBase)}`} />
+          <Stat icon="🏛️" title="מס הכנסה (23%)" value={fmtC(incomeTax)} color={C.ylw} sub={bizType} />
+          <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + ידני" : "ידני"} />
+          <Stat icon="💸" title="סה״כ מסים" value={fmtC(vat + incomeTax + niTotal)} color={C.red} sub="מע״מ + מס + ב.ל" />
+        </div>
+      </Card>
+
+      {/* Row 4: Net profit + cash to bank + payment gaps */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+        <Stat icon="💚" title="רווח נטו" value={fmtC(netProfitFull)} color={netProfitFull >= 0 ? C.grn : C.red} sub="אחרי כל הניכויים" />
+        <Stat icon="🏦" title="כסף לבנק" value={fmtC(cashToBank)} color={cashToBank >= 0 ? C.grn : C.red} sub="רווח נטו פחות ל.מ" />
         <Stat icon={paymentGap > 0 ? "🔴" : paymentGap < 0 ? "🟢" : "⚪"} title="פערי תשלומים" value={fmtC(Math.abs(paymentGap))} color={paymentGap > 0 ? C.red : paymentGap < 0 ? C.grn : C.mut} sub={paymentGap > 0 ? "אנחנו חייבים" : paymentGap < 0 ? "חייבים לנו" : "מאוזן"} />
-        <Stat icon="💵" title="רווח בפועל" value={fmtC(actualProfit)} color={actualProfit >= 0 ? C.grn : C.red} sub="אחרי קיזוזים ותשלומים" />
-        <Stat icon="🧾" title="מס בפועל (23%)" value={fmtC(actualProfit > 0 ? actualProfit * 0.23 : 0)} color={C.red} sub="על רווח בפועל" />
-        <Stat icon="💰" title="רווח נטו" value={fmtC(actualProfit > 0 ? actualProfit * 0.77 : actualProfit)} color={actualProfit >= 0 ? C.grn : C.red} sub="אחרי מס" />
       </div>
+
+      {/* Burn rate */}
+      {burnRate > 0 && <Card style={{ marginBottom: 16, background: `${C.red}10`, border: `2px solid ${C.red}40`, textAlign: "center" }}>
+        <div style={{ color: C.red, fontSize: 13, fontWeight: 600, marginBottom: 4 }}>🔥 שריפה חודשית</div>
+        <div style={{ fontSize: 36, fontWeight: 800, color: C.red }}>{fmtC(burnRate)}</div>
+        <div style={{ color: C.mut, fontSize: 12, marginTop: 6 }}>עלות ההחזקה של העסק ללא הכנסות</div>
+        {fixedMonthly > 0 && <div style={{ color: C.dim, fontSize: 11, marginTop: 4 }}>הוצאות קבועות: {fmtC(fixedMonthly)} | שכירים: {fmtC(empMonthly)}</div>}
+      </Card>}
     </div> : <>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <Stat icon="💰" title={`צפי מכירות — ${year}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iY.length} עסקאות`} />
@@ -1429,6 +1578,15 @@ function DashPage() {
       </div>;
     })()}
 
+    {/* Fixed Expenses Manager */}
+    <div style={{ marginTop: 24 }}>
+      <button onClick={() => setShowFixedMgr(p => !p)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, cursor: "pointer", padding: "8px 16px", fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
+        🔒 ניהול הוצאות קבועות {showFixedMgr ? "▲" : "▼"}
+        {(fixedExps.length > 0 || employees.length > 0) && <span style={{ background: C.pri, color: "#fff", fontSize: 11, borderRadius: 10, padding: "1px 7px" }}>{fixedExps.length + employees.length}</span>}
+      </button>
+      {showFixedMgr && <FixedExpensesManager fixedExps={fixedExps} setFixedExps={setFixedExps} employees={employees} setEmployees={setEmployees} />}
+    </div>
+
     {/* Tier Cubes */}
     <TierCubes income={view === "monthly" ? iM : iY} />
   </div>;
@@ -1521,6 +1679,7 @@ function IncPage() {
   const [showIncForm, setShowIncForm] = useState(false);
   const [showIncTypesMgr, setShowIncTypesMgr] = useState(false);
   const [editTx, setEditTx] = useState(null);
+  const [noteView, setNoteView] = useState(null);
 
   const data = activeInc.filter(r => (fP === "all" || r.platform === fP) && (fC === "all" || r.modelName === fC) && (fCh === "all" || r.chatterName === fCh) && (fL === "all" || r.shiftLocation === fL) && (fT === "all" || r.incomeType === fT));
   const totalILS = data.reduce((s, r) => s + (r.rawILS || 0), 0);
@@ -1582,13 +1741,16 @@ function IncPage() {
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(grandTotal), "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "הערה", render: r => { if (!r.notes) return ""; const words = r.notes.trim().split(/\s+/); if (words.length <= 3) return <span style={{ fontSize: 11, color: C.dim }}>{r.notes}</span>; return <span onClick={() => setNoteView(r.notes)} style={{ fontSize: 11, color: C.pri, cursor: "pointer", whiteSpace: "nowrap" }} title="לחץ לצפייה בהערה המלאה">{words.slice(0, 3).join(" ")}...</span>; } }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(grandTotal), "", "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
 
     {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד מכירה ידנית" width={500}>
       <RecordIncomeAdmin onClose={() => setShowIncForm(false)} />
     </Modal>}
     {editTx && <Modal open={true} onClose={() => setEditTx(null)} title="✏️ עריכת עסקה" width={420}>
       <EditIncomeModal record={editTx} onClose={() => setEditTx(null)} />
+    </Modal>}
+    {noteView && <Modal open={true} onClose={() => setNoteView(null)} title="📝 הערה" width={400}>
+      <p style={{ color: C.txt, lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0 }}>{noteView}</p>
     </Modal>}
     {showIncTypesMgr && <Modal open={true} onClose={() => setShowIncTypesMgr(false)} title="✏️ עריכת סוגי הכנסה" width={500}>
       <IncomeTypesModal onClose={() => setShowIncTypesMgr(false)} />
@@ -1694,7 +1856,7 @@ function IncomeTypesModal({ onClose }) {
       <span style={{ flex: 1 }}>סוג הכנסה</span>
       <span style={{ width: 60, textAlign: "center" }}>עמלה %</span>
       <span style={{ width: 70, textAlign: "center" }}>עסקאות</span>
-      <span style={{ width: 64 }}></span>
+      <span style={{ width: 72 }}></span>
     </div>
     {allTypes.length === 0 ? (
       <div style={{ color: C.dim, textAlign: "center", padding: 20 }}>אין סוגי הכנסה עדיין</div>
@@ -2025,7 +2187,7 @@ function RecordIncomeAdmin({ onClose }) {
 // ═══════════════════════════════════════════════════════
 function ExpPage() {
   const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo, rv, chatterSettings, customCats, addCustomCat, removeCustomCat, renameCustomCat } = useApp();
-  const allCats = [...EXPENSE_CATEGORIES, ...customCats];
+  const allCats = customCats;
   const [showAddCat, setShowAddCat] = useState(false);
   const [newCatName, setNewCatName] = useState("");
   const [editingCat, setEditingCat] = useState(null);
@@ -2061,31 +2223,24 @@ function ExpPage() {
     </div>
     <Modal open={showAddCat} onClose={() => { setShowAddCat(false); setEditingCat(null); }} title="✏️ עריכת סיווגים" width={420}>
       <div style={{ maxHeight: 320, overflowY: "auto", marginBottom: 16 }}>
-        {customCats.length === 0 && <div style={{ color: C.dim, fontSize: 12, marginBottom: 8, textAlign: "center", padding: "12px 0" }}>אין סיווגים מותאמים אישית עדיין</div>}
-        {customCats.length > 0 && <div style={{ marginBottom: 8 }}>
-          <div style={{ color: C.dim, fontSize: 11, marginBottom: 8 }}>סיווגים מותאמים אישית:</div>
-          {customCats.map(c => (
-            <div key={c} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, background: `${C.pri}11`, borderRadius: 6, padding: "4px 8px" }}>
-              {editingCat === c ? (
-                <>
-                  <input value={editingCatName} onChange={e => setEditingCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { if (renameCustomCat(c, editingCatName)) setEditingCat(null); else alert("שם קיים או ריק"); } if (e.key === "Escape") setEditingCat(null); }} style={{ flex: 1, padding: "4px 8px", background: C.card, border: `1px solid ${C.pri}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} autoFocus />
-                  <Btn variant="primary" onClick={() => { if (renameCustomCat(c, editingCatName)) setEditingCat(null); else alert("שם קיים או ריק"); }} style={{ padding: "3px 10px", fontSize: 12 }}>✓</Btn>
-                  <Btn variant="ghost" onClick={() => setEditingCat(null)} style={{ padding: "3px 8px", fontSize: 12 }}>✕</Btn>
-                </>
-              ) : (
-                <>
-                  <span style={{ flex: 1, color: C.priL, fontSize: 13 }}>{c}</span>
-                  <Btn variant="ghost" onClick={() => { setEditingCat(c); setEditingCatName(c); }} style={{ padding: "3px 8px", fontSize: 11 }}>✏️</Btn>
-                  <Btn variant="ghost" onClick={() => { if (window.confirm(`למחוק את הסיווג "${c}"?`)) removeCustomCat(c); }} style={{ padding: "3px 8px", fontSize: 11, color: C.red }}>🗑️</Btn>
-                </>
-              )}
-            </div>
-          ))}
-        </div>}
-        {EXPENSE_CATEGORIES.length > 0 && <div>
-          <div style={{ color: C.dim, fontSize: 11, marginBottom: 6 }}>סיווגים קבועים (לא ניתן לערוך):</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{EXPENSE_CATEGORIES.map(c => <span key={c} style={{ background: `${C.bdr}44`, color: C.dim, borderRadius: 4, padding: "2px 7px", fontSize: 11 }}>{c}</span>)}</div>
-        </div>}
+        {customCats.length === 0 && <div style={{ color: C.dim, fontSize: 12, marginBottom: 8, textAlign: "center", padding: "12px 0" }}>אין סיווגים עדיין</div>}
+        {customCats.map(c => (
+          <div key={c} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, background: `${C.pri}11`, borderRadius: 6, padding: "4px 8px" }}>
+            {editingCat === c ? (
+              <>
+                <input value={editingCatName} onChange={e => setEditingCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { if (renameCustomCat(c, editingCatName)) setEditingCat(null); else alert("שם קיים או ריק"); } if (e.key === "Escape") setEditingCat(null); }} style={{ flex: 1, padding: "4px 8px", background: C.card, border: `1px solid ${C.pri}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} autoFocus />
+                <Btn variant="primary" onClick={() => { if (renameCustomCat(c, editingCatName)) setEditingCat(null); else alert("שם קיים או ריק"); }} style={{ padding: "3px 10px", fontSize: 12 }}>✓</Btn>
+                <Btn variant="ghost" onClick={() => setEditingCat(null)} style={{ padding: "3px 8px", fontSize: 12 }}>✕</Btn>
+              </>
+            ) : (
+              <>
+                <span style={{ flex: 1, color: C.priL, fontSize: 13 }}>{c}</span>
+                <Btn variant="ghost" onClick={() => { setEditingCat(c); setEditingCatName(c); }} style={{ padding: "3px 8px", fontSize: 11 }}>✏️</Btn>
+                <Btn variant="ghost" onClick={() => { if (window.confirm(`למחוק את הסיווג "${c}"?`)) removeCustomCat(c); }} style={{ padding: "3px 8px", fontSize: 11, color: C.red }}>🗑️</Btn>
+              </>
+            )}
+          </div>
+        ))}
       </div>
       <div style={{ borderTop: `1px solid ${C.bdr}`, paddingTop: 12 }}>
         <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>הוספת סיווג חדש:</div>
@@ -2899,7 +3054,7 @@ function TgtPage() {
 // ═══════════════════════════════════════════════════════
 function RecordExpensePage({ editMode, onDone }) {
   const { setPage, demo, expenses, setExpenses, customCats } = useApp(); const w = useWin();
-  const allCats = [...EXPENSE_CATEGORIES, ...customCats];
+  const allCats = customCats;
   const [mode, setMode] = useState(editMode ? "manual" : null);
   const [form, setForm] = useState(editMode ? { category: editMode.category, name: editMode.name, amount: String(editMode.amount), date: editMode.date ? `${editMode.date.getFullYear()}-${String(editMode.date.getMonth() + 1).padStart(2, "0")}-${String(editMode.date.getDate()).padStart(2, "0")}` : new Date().toISOString().split("T")[0], hour: editMode.hour || "12:00", paidBy: editMode.paidBy, vatRecognized: editMode.vatRecognized, taxRecognized: editMode.taxRecognized } : { category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true });
   const [saving, setSaving] = useState(false), [saved, setSaved] = useState(false), [err, setErr] = useState(""), [scaning, setScaning] = useState(false);
@@ -2929,7 +3084,7 @@ function RecordExpensePage({ editMode, onDone }) {
           ...f,
           name: res.Provider || f.name,
           amount: String(res.Amount || f.amount),
-          category: EXPENSE_CATEGORIES.find(c => c === res.Category) || f.category,
+          category: allCats.find(c => c === res.Category) || f.category,
           date: res.Date ? res.Date.split("/").reverse().join("-") : f.date
         }));
         setMode("manual");
