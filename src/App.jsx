@@ -136,6 +136,15 @@ function renderDateHour(r) {
   return <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {h ? <span style={{ fontSize: 11, color: C.mut }}>{h}</span> : ""}</span>;
 }
 function ym(y, m) { return `${y}-${String(m + 1).padStart(2, "0")}`; }
+function ymFromDate(date) { if (!date) return null; return ym(date.getFullYear(), date.getMonth()); }
+// Returns effective pcts for a given month — looks up monthlyPcts[ymi], falls back to prev month, then global
+function getMonthlyPcts(settings, ymi) {
+  const monthly = settings?.monthlyPcts || {};
+  if (monthly[ymi]) return monthly[ymi];
+  const prev = Object.keys(monthly).filter(k => k < ymi).sort();
+  if (prev.length > 0) return monthly[prev[prev.length - 1]];
+  return { officePct: settings?.officePct ?? 17, fieldPct: settings?.fieldPct ?? 15, salaryType: settings?.salaryType ?? "sales", hourlyRate: settings?.hourlyRate ?? 0 };
+}
 function useWin() { const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1200); useEffect(() => { const h = () => setW(window.innerWidth); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, []); return w; }
 
 // ═══════════════════════════════════════════════════════
@@ -665,10 +674,11 @@ const Calc = {
   chatterSalary(rows, settings, ymi) {
     let o = 0, r = 0;
     rows.forEach(x => { if (x.shiftLocation === "משרד") o += x.amountILS; else r += x.amountILS; });
-    const officePct = (settings?.officePct ?? 17) / 100;
-    const fieldPct = (settings?.fieldPct ?? 15) / 100;
-    const salaryType = settings?.salaryType ?? "sales";
-    const hourlyRate = settings?.hourlyRate ?? 0;
+    const pcts = getMonthlyPcts(settings, ymi);
+    const officePct = (pcts.officePct ?? 17) / 100;
+    const fieldPct = (pcts.fieldPct ?? 15) / 100;
+    const salaryType = pcts.salaryType ?? "sales";
+    const hourlyRate = pcts.hourlyRate ?? 0;
     const hours = (settings?.monthlyHours && ymi) ? (settings.monthlyHours[ymi] ?? 0) : 0;
     const oSal = o * officePct; const rSal = r * fieldPct;
     const salesSalary = oSal + rSal;
@@ -686,8 +696,10 @@ const Calc = {
     let chatterSalaryForClient = 0;
     clRows.forEach(r => {
       const cfg = chatterSettings[r.chatterName] || {};
-      const oPct = (cfg.officePct ?? 17) / 100;
-      const fPct = (cfg.fieldPct ?? 15) / 100;
+      const rowYmi = ymFromDate(r.date);
+      const pcts = getMonthlyPcts(cfg, rowYmi);
+      const oPct = (pcts.officePct ?? 17) / 100;
+      const fPct = (pcts.fieldPct ?? 15) / 100;
       chatterSalaryForClient += r.amountILS * (r.shiftLocation === "משרד" ? oPct : fPct);
     });
     // Client entitlement = total income - agency share - chatter salary
@@ -2379,6 +2391,8 @@ function ChatterPage({ forceSel, onBack } = {}) {
 
   const ymi = ym(year, month);
   const cfg = chatterSettings[sel] || {};
+  const effectivePcts = getMonthlyPcts(cfg, ymi);
+  const hasMonthlyOverride = !!(cfg.monthlyPcts?.[ymi]);
   const rows = incD.filter(r => r.chatterName === sel);
   const sal = Calc.chatterSalary(rows, cfg, ymi);
   const tot = rows.reduce((s, r) => s + r.amountILS, 0);
@@ -2396,12 +2410,12 @@ function ChatterPage({ forceSel, onBack } = {}) {
   }, [iY, sel, view, cfg, year]);
 
   const openSettings = () => {
-    setSettingsForm({ salaryType: cfg.salaryType || "sales", officePct: cfg.officePct ?? 17, fieldPct: cfg.fieldPct ?? 15, hourlyRate: cfg.hourlyRate ?? 0 });
+    setSettingsForm({ salaryType: effectivePcts.salaryType ?? "sales", officePct: effectivePcts.officePct ?? 17, fieldPct: effectivePcts.fieldPct ?? 15, hourlyRate: effectivePcts.hourlyRate ?? 0 });
     setEditSettings(true);
   };
   const saveSettings = async () => {
     setSaving(true);
-    await saveChatterSetting(sel, settingsForm);
+    await saveChatterSetting(sel, { monthlyPcts: { ...(cfg.monthlyPcts || {}), [ymi]: settingsForm } });
     setSaving(false);
     setEditSettings(false);
   };
@@ -2448,10 +2462,10 @@ function ChatterPage({ forceSel, onBack } = {}) {
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${C.bdr}` }}>
-            <Stat icon="📋" title="סוג שכר" value={SALARY_TYPE_LABELS[cfg.salaryType || "sales"]} />
-            <Stat icon="🏢" title="משרד" value={`${cfg.officePct ?? 17}%`} />
-            <Stat icon="🏠" title="חוץ" value={`${cfg.fieldPct ?? 15}%`} />
-            {sal.salaryType !== "sales" && <Stat icon="⏰" title="שכר לשעה" value={`₪${cfg.hourlyRate ?? 0}`} />}
+            <Stat icon="📋" title="סוג שכר" value={SALARY_TYPE_LABELS[effectivePcts.salaryType || "sales"]} sub={hasMonthlyOverride ? `✎ ${MONTHS_HE[month]}` : "ברירת מחדל"} />
+            <Stat icon="🏢" title="משרד" value={`${effectivePcts.officePct ?? 17}%`} sub={hasMonthlyOverride ? `✎ ${MONTHS_HE[month]}` : "ברירת מחדל"} />
+            <Stat icon="🏠" title="חוץ" value={`${effectivePcts.fieldPct ?? 15}%`} sub={hasMonthlyOverride ? `✎ ${MONTHS_HE[month]}` : "ברירת מחדל"} />
+            {sal.salaryType !== "sales" && <Stat icon="⏰" title="שכר לשעה" value={`₪${effectivePcts.hourlyRate ?? 0}`} />}
             <Card style={{ flex: 1, minWidth: 140 }}>
               <div style={{ color: C.dim, fontSize: 12, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 16 }}>⏱️</span>שעות עבודה — {MONTHS_HE[month]}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -2497,7 +2511,7 @@ function ChatterPage({ forceSel, onBack } = {}) {
       <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }]} rows={rows.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(rows.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(tot)]} />
 
       {/* Edit settings modal */}
-      <Modal open={editSettings} onClose={() => setEditSettings(false)} title={`⚙️ הגדרות שכר — ${sel}`} width={400}>
+      <Modal open={editSettings} onClose={() => setEditSettings(false)} title={`⚙️ הגדרות שכר — ${sel} — ${MONTHS_HE[month]} ${year}`} width={400}>
         <div style={{ display: "grid", gap: 14 }}>
           <div>
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>סוג שכר</label>
@@ -2521,6 +2535,9 @@ function ChatterPage({ forceSel, onBack } = {}) {
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שכר לשעה (₪)</label>
             <input type="number" min="0" value={settingsForm.hourlyRate} onChange={e => setSettingsForm(f => ({ ...f, hourlyRate: +e.target.value }))} style={inpS} />
           </div>}
+          <div style={{ padding: "8px 10px", background: `${C.pri}15`, borderRadius: 8, fontSize: 11, color: C.dim }}>
+            ℹ️ ההגדרות ישמרו עבור <strong style={{ color: C.priL }}>{MONTHS_HE[month]} {year}</strong> בלבד. חודשים חדשים יורשים את ההגדרות של החודש הקרוב ביותר שהוגדר.
+          </div>
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <Btn variant="success" onClick={saveSettings} disabled={saving}>{saving ? "שומר..." : "💾 שמור"}</Btn>
             <Btn variant="ghost" onClick={() => setEditSettings(false)}>ביטול</Btn>
