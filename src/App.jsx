@@ -21,9 +21,9 @@ const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || "";
 const EXPENSES_URL = import.meta.env.VITE_EXPENSES_URL || "";
 const GROK_API_KEY_DEFAULT = import.meta.env.VITE_GROK_API_KEY || "";
 
-// Platform commission rates (%)
-const PLATFORM_COMMISSIONS = { "אונלי": 20 };
-// Income type commission rates (%)
+// Income type commission rates (hardcoded, always applied)
+const INCOME_TYPE_COMMISSIONS = { "אונלי": 20 };
+// Income type commission rates (editable via settings)
 const _incomeTypeCommissions = (() => {
   try { return JSON.parse(localStorage.getItem("INCOME_TYPE_COMMISSIONS_DB") || '{"ווישלי":8,"קארדקום":13}'); }
   catch { return { "ווישלי": 8, "קארדקום": 13 }; }
@@ -36,7 +36,7 @@ function saveIncomeTypeCommission(typeName, pct) {
 
 // Resolve commission % for a given platform + incomeType
 function resolveCommissionPct(platform, incomeType) {
-  return PLATFORM_COMMISSIONS[platform] || _incomeTypeCommissions[incomeType] || 0;
+  return INCOME_TYPE_COMMISSIONS[incomeType] || _incomeTypeCommissions[incomeType] || 0;
 }
 
 // Compute commission fields when saving income.
@@ -2851,7 +2851,6 @@ function ClientPage({ forceSel, onBack } = {}) {
 function TgtPage() {
   const { year, month, liveRate, chatterTargets, saveChatterTarget } = useApp();
   const { iY } = useFD();
-  const [filterMonth, setFilterMonth] = useState(month);
   const [selMonth, setSelMonth] = useState(null);
   const [editTarget, setEditTarget] = useState(null); // { name, t1, t2, t3 }
   const [savingTarget, setSavingTarget] = useState(false);
@@ -2884,7 +2883,7 @@ function TgtPage() {
         if (mi === prevIdx && prevIdx >= 0) prevMap[key] = (prevMap[key] || 0) + r.amountILS;
         if (mi === selMonth) curMap[key] = (curMap[key] || 0) + r.amountILS;
       });
-      const allKeys = [...new Set([...Object.keys(prevMap), ...Object.keys(curMap)])].sort();
+      const allKeys = prevIdx >= 0 ? Object.keys(prevMap).sort() : Object.keys(curMap).sort();
       return allKeys.map(name => {
         const prevInc = prevMap[name] || 0;
         const curInc = curMap[name] || 0;
@@ -2951,7 +2950,7 @@ function TgtPage() {
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, margin: 0 }}>🎯 תחזית יעדים — {year}</h2>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <label style={{ color: C.dim, fontSize: 13 }}>חודש:</label>
-        <select value={filterMonth} onChange={e => setFilterMonth(+e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" }}>
+        <select value={selMonth !== null ? selMonth : -1} onChange={e => { const v = +e.target.value; v === -1 ? setSelMonth(null) : setSelMonth(v); }} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" }}>
           <option value={-1}>כל החודשים</option>
           {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
         </select>
@@ -2959,7 +2958,7 @@ function TgtPage() {
     </div>
 
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 16, marginBottom: 24 }}>
-      {mbd.filter(d => filterMonth === -1 || d.idx === filterMonth).map(d => {
+      {mbd.map(d => {
         const isCurrent = d.idx === month;
         const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
         const currentDaily = d.inc / daysPassed;
@@ -2987,9 +2986,13 @@ function TgtPage() {
               <span style={{ color: C.dim }}>הכנסות בפועל:</span>
               <span style={{ color: C.txt, fontWeight: 600 }}>{isFuture ? "—" : fmtC(d.inc)}</span>
             </div>
-            {isCurrent && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: C.dim }}>קצב צפוי לסוף חודש:</span>
-              <span style={{ color: C.pri, fontWeight: 600 }}>{fmtC(currentDaily * d.days)}</span>
+            {!isFuture && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+              <span style={{ color: C.dim }}>יעד יומי (ברזל):</span>
+              <span style={{ color: currentDaily >= (d.tgt1 / d.days) ? C.grn : C.ylw, fontWeight: 600 }}>{fmtC(d.tgt1 / d.days)}/יום</span>
+            </div>}
+            {!isFuture && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+              <span style={{ color: C.dim }}>{isCurrent ? "צפי לסוף חודש:" : "ממוצע יומי × ימים:"}</span>
+              <span style={{ color: isCurrent ? C.pri : C.dim, fontWeight: 600 }}>{fmtC(currentDaily * d.days)}</span>
             </div>}
           </div>
 
