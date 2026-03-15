@@ -20,6 +20,42 @@ import {
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || "";
 const EXPENSES_URL = import.meta.env.VITE_EXPENSES_URL || "";
 const GROK_API_KEY_DEFAULT = import.meta.env.VITE_GROK_API_KEY || "";
+const TELEGRAM_BOT_TOKEN = import.meta.env.VITE_TELEGRAM_BOT_TOKEN || "";
+const TELEGRAM_CHAT_ID = import.meta.env.VITE_TELEGRAM_CHAT_ID || "";
+
+// ═══════════════════════════════════════════════════════
+// TELEGRAM NOTIFICATIONS
+// ═══════════════════════════════════════════════════════
+const TelegramSvc = {
+  async send(text) {
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+    try {
+      await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, parse_mode: "HTML" }),
+      });
+    } catch (e) {
+      console.warn("Telegram notification failed:", e.message);
+    }
+  },
+  notifyIncomeSubmitted(row) {
+    const amount = row.amountILS ? `₪${Number(row.amountILS).toLocaleString("he-IL")}` : "";
+    return this.send(`📥 <b>עסקה חדשה ממתינה לאישור</b>\nצ'אטר: ${row.chatterName || "—"}\nלקוחה: ${row.modelName || "—"}\nסכום: ${amount}\nפלטפורמה: ${row.platform || "—"}\nתאריך: ${row.date instanceof Date ? row.date.toLocaleDateString("he-IL") : row.date || "—"}`);
+  },
+  notifyIncomeApproved(row) {
+    const amount = row.amountILS ? `₪${Number(row.amountILS).toLocaleString("he-IL")}` : "";
+    return this.send(`✅ <b>עסקה אושרה</b>\nצ'אטר: ${row.chatterName || "—"}\nלקוחה: ${row.modelName || "—"}\nסכום: ${amount}\nפלטפורמה: ${row.platform || "—"}`);
+  },
+  notifyIncomeAdded(row) {
+    const amount = row.amountILS ? `₪${Number(row.amountILS).toLocaleString("he-IL")}` : "";
+    return this.send(`💰 <b>הכנסה נוספה ידנית</b>\nצ'אטר: ${row.chatterName || "—"}\nלקוחה: ${row.modelName || "—"}\nסכום: ${amount}\nפלטפורמה: ${row.platform || "—"}`);
+  },
+  notifyExpenseAdded(exp) {
+    const amount = exp.amount ? `₪${Number(exp.amount).toLocaleString("he-IL")}` : "";
+    return this.send(`💳 <b>הוצאה תועדה</b>\nקטגוריה: ${exp.category || "—"}\nתיאור: ${exp.name || "—"}\nסכום: ${amount}\nשילם: ${exp.paidBy || "—"}`);
+  },
+};
 
 // Income type commission rates (hardcoded, always applied)
 const INCOME_TYPE_COMMISSIONS = { "אונלי": 20 };
@@ -1292,6 +1328,27 @@ function FixedExpensesManager({ fixedExps, addFixedExp, removeFixedExp }) {
   );
 }
 
+// Israeli progressive income tax brackets 2024 (annual amounts in ILS)
+function calcProgressiveTax(annualIncome) {
+  if (annualIncome <= 0) return 0;
+  const brackets = [
+    [81480,   0.10],
+    [116760,  0.14],
+    [187440,  0.20],
+    [260520,  0.31],
+    [542160,  0.35],
+    [698280,  0.47],
+    [Infinity, 0.50],
+  ];
+  let tax = 0, prev = 0;
+  for (const [ceiling, rate] of brackets) {
+    if (annualIncome <= prev) break;
+    tax += (Math.min(annualIncome, ceiling) - prev) * rate;
+    prev = ceiling;
+  }
+  return tax;
+}
+
 // ═══════════════════════════════════════════════════════
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
@@ -1303,7 +1360,7 @@ function DashPage() {
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} };
   const [bizType, setBizType] = useState(() => localStorage.getItem("AGENCY_BIZ_TYPE") || "עוסק");
   const [manualNI, setManualNI] = useState(() => +localStorage.getItem("AGENCY_MANUAL_NI") || 0);
-  const [showFixedMgr, setShowFixedMgr] = useState(false);
+  const [nonDeductible, setNonDeductible] = useState(() => +localStorage.getItem("AGENCY_NON_DEDUCTIBLE") || 0);
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
@@ -1334,10 +1391,15 @@ function DashPage() {
   const agencyIncome = mp.inc - totalClientSalary - totalChatterSalary;
   const lmCurr = view === "monthly" ? (lmVals[year]?.[month] || 0) : 0;
   const vatBase = agencyIncome - lmCurr;
-  const vat = vatBase > 0 ? vatBase * 0.17 : 0;
+  const vat = vatBase > 0 ? vatBase * 0.18 : 0;
   const grossProfit = agencyIncome - mp.exp - fixedMonthly - empMonthly;
-  const taxBase = grossProfit - vat;
-  const incomeTax = taxBase > 0 ? taxBase * 0.23 : 0;
+  const taxableIncome = (agencyIncome - vat) - mp.exp - fixedMonthly - niTotal + nonDeductible;
+  const incomeTax = taxableIncome > 0
+    ? (bizType === "חברה"
+        ? taxableIncome * 0.23
+        : calcProgressiveTax(taxableIncome * 12) / 12)
+    : 0;
+  const effectiveTaxRate = taxableIncome > 0 ? (incomeTax / taxableIncome * 100) : 0;
   const niTotal = empNIMonthly + manualNI;
   const netProfitFull = grossProfit - vat - incomeTax - niTotal;
   const cashToBank = netProfitFull - lmCurr;
@@ -1467,6 +1529,10 @@ function DashPage() {
           <label style={{ color: C.dim, fontSize: 12 }}>ב.ל נוסף (שכירים) ₪</label>
           <input type="number" value={manualNI || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setManualNI(v); localStorage.setItem("AGENCY_MANUAL_NI", v); }} style={{ width: 100, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
         </div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <label style={{ color: C.dim, fontSize: 12 }}>הוצאות לא מוכרות ₪</label>
+          <input type="number" value={nonDeductible || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setNonDeductible(v); localStorage.setItem("AGENCY_NON_DEDUCTIBLE", v); }} style={{ width: 110, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
+        </div>
       </div>
 
       {/* Row 1: Sales breakdown → agency income */}
@@ -1480,7 +1546,6 @@ function DashPage() {
       {/* Row 2: Expenses → gross profit */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
-        <Stat icon="🔒" title="הוצאות קבועות" value={fmtC(fixedMonthly + empMonthly)} color={C.red} sub={employees.length > 0 ? `כולל ${employees.length} שכיר${employees.length > 1 ? "ים" : ""}` : "חודשי"} />
         <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
       </div>
 
@@ -1488,8 +1553,8 @@ function DashPage() {
       <Card style={{ marginBottom: 12, background: `${C.red}08`, border: `1px solid ${C.red}30` }}>
         <div style={{ color: C.ylw, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>🧾 מסים ותשלומים חובה</div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <Stat icon="📋" title="מע״מ (17%)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatBase)}`} />
-          <Stat icon="🏛️" title="מס הכנסה (23%)" value={fmtC(incomeTax)} color={C.ylw} sub={bizType} />
+          <Stat icon="📋" title="מע״מ (18%)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatBase)}`} />
+          <Stat icon="🏛️" title={`מס הכנסה${bizType === "חברה" ? " (23%)" : " (מדרגות)"}`} value={<span>{taxableIncome > 0 && <span style={{ display: "block", fontSize: 11, color: C.mut, fontWeight: 400, marginBottom: 2 }}>{effectiveTaxRate.toFixed(1)}% מהבסיס החייב</span>}{fmtC(incomeTax)}</span>} color={C.ylw} sub={`בסיס: ${fmtC(Math.max(0, taxableIncome))}`} />
           <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + ידני" : "ידני"} />
           <Stat icon="💸" title="סה״כ מסים" value={fmtC(vat + incomeTax + niTotal)} color={C.red} sub="מע״מ + מס + ב.ל" />
         </div>
@@ -1524,9 +1589,9 @@ function DashPage() {
         { label: "הוצאות", render: r => <span style={{ color: C.red }}>{fmtC(r.exp)}</span> },
         { label: "פערים", render: r => <span style={{ color: r.gap > 0 ? C.red : r.gap < 0 ? C.grn : C.mut }}>{fmtC(Math.abs(r.gap))}</span> },
         { label: "ל.מ", render: r => <input type="number" min="0" value={lmVals[year]?.[r.idx] || ""} placeholder="0" onChange={e => saveLm(r.idx, +e.target.value)} style={{ width: 72, padding: "2px 4px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 4, color: C.txt, fontSize: 12, textAlign: "center", outline: "none" }} /> },
-        { label: "צפי מע״מ", render: r => { const base = r.agencyInc - (lmVals[year]?.[r.idx] || 0); return <span style={{ color: C.ylw }}>{fmtC(base > 0 ? base * 0.17 : 0)}</span>; } },
-        { label: "צפי מס", render: r => { const lmVal = lmVals[year]?.[r.idx] || 0; const base = r.agencyInc - (lmVal); const vat = base > 0 ? base * 0.17 : 0; const taxBase = r.agencyInc - r.exp - r.chSalMo - lmVal - vat; const tax = taxBase > 0 ? taxBase * 0.23 : 0; return <span style={{ color: C.ylw }}>{fmtC(tax)}</span>; } },
-        { label: "רווח נטו", render: r => { const lmVal = lmVals[year]?.[r.idx] || 0; const base = r.agencyInc - lmVal; const vat = base > 0 ? base * 0.17 : 0; const taxBase = r.agencyInc - r.exp - r.chSalMo - lmVal - vat; const tax = taxBase > 0 ? taxBase * 0.23 : 0; const net = r.agencyInc - r.exp - r.chSalMo - lmVal - vat - tax; return <span style={{ color: net >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(net)}</span>; } },
+        { label: "צפי מע״מ", render: r => { const base = r.agencyInc - (lmVals[year]?.[r.idx] || 0); return <span style={{ color: C.ylw }}>{fmtC(base > 0 ? base * 0.18 : 0)}</span>; } },
+        { label: "צפי מס", render: r => { const lmVal = lmVals[year]?.[r.idx] || 0; const base = r.agencyInc - (lmVal); const vat = base > 0 ? base * 0.18 : 0; const taxBase = r.agencyInc - r.exp - r.chSalMo - lmVal - vat; const tax = taxBase > 0 ? taxBase * 0.23 : 0; return <span style={{ color: C.ylw }}>{fmtC(tax)}</span>; } },
+        { label: "רווח נטו", render: r => { const lmVal = lmVals[year]?.[r.idx] || 0; const base = r.agencyInc - lmVal; const vat = base > 0 ? base * 0.18 : 0; const taxBase = r.agencyInc - r.exp - r.chSalMo - lmVal - vat; const tax = taxBase > 0 ? taxBase * 0.23 : 0; const net = r.agencyInc - r.exp - r.chSalMo - lmVal - vat - tax; return <span style={{ color: net >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(net)}</span>; } },
       ]} rows={mbd} footer={(() => {
         const totAgencyInc = mbd.reduce((s, r) => s + r.agencyInc, 0);
         const totExp = mbd.reduce((s, r) => s + r.exp, 0);
@@ -1534,7 +1599,7 @@ function DashPage() {
         const totLm = mbd.reduce((s, r) => s + (lmVals[year]?.[r.idx] || 0), 0);
         const totChSal = mbd.reduce((s, r) => s + r.chSalMo, 0);
         const totBase = totAgencyInc - totLm;
-        const totVat = totBase > 0 ? totBase * 0.17 : 0;
+        const totVat = totBase > 0 ? totBase * 0.18 : 0;
         const totTaxBase = totAgencyInc - totExp - totChSal - totLm - totVat;
         const totTax = totTaxBase > 0 ? totTaxBase * 0.23 : 0;
         const totNet = totAgencyInc - totExp - totChSal - totLm - totVat - totTax;
@@ -1601,15 +1666,6 @@ function DashPage() {
         </div>
       </div>;
     })()}
-
-    {/* Fixed Expenses Manager */}
-    <div style={{ marginTop: 24 }}>
-      <button onClick={() => setShowFixedMgr(p => !p)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, cursor: "pointer", padding: "8px 16px", fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
-        🔒 ניהול הוצאות קבועות {showFixedMgr ? "▲" : "▼"}
-        {fixedExps.length > 0 && <span style={{ background: C.pri, color: "#fff", fontSize: 11, borderRadius: 10, padding: "1px 7px" }}>{fixedExps.length}</span>}
-      </button>
-      {showFixedMgr && <FixedExpensesManager fixedExps={fixedExps} addFixedExp={addFixedExp} removeFixedExp={removeFixedExp} />}
-    </div>
 
     {/* Tier Cubes */}
     <TierCubes income={view === "monthly" ? iM : iY} />
@@ -2107,7 +2163,7 @@ function RecordIncomeAdmin({ onClose }) {
       };
 
       const res = await IncSvc.addDirect(newInc);
-
+      TelegramSvc.notifyIncomeAdded(res);
       setIncome(prev => [res, ...prev]);
       onClose();
     } catch (e) {
@@ -3185,6 +3241,7 @@ function RecordExpensePage({ editMode, onDone }) {
         setSaving(false); if (onDone) onDone(); return;
       }
       if (!demo) await ExpSvc.add(exp);
+      TelegramSvc.notifyExpenseAdded(exp);
       if (form.isFixed) {
         await addFixedExp({ name: form.name, amount: +form.amount, period: form.fixedPeriod });
       }
@@ -3887,6 +3944,7 @@ function ChatterPortal() {
         paymentTarget: "agency", paidToClient: false, cancelled: false
       };
       const saved = await addPending(newInc);
+      TelegramSvc.notifyIncomeSubmitted(saved);
       setIncome(prev => [{ ...saved, _fromPending: true }, ...prev]);
       setSaving(false); setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -4181,6 +4239,7 @@ function ApprovalsPage() {
           await updateIncome(row.id, { verified: "V" });
         }
       }
+      TelegramSvc.notifyIncomeApproved(row);
       setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
     } catch (e) {
       console.error("Approve error:", e);
@@ -4749,13 +4808,14 @@ function DebtsPage() {
     if (!form.amount || isNaN(form.amount) || form.amount <= 0) return alert("הכנס סכום תקין");
     setSaving(true);
     try {
-      await addSettlement({
+      const settlementData = {
         modelName: modalClient.name,
         amount: Number(form.amount),
         direction: form.direction,
         notes: form.notes,
         date: new Date().toISOString()
-      });
+      };
+      await addSettlement(settlementData);
       setModalClient(null);
     } catch (e) {
       alert("שגיאה במערכת: " + e.message);
@@ -4767,14 +4827,15 @@ function DebtsPage() {
     if (!chatterForm.amount || isNaN(chatterForm.amount) || chatterForm.amount <= 0) return alert("הכנס סכום תקין");
     setSaving(true);
     try {
-      await addSettlement({
+      const chatterSettlementData = {
         modelName: modalChatter.name,
         entityType: "chatter",
         amount: Number(chatterForm.amount),
         direction: chatterForm.direction,
         notes: chatterForm.notes,
         date: new Date().toISOString()
-      });
+      };
+      await addSettlement(chatterSettlementData);
       setModalChatter(null);
     } catch (e) {
       alert("שגיאה במערכת: " + e.message);
