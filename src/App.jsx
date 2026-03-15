@@ -1046,7 +1046,7 @@ function LoginPage() {
 
   return <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
     <Card style={{ width: "100%", maxWidth: 380, padding: 32, textAlign: "center" }}>
-      <div style={{ fontSize: 48, marginBottom: 16 }}>🏢</div>
+      <img src="/logo.png" alt="לוגו" style={{ width: 120, height: 120, objectFit: "contain", marginBottom: 16 }} />
       <h1 style={{ color: C.txt, fontSize: 24, fontWeight: 800, marginBottom: 20 }}>ניהול סוכנות</h1>
       <form onSubmit={handleEntity}>
         <p style={{ color: C.dim, fontSize: 13, marginBottom: 14 }}>הזן שם משתמש וסיסמה</p>
