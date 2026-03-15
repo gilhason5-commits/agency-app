@@ -1393,6 +1393,7 @@ function DashPage() {
   const vatBase = agencyIncome - lmCurr;
   const vat = vatBase > 0 ? vatBase * 0.18 : 0;
   const grossProfit = agencyIncome - mp.exp - fixedMonthly - empMonthly;
+  const niTotal = empNIMonthly + manualNI;
   const taxableIncome = (agencyIncome - vat) - mp.exp - fixedMonthly - niTotal + nonDeductible;
   const incomeTax = taxableIncome > 0
     ? (bizType === "חברה"
@@ -1400,7 +1401,6 @@ function DashPage() {
         : calcProgressiveTax(taxableIncome * 12) / 12)
     : 0;
   const effectiveTaxRate = taxableIncome > 0 ? (incomeTax / taxableIncome * 100) : 0;
-  const niTotal = empNIMonthly + manualNI;
   const netProfitFull = grossProfit - vat - incomeTax - niTotal;
   const cashToBank = netProfitFull - lmCurr;
   // ────────────────────────────────────────────────────────────────
