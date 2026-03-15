@@ -1362,6 +1362,8 @@ function DashPage() {
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
+  const moneyThroughAgency = activeI.filter(r => !r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
+  const moneyThroughAgencyCount = activeI.filter(r => !r.paidToClient).length;
   const ymi = ym(year, month);
   const totalChatterSalary = useMemo(() => {
     const names = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
@@ -1542,7 +1544,7 @@ function DashPage() {
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
         {nonDeductible > 0 && <Stat icon="🚫" title="הוצאות לא מוכרות" value={fmtC(nonDeductible)} color={C.red} sub="מוסיף לבסיס החייב במס" />}
-        <Stat icon="🔄" title="מחזור עסקאות" value={fmtC(mp.inc)} color={C.pri} sub={`${iM.length} עסקאות עברו דרכנו`} />
+        <Stat icon="🔄" title="כסף שעבר דרכנו" value={fmtC(moneyThroughAgency)} color={C.pri} sub={`${moneyThroughAgencyCount} עסקאות עברו דרכנו`} />
         <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
       </div>
 
