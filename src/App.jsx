@@ -1546,6 +1546,8 @@ function DashPage() {
       {/* Row 2: Expenses → gross profit */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
+        {nonDeductible > 0 && <Stat icon="🚫" title="הוצאות לא מוכרות" value={fmtC(nonDeductible)} color={C.red} sub="מוסיף לבסיס החייב במס" />}
+        <Stat icon="🔄" title="מחזור עסקאות" value={fmtC(mp.inc)} color={C.pri} sub={`${iM.length} עסקאות עברו דרכנו`} />
         <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
       </div>
 
