@@ -882,10 +882,10 @@ function Prov({ children }) {
   };
   const logout = () => { setUser(null); localStorage.removeItem("AGENCY_USER"); };
 
-  const [customCats, setCustomCats] = useState(() => { try { return JSON.parse(localStorage.getItem("CUSTOM_CATS") || "[]"); } catch { return []; } });
-  const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n) || EXPENSE_CATEGORIES.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); try { localStorage.setItem("CUSTOM_CATS", JSON.stringify(updated)); } catch {} return true; };
-  const removeCustomCat = (name) => { const updated = customCats.filter(c => c !== name); setCustomCats(updated); try { localStorage.setItem("CUSTOM_CATS", JSON.stringify(updated)); } catch {}; };
-  const renameCustomCat = (oldName, newName) => { const n = newName.trim(); if (!n || n === oldName || customCats.includes(n) || EXPENSE_CATEGORIES.includes(n)) return false; const updated = customCats.map(c => c === oldName ? n : c); setCustomCats(updated); try { localStorage.setItem("CUSTOM_CATS", JSON.stringify(updated)); } catch {} return true; };
+  const [customCats, setCustomCats] = useState(() => { try { const saved = localStorage.getItem("ALL_CATS_V2"); if (saved !== null) return JSON.parse(saved); const oldCustom = JSON.parse(localStorage.getItem("CUSTOM_CATS") || "[]"); const merged = [...EXPENSE_CATEGORIES]; oldCustom.forEach(c => { if (!merged.includes(c)) merged.push(c); }); return merged; } catch { return [...EXPENSE_CATEGORIES]; } });
+  const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {} return true; };
+  const removeCustomCat = (name) => { const updated = customCats.filter(c => c !== name); setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {}; };
+  const renameCustomCat = (oldName, newName) => { const n = newName.trim(); if (!n || n === oldName || customCats.includes(n)) return false; const updated = customCats.map(c => c === oldName ? n : c); setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {} return true; };
 
   const val = useMemo(() => ({
     year, setYear, month, setMonth, view, setView, dateRange, setDateRange, page, setPage,
@@ -1698,7 +1698,7 @@ function IncomeTypesModal({ onClose }) {
       <span style={{ flex: 1 }}>סוג הכנסה</span>
       <span style={{ width: 60, textAlign: "center" }}>עמלה %</span>
       <span style={{ width: 70, textAlign: "center" }}>עסקאות</span>
-      <span style={{ width: 64 }}></span>
+      <span style={{ width: 72 }}></span>
     </div>
     {allTypes.length === 0 ? (
       <div style={{ color: C.dim, textAlign: "center", padding: 20 }}>אין סוגי הכנסה עדיין</div>
@@ -2029,7 +2029,7 @@ function RecordIncomeAdmin({ onClose }) {
 // ═══════════════════════════════════════════════════════
 function ExpPage() {
   const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo, rv, chatterSettings, customCats, addCustomCat, removeCustomCat, renameCustomCat } = useApp();
-  const allCats = [...EXPENSE_CATEGORIES, ...customCats];
+  const allCats = customCats;
   const [showAddCat, setShowAddCat] = useState(false);
   const [newCatName, setNewCatName] = useState("");
   const [editingCat, setEditingCat] = useState(null);
@@ -2065,31 +2065,24 @@ function ExpPage() {
     </div>
     <Modal open={showAddCat} onClose={() => { setShowAddCat(false); setEditingCat(null); }} title="✏️ עריכת סיווגים" width={420}>
       <div style={{ maxHeight: 320, overflowY: "auto", marginBottom: 16 }}>
-        {customCats.length === 0 && <div style={{ color: C.dim, fontSize: 12, marginBottom: 8, textAlign: "center", padding: "12px 0" }}>אין סיווגים מותאמים אישית עדיין</div>}
-        {customCats.length > 0 && <div style={{ marginBottom: 8 }}>
-          <div style={{ color: C.dim, fontSize: 11, marginBottom: 8 }}>סיווגים מותאמים אישית:</div>
-          {customCats.map(c => (
-            <div key={c} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, background: `${C.pri}11`, borderRadius: 6, padding: "4px 8px" }}>
-              {editingCat === c ? (
-                <>
-                  <input value={editingCatName} onChange={e => setEditingCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { if (renameCustomCat(c, editingCatName)) setEditingCat(null); else alert("שם קיים או ריק"); } if (e.key === "Escape") setEditingCat(null); }} style={{ flex: 1, padding: "4px 8px", background: C.card, border: `1px solid ${C.pri}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} autoFocus />
-                  <Btn variant="primary" onClick={() => { if (renameCustomCat(c, editingCatName)) setEditingCat(null); else alert("שם קיים או ריק"); }} style={{ padding: "3px 10px", fontSize: 12 }}>✓</Btn>
-                  <Btn variant="ghost" onClick={() => setEditingCat(null)} style={{ padding: "3px 8px", fontSize: 12 }}>✕</Btn>
-                </>
-              ) : (
-                <>
-                  <span style={{ flex: 1, color: C.priL, fontSize: 13 }}>{c}</span>
-                  <Btn variant="ghost" onClick={() => { setEditingCat(c); setEditingCatName(c); }} style={{ padding: "3px 8px", fontSize: 11 }}>✏️</Btn>
-                  <Btn variant="ghost" onClick={() => { if (window.confirm(`למחוק את הסיווג "${c}"?`)) removeCustomCat(c); }} style={{ padding: "3px 8px", fontSize: 11, color: C.red }}>🗑️</Btn>
-                </>
-              )}
-            </div>
-          ))}
-        </div>}
-        {EXPENSE_CATEGORIES.length > 0 && <div>
-          <div style={{ color: C.dim, fontSize: 11, marginBottom: 6 }}>סיווגים קבועים (לא ניתן לערוך):</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{EXPENSE_CATEGORIES.map(c => <span key={c} style={{ background: `${C.bdr}44`, color: C.dim, borderRadius: 4, padding: "2px 7px", fontSize: 11 }}>{c}</span>)}</div>
-        </div>}
+        {customCats.length === 0 && <div style={{ color: C.dim, fontSize: 12, marginBottom: 8, textAlign: "center", padding: "12px 0" }}>אין סיווגים עדיין</div>}
+        {customCats.map(c => (
+          <div key={c} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, background: `${C.pri}11`, borderRadius: 6, padding: "4px 8px" }}>
+            {editingCat === c ? (
+              <>
+                <input value={editingCatName} onChange={e => setEditingCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { if (renameCustomCat(c, editingCatName)) setEditingCat(null); else alert("שם קיים או ריק"); } if (e.key === "Escape") setEditingCat(null); }} style={{ flex: 1, padding: "4px 8px", background: C.card, border: `1px solid ${C.pri}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} autoFocus />
+                <Btn variant="primary" onClick={() => { if (renameCustomCat(c, editingCatName)) setEditingCat(null); else alert("שם קיים או ריק"); }} style={{ padding: "3px 10px", fontSize: 12 }}>✓</Btn>
+                <Btn variant="ghost" onClick={() => setEditingCat(null)} style={{ padding: "3px 8px", fontSize: 12 }}>✕</Btn>
+              </>
+            ) : (
+              <>
+                <span style={{ flex: 1, color: C.priL, fontSize: 13 }}>{c}</span>
+                <Btn variant="ghost" onClick={() => { setEditingCat(c); setEditingCatName(c); }} style={{ padding: "3px 8px", fontSize: 11 }}>✏️</Btn>
+                <Btn variant="ghost" onClick={() => { if (window.confirm(`למחוק את הסיווג "${c}"?`)) removeCustomCat(c); }} style={{ padding: "3px 8px", fontSize: 11, color: C.red }}>🗑️</Btn>
+              </>
+            )}
+          </div>
+        ))}
       </div>
       <div style={{ borderTop: `1px solid ${C.bdr}`, paddingTop: 12 }}>
         <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>הוספת סיווג חדש:</div>
@@ -2903,7 +2896,7 @@ function TgtPage() {
 // ═══════════════════════════════════════════════════════
 function RecordExpensePage({ editMode, onDone }) {
   const { setPage, demo, expenses, setExpenses, customCats } = useApp(); const w = useWin();
-  const allCats = [...EXPENSE_CATEGORIES, ...customCats];
+  const allCats = customCats;
   const [mode, setMode] = useState(editMode ? "manual" : null);
   const [form, setForm] = useState(editMode ? { category: editMode.category, name: editMode.name, amount: String(editMode.amount), date: editMode.date ? `${editMode.date.getFullYear()}-${String(editMode.date.getMonth() + 1).padStart(2, "0")}-${String(editMode.date.getDate()).padStart(2, "0")}` : new Date().toISOString().split("T")[0], hour: editMode.hour || "12:00", paidBy: editMode.paidBy, vatRecognized: editMode.vatRecognized, taxRecognized: editMode.taxRecognized } : { category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true });
   const [saving, setSaving] = useState(false), [saved, setSaved] = useState(false), [err, setErr] = useState(""), [scaning, setScaning] = useState(false);
@@ -2933,7 +2926,7 @@ function RecordExpensePage({ editMode, onDone }) {
           ...f,
           name: res.Provider || f.name,
           amount: String(res.Amount || f.amount),
-          category: EXPENSE_CATEGORIES.find(c => c === res.Category) || f.category,
+          category: allCats.find(c => c === res.Category) || f.category,
           date: res.Date ? res.Date.split("/").reverse().join("-") : f.date
         }));
         setMode("manual");
