@@ -2759,20 +2759,6 @@ function ClientsOverviewPage({ onSelectClient }) {
         </ResponsiveContainer></div>
       </Card>;
     })()}
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
-      <Card>
-        <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>💵 הכנסות vs זכאות</div>
-        <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(200, clientStats.length * 44)}>
-          <BarChart data={clientStats} layout="vertical" margin={{ top: 5, right: 130, bottom: 5, left: 10 }}>
-            <XAxis type="number" reversed tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} />
-            <YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={120} interval={0} />
-            <Tooltip content={<TT />} />
-            <Bar dataKey="total" fill={C.pri} name="הכנסות" radius={[4,0,0,4]} />
-            <Bar dataKey="entitlement" fill={C.ylw} name="זכאות" radius={[4,0,0,4]} />
-          </BarChart>
-        </ResponsiveContainer></div>
-      </Card>
-    </div>
     {clientStats.length > 0 && <Card style={{ marginBottom: 16 }}>
       <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>🥧 חלוקת הכנסות</div>
       <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={220}>
