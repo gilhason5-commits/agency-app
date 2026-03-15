@@ -1185,6 +1185,88 @@ function SetupPage() {
 }
 
 // ═══════════════════════════════════════════════════════
+// COMPONENT: FIXED EXPENSES MANAGER
+// ═══════════════════════════════════════════════════════
+function FixedExpensesManager({ fixedExps, setFixedExps, employees, setEmployees }) {
+  const inpSt = { padding: "8px 10px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" };
+  const btnSt = { padding: "8px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, color: C.txt };
+  const [newItem, setNewItem] = useState({ name: "", amount: "", period: "monthly" });
+  const [newEmp, setNewEmp] = useState({ name: "", grossAmount: "", nationalInsurance: "" });
+  const toMonthly = (amount, period) => period === "monthly" ? amount : period === "quarterly" ? amount / 3 : amount / 12;
+  const periodLabel = { monthly: "חודשי", quarterly: "רבעוני", yearly: "שנתי" };
+  const saveFixed = (updated) => { setFixedExps(updated); localStorage.setItem("AGENCY_FIXED_EXP", JSON.stringify(updated)); };
+  const saveEmps = (updated) => { setEmployees(updated); localStorage.setItem("AGENCY_EMPLOYEES", JSON.stringify(updated)); };
+  const addFixed = () => {
+    if (!newItem.name || !newItem.amount) return;
+    saveFixed([...fixedExps, { id: Date.now().toString(), name: newItem.name, amount: +newItem.amount, period: newItem.period }]);
+    setNewItem({ name: "", amount: "", period: "monthly" });
+  };
+  const addEmployee = () => {
+    if (!newEmp.name || !newEmp.grossAmount) return;
+    saveEmps([...employees, { id: Date.now().toString(), name: newEmp.name, grossAmount: +newEmp.grossAmount, nationalInsurance: +newEmp.nationalInsurance || 0 }]);
+    setNewEmp({ name: "", grossAmount: "", nationalInsurance: "" });
+  };
+  return (
+    <Card style={{ marginBottom: 16, direction: "rtl" }}>
+      <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 14 }}>🔒 הוצאות קבועות</h3>
+      {fixedExps.length > 0 && <div style={{ marginBottom: 12 }}>
+        {fixedExps.map(e => (
+          <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.bdr}` }}>
+            <span style={{ color: C.txt, fontSize: 13 }}>{e.name}</span>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ color: C.dim, fontSize: 11, background: C.bg, padding: "2px 8px", borderRadius: 4 }}>{periodLabel[e.period]}</span>
+              <span style={{ color: C.red, fontSize: 13, fontWeight: 600 }}>{fmtC(e.amount)}</span>
+              {e.period !== "monthly" && <span style={{ color: C.mut, fontSize: 11 }}>≈{fmtC(toMonthly(e.amount, e.period))}/חו'</span>}
+              <button onClick={() => saveFixed(fixedExps.filter(x => x.id !== e.id))} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
+            </div>
+          </div>
+        ))}
+      </div>}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20, alignItems: "center" }}>
+        <input value={newItem.name} onChange={e => setNewItem(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === "Enter" && addFixed()} placeholder="שם הוצאה" style={{ ...inpSt, flex: 1, minWidth: 120 }} />
+        <input type="number" value={newItem.amount} onChange={e => setNewItem(p => ({ ...p, amount: e.target.value }))} onKeyDown={e => e.key === "Enter" && addFixed()} placeholder="סכום ₪" style={{ ...inpSt, width: 110 }} />
+        <select value={newItem.period} onChange={e => setNewItem(p => ({ ...p, period: e.target.value }))} style={inpSt}>
+          <option value="monthly">חודשי</option>
+          <option value="quarterly">רבעוני</option>
+          <option value="yearly">שנתי</option>
+        </select>
+        <button onClick={addFixed} style={{ ...btnSt, background: C.pri }}>+ הוסף הוצאה</button>
+      </div>
+      <div style={{ borderTop: `1px solid ${C.bdr}`, paddingTop: 14 }}>
+        <h4 style={{ color: C.txt, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>👥 שכירים</h4>
+        {employees.length > 0 && <div style={{ marginBottom: 12 }}>
+          {employees.map(emp => (
+            <div key={emp.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.bdr}` }}>
+              <span style={{ color: C.txt, fontSize: 13 }}>{emp.name}</span>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <span style={{ color: C.ylw, fontSize: 12 }}>ברוטו: <strong>{fmtC(emp.grossAmount)}</strong></span>
+                {emp.nationalInsurance > 0 && <span style={{ color: C.dim, fontSize: 12 }}>ב.ל: {fmtC(emp.nationalInsurance)}</span>}
+                <button onClick={() => saveEmps(employees.filter(x => x.id !== emp.id))} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
+              </div>
+            </div>
+          ))}
+        </div>}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ color: C.dim, fontSize: 11 }}>שם שכיר</label>
+            <input value={newEmp.name} onChange={e => setNewEmp(p => ({ ...p, name: e.target.value }))} placeholder="שם" style={{ ...inpSt, width: 130 }} />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ color: C.dim, fontSize: 11 }}>ברוטו ₪</label>
+            <input type="number" value={newEmp.grossAmount} onChange={e => setNewEmp(p => ({ ...p, grossAmount: e.target.value }))} placeholder="0" style={{ ...inpSt, width: 110 }} />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ color: newEmp.grossAmount ? C.dim : C.mut, fontSize: 11, transition: "color 0.2s" }}>ביטוח לאומי ₪</label>
+            <input type="number" value={newEmp.nationalInsurance} onChange={e => setNewEmp(p => ({ ...p, nationalInsurance: e.target.value }))} placeholder="0" disabled={!newEmp.grossAmount} style={{ ...inpSt, width: 130, opacity: newEmp.grossAmount ? 1 : 0.3, transition: "opacity 0.2s" }} />
+          </div>
+          <button onClick={addEmployee} style={{ ...btnSt, background: C.grn }}>+ הוסף שכיר</button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
@@ -1193,6 +1275,11 @@ function DashPage() {
   const w = useWin();
   const [lmVals, setLmVals] = useState(() => { try { return JSON.parse(localStorage.getItem("LM_DB") || "{}"); } catch { return {}; } });
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} };
+  const [bizType, setBizType] = useState(() => localStorage.getItem("AGENCY_BIZ_TYPE") || "עוסק");
+  const [manualNI, setManualNI] = useState(() => +localStorage.getItem("AGENCY_MANUAL_NI") || 0);
+  const [fixedExps, setFixedExps] = useState(() => { try { return JSON.parse(localStorage.getItem("AGENCY_FIXED_EXP") || "[]"); } catch { return []; } });
+  const [employees, setEmployees] = useState(() => { try { return JSON.parse(localStorage.getItem("AGENCY_EMPLOYEES") || "[]"); } catch { return []; } });
+  const [showFixedMgr, setShowFixedMgr] = useState(false);
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
@@ -1212,6 +1299,25 @@ function DashPage() {
     }, 0);
   }, [activeI, ymi]);
   const netProfit = mp.profit - totalClientSalary - totalChatterSalary;
+
+  // ─── New financial metrics ───────────────────────────────────────
+  const toMonthly = (amount, period) => period === "monthly" ? amount : period === "quarterly" ? amount / 3 : amount / 12;
+  const fixedMonthly = fixedExps.reduce((s, e) => s + toMonthly(e.amount, e.period), 0);
+  const empGrossMonthly = employees.reduce((s, e) => s + e.grossAmount, 0);
+  const empNIMonthly = employees.reduce((s, e) => s + e.nationalInsurance, 0);
+  const empMonthly = empGrossMonthly + empNIMonthly;
+  const burnRate = fixedMonthly + empMonthly;
+  const agencyIncome = mp.inc - totalClientSalary - totalChatterSalary;
+  const lmCurr = view === "monthly" ? (lmVals[year]?.[month] || 0) : 0;
+  const vatBase = agencyIncome - lmCurr;
+  const vat = vatBase > 0 ? vatBase * 0.17 : 0;
+  const grossProfit = agencyIncome - mp.exp - fixedMonthly - empMonthly;
+  const taxBase = grossProfit - vat;
+  const incomeTax = taxBase > 0 ? taxBase * 0.23 : 0;
+  const niTotal = empNIMonthly + manualNI;
+  const netProfitFull = grossProfit - vat - incomeTax - niTotal;
+  const cashToBank = netProfitFull - lmCurr;
+  // ────────────────────────────────────────────────────────────────
 
   const paymentGap = useMemo(() => {
     const isMonthly = view === "monthly";
@@ -1323,19 +1429,62 @@ function DashPage() {
     </div>
     <FB><ViewFilter /></FB>
     {view === "monthly" ? <div>
+      {/* Business type toggle + ל.מ */}
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 0, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.bdr}` }}>
+          <button onClick={() => { setBizType("עוסק"); localStorage.setItem("AGENCY_BIZ_TYPE", "עוסק"); }} style={{ padding: "7px 16px", background: bizType === "עוסק" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "עוסק" ? 700 : 400 }}>עוסק מורשה</button>
+          <button onClick={() => { setBizType("חברה"); localStorage.setItem("AGENCY_BIZ_TYPE", "חברה"); }} style={{ padding: "7px 16px", background: bizType === "חברה" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "חברה" ? 700 : 400 }}>חברה</button>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <label style={{ color: C.dim, fontSize: 12 }}>ל.מ (ניכויים) ₪</label>
+          <input type="number" value={lmVals[year]?.[month] || ""} placeholder="0" onChange={e => saveLm(month, +e.target.value)} style={{ width: 90, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
+        </div>
+        {employees.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <label style={{ color: C.dim, fontSize: 12 }}>ב.ל נוסף (שכירים) ₪</label>
+          <input type="number" value={manualNI || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setManualNI(v); localStorage.setItem("AGENCY_MANUAL_NI", v); }} style={{ width: 100, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
+        </div>}
+      </div>
+
+      {/* Row 1: Sales breakdown → agency income */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-        <Stat icon="💰" title={`צפי מכירות — ${MONTHS_HE[month]}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iM.length} עסקאות`} />
-        <Stat icon="💳" title="הוצאות" value={fmtC(mp.exp)} color={C.red} />
-        <Stat icon="👑" title="צפי שכר לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
-        <Stat icon="💬" title="צפי שכר צאטים" value={fmtC(totalChatterSalary)} color={C.ylw} />
-        <Stat icon="📈" title="צפי רווח לפני מס" value={fmtC(netProfit)} color={netProfit >= 0 ? C.grn : C.red} />
+        <Stat icon="💰" title={`מכירות — ${MONTHS_HE[month]}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iM.length} עסקאות`} />
+        <Stat icon="👑" title="שכר לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
+        <Stat icon="💬" title="שכר צ'אטרים" value={fmtC(totalChatterSalary)} color={C.ylw} />
+        <Stat icon="📥" title="צפי הכנסה שלי" value={fmtC(agencyIncome)} color={agencyIncome >= 0 ? C.grn : C.red} sub="אחרי שכר לקוחות וצ'אטרים" />
       </div>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+
+      {/* Row 2: Expenses → gross profit */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+        <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
+        <Stat icon="🔒" title="הוצאות קבועות" value={fmtC(fixedMonthly + empMonthly)} color={C.red} sub={employees.length > 0 ? `כולל ${employees.length} שכיר${employees.length > 1 ? "ים" : ""}` : "חודשי"} />
+        <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
+      </div>
+
+      {/* Row 3: Tax / VAT / NI */}
+      <Card style={{ marginBottom: 12, background: `${C.red}08`, border: `1px solid ${C.red}30` }}>
+        <div style={{ color: C.ylw, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>🧾 מסים ותשלומים חובה</div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <Stat icon="📋" title="מע״מ (17%)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatBase)}`} />
+          <Stat icon="🏛️" title="מס הכנסה (23%)" value={fmtC(incomeTax)} color={C.ylw} sub={bizType} />
+          <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + ידני" : "ידני"} />
+          <Stat icon="💸" title="סה״כ מסים" value={fmtC(vat + incomeTax + niTotal)} color={C.red} sub="מע״מ + מס + ב.ל" />
+        </div>
+      </Card>
+
+      {/* Row 4: Net profit + cash to bank + payment gaps */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+        <Stat icon="💚" title="רווח נטו" value={fmtC(netProfitFull)} color={netProfitFull >= 0 ? C.grn : C.red} sub="אחרי כל הניכויים" />
+        <Stat icon="🏦" title="כסף לבנק" value={fmtC(cashToBank)} color={cashToBank >= 0 ? C.grn : C.red} sub="רווח נטו פחות ל.מ" />
         <Stat icon={paymentGap > 0 ? "🔴" : paymentGap < 0 ? "🟢" : "⚪"} title="פערי תשלומים" value={fmtC(Math.abs(paymentGap))} color={paymentGap > 0 ? C.red : paymentGap < 0 ? C.grn : C.mut} sub={paymentGap > 0 ? "אנחנו חייבים" : paymentGap < 0 ? "חייבים לנו" : "מאוזן"} />
-        <Stat icon="💵" title="רווח בפועל" value={fmtC(actualProfit)} color={actualProfit >= 0 ? C.grn : C.red} sub="אחרי קיזוזים ותשלומים" />
-        <Stat icon="🧾" title="מס בפועל (23%)" value={fmtC(actualProfit > 0 ? actualProfit * 0.23 : 0)} color={C.red} sub="על רווח בפועל" />
-        <Stat icon="💰" title="רווח נטו" value={fmtC(actualProfit > 0 ? actualProfit * 0.77 : actualProfit)} color={actualProfit >= 0 ? C.grn : C.red} sub="אחרי מס" />
       </div>
+
+      {/* Burn rate */}
+      {burnRate > 0 && <Card style={{ marginBottom: 16, background: `${C.red}10`, border: `2px solid ${C.red}40`, textAlign: "center" }}>
+        <div style={{ color: C.red, fontSize: 13, fontWeight: 600, marginBottom: 4 }}>🔥 שריפה חודשית</div>
+        <div style={{ fontSize: 36, fontWeight: 800, color: C.red }}>{fmtC(burnRate)}</div>
+        <div style={{ color: C.mut, fontSize: 12, marginTop: 6 }}>עלות ההחזקה של העסק ללא הכנסות</div>
+        {fixedMonthly > 0 && <div style={{ color: C.dim, fontSize: 11, marginTop: 4 }}>הוצאות קבועות: {fmtC(fixedMonthly)} | שכירים: {fmtC(empMonthly)}</div>}
+      </Card>}
     </div> : <>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <Stat icon="💰" title={`צפי מכירות — ${year}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iY.length} עסקאות`} />
@@ -1428,6 +1577,15 @@ function DashPage() {
         </div>
       </div>;
     })()}
+
+    {/* Fixed Expenses Manager */}
+    <div style={{ marginTop: 24 }}>
+      <button onClick={() => setShowFixedMgr(p => !p)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, cursor: "pointer", padding: "8px 16px", fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
+        🔒 ניהול הוצאות קבועות {showFixedMgr ? "▲" : "▼"}
+        {(fixedExps.length > 0 || employees.length > 0) && <span style={{ background: C.pri, color: "#fff", fontSize: 11, borderRadius: 10, padding: "1px 7px" }}>{fixedExps.length + employees.length}</span>}
+      </button>
+      {showFixedMgr && <FixedExpensesManager fixedExps={fixedExps} setFixedExps={setFixedExps} employees={employees} setEmployees={setEmployees} />}
+    </div>
 
     {/* Tier Cubes */}
     <TierCubes income={view === "monthly" ? iM : iY} />
