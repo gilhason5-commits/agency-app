@@ -4096,6 +4096,9 @@ function ApprovalsPage() {
   const [approving, setApproving] = useState(null);
   const [approveError, setApproveError] = useState(null);
   const [page, setPage] = useState(0);
+  const [noteView, setNoteView] = useState(null);
+  const [noteEdit, setNoteEdit] = useState(null); // { row, text }
+  const [savingNote, setSavingNote] = useState(false);
   const PAGE_SIZE = 50;
 
   const pendingAll = useMemo(() =>
@@ -4169,6 +4172,27 @@ function ApprovalsPage() {
     setIncome(prev => prev.map(r => ids.has(r.id) ? { ...r, verified: "V" } : r));
   };
 
+  const saveNote = async () => {
+    if (!noteEdit) return;
+    setSavingNote(true);
+    const { row, text } = noteEdit;
+    try {
+      if (!demo) {
+        if (row._fromPending) {
+          await updatePending(row.id, { notes: text });
+        } else {
+          await updateIncome(row.id, { notes: text });
+        }
+      }
+      setIncome(prev => prev.map(r => r.id === row.id ? { ...r, notes: text } : r));
+      setNoteEdit(null);
+    } catch (e) {
+      console.error("Save note error:", e);
+      setApproveError(`שגיאה בשמירת הערה: ${e?.code || e?.message || String(e)}`);
+    }
+    setSavingNote(false);
+  };
+
   return <div style={{ direction: "rtl" }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 800, margin: 0 }}>✅ אישור עסקאות</h2>
@@ -4204,6 +4228,21 @@ function ApprovalsPage() {
         { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
         { label: "סכום ₪", render: r => <span style={{ fontWeight: 700, color: C.pri }}>{fmtC(r.amountILS)}</span> },
         {
+          label: "הערות", render: r => {
+            const notes = r.notes;
+            if (!notes) return (
+              <span onClick={() => setNoteEdit({ row: r, text: "" })} style={{ fontSize: 11, color: C.mut, cursor: "pointer" }} title="הוסף הערה">+ הערה</span>
+            );
+            const words = notes.trim().split(/\s+/);
+            if (words.length <= 3) return (
+              <span onClick={() => setNoteEdit({ row: r, text: notes })} style={{ fontSize: 11, color: C.dim, cursor: "pointer" }} title="ערוך הערה">{notes}</span>
+            );
+            return (
+              <span onClick={() => setNoteView(notes)} style={{ fontSize: 11, color: C.pri, cursor: "pointer", whiteSpace: "nowrap" }} title="לחץ לצפייה בהערה המלאה">{words.slice(0, 3).join(" ")}...</span>
+            );
+          }
+        },
+        {
           label: "פעולות", render: r => (
             <div style={{ display: "flex", gap: 6 }}>
               <Btn size="sm" variant="success" onClick={() => approve(r)} disabled={approving === r.id}>
@@ -4220,6 +4259,24 @@ function ApprovalsPage() {
         <Btn size="sm" onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))} disabled={page >= pageCount - 1}>הבא ←</Btn>
       </div>}
     </>)}
+    {noteView && <Modal open={true} onClose={() => setNoteView(null)} title="📝 הערה" width={400}>
+      <p style={{ color: C.txt, lineHeight: 1.7, whiteSpace: "pre-wrap", margin: 0 }}>{noteView}</p>
+    </Modal>}
+    {noteEdit && <Modal open={true} onClose={() => setNoteEdit(null)} title="📝 הוסף / ערוך הערה" width={420}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <textarea
+          value={noteEdit.text}
+          onChange={e => setNoteEdit(prev => ({ ...prev, text: e.target.value }))}
+          placeholder="הכנס הערה..."
+          rows={4}
+          style={{ background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, padding: "10px 12px", fontSize: 13, resize: "vertical", direction: "rtl", outline: "none", width: "100%", boxSizing: "border-box" }}
+        />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setNoteEdit(null)}>ביטול</Btn>
+          <Btn variant="primary" onClick={saveNote} disabled={savingNote}>{savingNote ? "⏳ שומר..." : "💾 שמור"}</Btn>
+        </div>
+      </div>
+    </Modal>}
   </div>;
 }
 
