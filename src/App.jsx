@@ -3032,18 +3032,19 @@ function TgtPage() {
           <div>
             <div style={{ fontSize: 11, color: C.dim, marginBottom: 8 }}>יעדים שנקבעו לחודש זה:</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                <span style={{ color: C.txt }}>יעד ברזל (+5%)</span>
-                <span style={{ color: d.inc >= d.tgt1 ? C.grn : C.dim }}>{fmtC(d.tgt1)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                <span style={{ color: C.txt }}>יעד זהב (+10%)</span>
-                <span style={{ color: d.inc >= d.tgt2 ? C.grn : C.dim }}>{fmtC(d.tgt2)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                <span style={{ color: C.txt }}>יעד יהלום (+15%)</span>
-                <span style={{ color: d.inc >= d.tgt3 ? C.grn : C.dim }}>{fmtC(d.tgt3)}</span>
-              </div>
+              {[
+                { label: "יעד ברזל (+5%)", val: d.tgt1 },
+                { label: "יעד זהב (+10%)", val: d.tgt2 },
+                { label: "יעד יהלום (+15%)", val: d.tgt3 },
+              ].map(({ label, val }) => (
+                <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12 }}>
+                  <span style={{ color: C.txt }}>{label}</span>
+                  <span style={{ textAlign: "left", direction: "ltr" }}>
+                    <span style={{ color: d.inc >= val ? C.grn : C.dim, fontWeight: 600 }}>{fmtC(val)}</span>
+                    {!isFuture && <span style={{ color: C.dim, fontSize: 10, marginRight: 5 }}>({fmtC(val / d.days)}/יום)</span>}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </Card>;
