@@ -1303,7 +1303,6 @@ function DashPage() {
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} };
   const [bizType, setBizType] = useState(() => localStorage.getItem("AGENCY_BIZ_TYPE") || "עוסק");
   const [manualNI, setManualNI] = useState(() => +localStorage.getItem("AGENCY_MANUAL_NI") || 0);
-  const [showFixedMgr, setShowFixedMgr] = useState(false);
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
@@ -1601,15 +1600,6 @@ function DashPage() {
         </div>
       </div>;
     })()}
-
-    {/* Fixed Expenses Manager */}
-    <div style={{ marginTop: 24 }}>
-      <button onClick={() => setShowFixedMgr(p => !p)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, cursor: "pointer", padding: "8px 16px", fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
-        🔒 ניהול הוצאות קבועות {showFixedMgr ? "▲" : "▼"}
-        {fixedExps.length > 0 && <span style={{ background: C.pri, color: "#fff", fontSize: 11, borderRadius: 10, padding: "1px 7px" }}>{fixedExps.length}</span>}
-      </button>
-      {showFixedMgr && <FixedExpensesManager fixedExps={fixedExps} addFixedExp={addFixedExp} removeFixedExp={removeFixedExp} />}
-    </div>
 
     {/* Tier Cubes */}
     <TierCubes income={view === "monthly" ? iM : iY} />
