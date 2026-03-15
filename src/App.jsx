@@ -3191,6 +3191,16 @@ function RecordExpensePage({ editMode, onDone }) {
         { label: "שילם", key: "paidBy" },
         { label: "", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => { setMode("manual"); setForm({ category: r.category, name: r.name, amount: String(r.amount), date: r.date ? `${r.date.getFullYear()}-${String(r.date.getMonth() + 1).padStart(2, "0")}-${String(r.date.getDate()).padStart(2, "0")}` : "", hour: r.hour || "12:00", paidBy: r.paidBy, vatRecognized: r.vatRecognized, taxRecognized: r.taxRecognized }); }}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => handleDeleteManual(r)} style={{ color: C.red }}>🗑️</Btn></div> }
       ]} rows={manualExpenses} footer={["סה״כ", "", "", fmtC(manualTotal), "", ""]} />}
+    <div style={{ marginTop: 28 }}>
+      <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 12 }}>🔒 הוצאות קבועות ({fixedExps.length})</h3>
+      {fixedExps.length === 0 ? <Card style={{ textAlign: "center", padding: 24 }}><div style={{ color: C.mut, fontSize: 13 }}>אין הוצאות קבועות פעילות</div></Card> :
+        <DT textSm columns={[
+          { label: "שם", key: "name" },
+          { label: "סכום", render: r => <span style={{ color: C.red, fontWeight: 700 }}>{fmtC(r.amount)}</span> },
+          { label: "תדירות", render: r => ({ monthly: "חודשי", quarterly: "רבעוני", annual: "שנתי" }[r.period] || r.period) },
+          { label: "", render: r => <Btn size="sm" variant="danger" onClick={async () => { if (confirm(`לבטל את ההוצאה הקבועה "${r.name}"?\nמהחודש הבא היא לא תתווסף יותר.`)) { if (!demo) await removeFixedExp(r.id); } }}>🚫 בטל</Btn> }
+        ]} rows={fixedExps} footer={["סה״כ", fmtC(fixedExps.reduce((s, e) => s + e.amount, 0)), "", ""]} />}
+    </div>
   </div>;
 
   const inputStyle = { width: "100%", padding: w < 768 ? "14px 12px" : "10px 12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 10, color: C.txt, fontSize: w < 768 ? 16 : 14, outline: "none", boxSizing: "border-box" };
