@@ -3827,7 +3827,7 @@ ${overridesText || "אין"}
 // CHATTER PORTAL
 // ═══════════════════════════════════════════════════════
 function ChatterPortal() {
-  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets, sheetUsers } = useApp();
+  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets, sheetUsers, chatterSettings } = useApp();
   const { iM, iY } = useFD();
   const w = useWin();
   const chatterName = user?.name || "";
@@ -3871,9 +3871,14 @@ function ChatterPortal() {
   const prevMonth = month === 0 ? 11 : month - 1;
   const prevYear = month === 0 ? year - 1 : year;
   const lastMonthIncome = useMemo(() =>
-    income.filter(r => r.chatterName === chatterName && r.date && r.date.getFullYear() === prevYear && r.date.getMonth() === prevMonth),
-    [income, chatterName, prevYear, prevMonth]);
+    iY.filter(r => r.chatterName === chatterName && r.date && r.date.getFullYear() === prevYear && r.date.getMonth() === prevMonth),
+    [iY, chatterName, prevYear, prevMonth]);
   const lastMonthTotal = lastMonthIncome.reduce((s, r) => s + r.amountILS, 0);
+
+  // Salary calculation (same as admin ChatterPage)
+  const ymi = ym(year, month);
+  const cfg = chatterSettings[chatterName] || {};
+  const sal = useMemo(() => Calc.chatterSalary(myIncome, cfg, ymi), [myIncome, cfg, ymi]);
   const daysInLastMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
   const lastMonthDailyAvg = daysInLastMonth > 0 ? Math.round(lastMonthTotal / daysInLastMonth) : 0;
 
@@ -3978,6 +3983,9 @@ function ChatterPortal() {
         <Stat icon="✅" title="מאושרות" value={fmtC(totalApproved)} sub={`${approved.length} עסקאות`} color={C.grn} />
         <Stat icon="⏳" title="ממתינות" value={fmtC(totalPending)} sub={`${pending.length} עסקאות`} color={C.ylw} />
         <Stat icon="💰" title="סה״כ החודש" value={fmtC(currentMonthTotal)} sub={`${myIncome.length} עסקאות`} color={C.pri} />
+        <Stat icon="🏢" title="משרד" value={fmtC(sal.oSales)} sub={`שכר ${sal.officePct ?? 17}%: ${fmtC(sal.oSal)}`} />
+        <Stat icon="🏠" title="חוץ" value={fmtC(sal.rSales)} sub={`שכר ${sal.fieldPct ?? 15}%: ${fmtC(sal.rSal)}`} />
+        <Stat icon="💵" title="משכורת" value={fmtC(sal.total)} color={C.pri} sub={SALARY_TYPE_LABELS[sal.salaryType] || "מכירות"} />
       </div>
 
       {/* Last Month Context + Targets */}
@@ -4392,20 +4400,17 @@ function ApprovalsPage() {
 // CLIENT PORTAL (for client login)
 // ═══════════════════════════════════════════════════════
 function ClientPortal() {
-  const { user, logout, income, year, month, setMonth, loading, load, connected, setConnected, demo, loadDemo, liveRate, clientSettings, settlements, chatterSettings } = useApp();
+  const { user, logout, year, month, setMonth, loading, load, connected, setConnected, demo, loadDemo, clientSettings, settlements, chatterSettings } = useApp();
+  const { iM, iY } = useFD();
   const w = useWin();
   const [view, setView] = useState("monthly");
 
   useEffect(() => { if (!connected && !demo) { load().then(() => setConnected(true)).catch(() => loadDemo()); } }, []);
 
   const clientName = user?.name;
-  const allData = useMemo(() => income.filter(r => r.date && r.date.getFullYear() === year && r.modelName === clientName && !r.cancelled).map(r => applyCommission(r, liveRate)), [income, year, clientName, liveRate]);
-  const monthData = useMemo(() => allData.filter(r => r.date.getMonth() === month), [allData, month]);
+  const allData = useMemo(() => iY.filter(r => r.modelName === clientName && !r.cancelled), [iY, clientName]);
+  const monthData = useMemo(() => iM.filter(r => r.modelName === clientName && !r.cancelled), [iM, clientName]);
   const data = view === "monthly" ? monthData : allData;
-
-  const totalIncome = data.reduce((s, r) => s + r.amountILS, 0);
-  const throughAgency = data.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) !== "client").reduce((s, r) => s + r.amountILS, 0);
-  const direct = data.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "client").reduce((s, r) => s + r.amountILS, 0);
 
   const ymi = ym(year, month);
   const pct = getRate(clientName, ymi);
@@ -4448,9 +4453,10 @@ function ClientPortal() {
       </FB>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(totalIncome)} color={C.grn} sub={`${txCount} עסקאות`} />
-        <Stat icon="🏢" title="דרך הסוכנות" value={fmtC(throughAgency)} color={C.pri} />
-        <Stat icon="👩" title="ישירות" value={fmtC(direct)} color={C.org} />
+        <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} sub={`${txCount} עסקאות`} />
+        <Stat icon="🏢" title="דרך הסוכנות" value={fmtC(bal.through)} />
+        <Stat icon="👩" title="ישירות" value={fmtC(bal.direct)} color={C.org} />
+        <Stat icon="💵" title="זכאות (שכר צפוי)" value={fmtC(bal.ent)} color={C.pri} />
       </div>
 
       {/* Monthly Targets */}
