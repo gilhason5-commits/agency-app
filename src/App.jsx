@@ -1328,6 +1328,27 @@ function FixedExpensesManager({ fixedExps, addFixedExp, removeFixedExp }) {
   );
 }
 
+// Israeli progressive income tax brackets 2024 (annual amounts in ILS)
+function calcProgressiveTax(annualIncome) {
+  if (annualIncome <= 0) return 0;
+  const brackets = [
+    [81480,   0.10],
+    [116760,  0.14],
+    [187440,  0.20],
+    [260520,  0.31],
+    [542160,  0.35],
+    [698280,  0.47],
+    [Infinity, 0.50],
+  ];
+  let tax = 0, prev = 0;
+  for (const [ceiling, rate] of brackets) {
+    if (annualIncome <= prev) break;
+    tax += (Math.min(annualIncome, ceiling) - prev) * rate;
+    prev = ceiling;
+  }
+  return tax;
+}
+
 // ═══════════════════════════════════════════════════════
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
@@ -1339,6 +1360,7 @@ function DashPage() {
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} };
   const [bizType, setBizType] = useState(() => localStorage.getItem("AGENCY_BIZ_TYPE") || "עוסק");
   const [manualNI, setManualNI] = useState(() => +localStorage.getItem("AGENCY_MANUAL_NI") || 0);
+  const [nonDeductible, setNonDeductible] = useState(() => +localStorage.getItem("AGENCY_NON_DEDUCTIBLE") || 0);
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
@@ -1371,8 +1393,13 @@ function DashPage() {
   const vatBase = agencyIncome - lmCurr;
   const vat = vatBase > 0 ? vatBase * 0.18 : 0;
   const grossProfit = agencyIncome - mp.exp - fixedMonthly - empMonthly;
-  const taxBase = grossProfit - vat;
-  const incomeTax = taxBase > 0 ? taxBase * 0.23 : 0;
+  const taxableIncome = (agencyIncome - vat) - mp.exp - fixedMonthly - niTotal + nonDeductible;
+  const incomeTax = taxableIncome > 0
+    ? (bizType === "חברה"
+        ? taxableIncome * 0.23
+        : calcProgressiveTax(taxableIncome * 12) / 12)
+    : 0;
+  const effectiveTaxRate = taxableIncome > 0 ? (incomeTax / taxableIncome * 100) : 0;
   const niTotal = empNIMonthly + manualNI;
   const netProfitFull = grossProfit - vat - incomeTax - niTotal;
   const cashToBank = netProfitFull - lmCurr;
@@ -1502,6 +1529,10 @@ function DashPage() {
           <label style={{ color: C.dim, fontSize: 12 }}>ב.ל נוסף (שכירים) ₪</label>
           <input type="number" value={manualNI || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setManualNI(v); localStorage.setItem("AGENCY_MANUAL_NI", v); }} style={{ width: 100, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
         </div>}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <label style={{ color: C.dim, fontSize: 12 }}>הוצאות לא מוכרות ₪</label>
+          <input type="number" value={nonDeductible || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setNonDeductible(v); localStorage.setItem("AGENCY_NON_DEDUCTIBLE", v); }} style={{ width: 110, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
+        </div>
       </div>
 
       {/* Row 1: Sales breakdown → agency income */}
@@ -1523,7 +1554,7 @@ function DashPage() {
         <div style={{ color: C.ylw, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>🧾 מסים ותשלומים חובה</div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <Stat icon="📋" title="מע״מ (18%)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatBase)}`} />
-          <Stat icon="🏛️" title="מס הכנסה (23%)" value={fmtC(incomeTax)} color={C.ylw} sub={bizType} />
+          <Stat icon="🏛️" title={`מס הכנסה${bizType === "חברה" ? " (23%)" : " (מדרגות)"}`} value={<span>{taxableIncome > 0 && <span style={{ display: "block", fontSize: 11, color: C.mut, fontWeight: 400, marginBottom: 2 }}>{effectiveTaxRate.toFixed(1)}% מהבסיס החייב</span>}{fmtC(incomeTax)}</span>} color={C.ylw} sub={`בסיס: ${fmtC(Math.max(0, taxableIncome))}`} />
           <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + ידני" : "ידני"} />
           <Stat icon="💸" title="סה״כ מסים" value={fmtC(vat + incomeTax + niTotal)} color={C.red} sub="מע״מ + מס + ב.ל" />
         </div>
