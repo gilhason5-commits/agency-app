@@ -1360,7 +1360,6 @@ function DashPage() {
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} };
   const [bizType, setBizType] = useState(() => localStorage.getItem("AGENCY_BIZ_TYPE") || "עוסק");
   const [manualNI, setManualNI] = useState(() => +localStorage.getItem("AGENCY_MANUAL_NI") || 0);
-  const [nonDeductible, setNonDeductible] = useState(() => +localStorage.getItem("AGENCY_NON_DEDUCTIBLE") || 0);
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
@@ -1393,6 +1392,7 @@ function DashPage() {
   const vatBase = agencyIncome - lmCurr;
   const vat = vatBase > 0 ? vatBase * 0.18 : 0;
   const grossProfit = agencyIncome - mp.exp - fixedMonthly - empMonthly;
+  const nonDeductible = activeE.filter(e => !e.taxRecognized).reduce((s, e) => s + (e.amount || 0), 0);
   const niTotal = empNIMonthly + manualNI;
   const taxableIncome = (agencyIncome - vat) - mp.exp - fixedMonthly - niTotal + nonDeductible;
   const incomeTax = taxableIncome > 0
@@ -1529,10 +1529,6 @@ function DashPage() {
           <label style={{ color: C.dim, fontSize: 12 }}>ב.ל נוסף (שכירים) ₪</label>
           <input type="number" value={manualNI || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setManualNI(v); localStorage.setItem("AGENCY_MANUAL_NI", v); }} style={{ width: 100, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
         </div>}
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <label style={{ color: C.dim, fontSize: 12 }}>הוצאות לא מוכרות ₪</label>
-          <input type="number" value={nonDeductible || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setNonDeductible(v); localStorage.setItem("AGENCY_NON_DEDUCTIBLE", v); }} style={{ width: 110, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
-        </div>
       </div>
 
       {/* Row 1: Sales breakdown → agency income */}
