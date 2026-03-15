@@ -720,7 +720,28 @@ const Calc = {
     const actualDue = ent - direct - netSettled;
     return { totalIncome: tot, direct, through: tot - direct, pct: agencyPct, ent, bal: ent - direct, netSettled, actualDue, agencyShare, chatterSalaryForClient };
   },
-  offset(exps) { const d = exps.filter(e => e.paidBy === "דור").reduce((s, e) => s + e.amount, 0); const y = exps.filter(e => e.paidBy === "יוראי").reduce((s, e) => s + e.amount, 0); return { dor: d, yurai: y, off: Math.abs(d - y) / 2, owes: d > y ? "יוראי" : "דור", paid: d > y ? "דור" : "יוראי" }; },
+  offset(exps) {
+    const d = exps.filter(e => e.paidBy === "דור").reduce((s, e) => s + e.amount, 0);
+    const y = exps.filter(e => e.paidBy === "יוראי").reduce((s, e) => s + e.amount, 0);
+    const ag = exps.filter(e => e.paidBy === "סוכנות").reduce((s, e) => s + e.amount, 0);
+    const total = d + y + ag;
+    const fair = total / 3;
+    const netD = d - fair, netY = y - fair, netAg = ag - fair;
+    // Compute minimal transfers: debtors pay creditors
+    const people = [{ n: "דור", v: netD }, { n: "יוראי", v: netY }, { n: "סוכנות", v: netAg }];
+    const transfers = [];
+    const pos = people.filter(p => p.v > 0.5).sort((a, b) => b.v - a.v);
+    const neg = people.filter(p => p.v < -0.5).sort((a, b) => a.v - b.v);
+    const posQ = pos.map(p => ({ ...p })), negQ = neg.map(p => ({ ...p }));
+    let pi = 0, ni = 0;
+    while (pi < posQ.length && ni < negQ.length) {
+      const amt = Math.min(posQ[pi].v, -negQ[ni].v);
+      if (amt > 0.5) transfers.push({ from: negQ[ni].n, to: posQ[pi].n, amt: Math.round(amt * 10) / 10 });
+      posQ[pi].v -= amt; negQ[ni].v += amt;
+      if (posQ[pi].v < 0.5) pi++; else ni++;
+    }
+    return { dor: d, yurai: y, agency: ag, total, netDor: netD, netYurai: netY, netAgency: netAg, transfers };
+  },
   profit(inc, exp) { const i = inc.reduce((s, r) => s + r.amountILS, 0); const e = exp.reduce((s, x) => s + x.amount, 0); return { inc: i, exp: e, profit: i - e }; },
   targets(prevInc, prevDays, nextDays) {
     if (!prevDays || !nextDays) return { t1: 0, t2: 0, t3: 0, daily: 0 };
@@ -2315,7 +2336,28 @@ function ExpPage() {
           <DT textSm columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "סוג", key: "docType" }, { label: "ספק/סיבה", key: "category", wrap: true, tdStyle: { maxWidth: 100 } }, { label: "פירוט", render: r => <span>{r.name}{r.installmentTotal > 0 && <span style={{ marginRight: 6, fontSize: 10, background: `${C.ylw}33`, color: C.ylw, border: `1px solid ${C.ylw}55`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>💳 {r.installmentCurrent}/{r.installmentTotal}</span>}</span>, wrap: true, tdStyle: { minWidth: 100, maxWidth: 280 } }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "מעמ", render: r => <button onClick={() => updField(r, "vatRecognized", !r.vatRecognized)} style={{ background: r.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: r.vatRecognized ? C.grn : C.red, border: `1px solid ${r.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.vatRecognized ? "כן" : "לא"}</button> }, { label: "מס", render: r => <button onClick={() => updField(r, "taxRecognized", !r.taxRecognized)} style={{ background: r.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: r.taxRecognized ? C.grn : C.red, border: `1px solid ${r.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.taxRecognized ? "כן" : "לא"}</button> }, { label: "תשלום", key: "paidBy" }, { label: "מזהה", key: "hour", wrap: true, tdStyle: { maxWidth: 100 } }, { label: "מסמך", render: r => r.receiptImage ? <a href={r.receiptImage} target="_blank" rel="noreferrer" style={{ color: C.pri, fontWeight: "bold" }}>5</a> : "" }, { label: "סיווג הוצאה", render: r => <select value={allCats.includes(r.classification) ? r.classification : ""} onChange={e => { if (e.target.value) updCat(r, e.target.value); }} style={{ background: C.card, color: C.txt, border: `1px solid ${C.bdr}`, borderRadius: 6, padding: "6px 4px", fontSize: 11, outline: "none", width: "100%", cursor: "pointer" }}><option value="">{r.classification || "בחר סיווג..."}</option>{allCats.filter(c => c !== r.classification).map(c => <option key={c} value={c}>{c}</option>)}</select>, tdStyle: { minWidth: 120 } }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)} style={{ color: C.pri }}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={data.filter(e => e.source !== "ידני").sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", fmtC(data.filter(e => e.source !== "ידני").reduce((s, e) => s + e.amount, 0)), "", "", "", "", "", "", ""]} />
         </div>
       </div>
-      <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>⚖️ קיזוז דור / יוראי</h3><Card style={{ display: "flex", gap: 20, flexWrap: "wrap" }}><div><div style={{ color: C.dim, fontSize: 11 }}>דור</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(off.dor)}</div></div><div><div style={{ color: C.dim, fontSize: 11 }}>יוראי</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(off.yurai)}</div></div><div><div style={{ color: C.dim, fontSize: 11 }}>קיזוז</div><div style={{ fontSize: 14, fontWeight: 700, color: C.ylw }}>{off.owes} → {off.paid}: {fmtC(off.off)}</div></div></Card></div>
+      <div style={{ marginTop: 28 }}>
+        <h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>⚖️ קיזוז דור / יוראי / סוכנות</h3>
+        <Card>
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: off.transfers.length > 0 ? 16 : 0 }}>
+            {[{ label: "דור", val: off.dor, net: off.netDor }, { label: "יוראי", val: off.yurai, net: off.netYurai }, { label: "סוכנות", val: off.agency, net: off.netAgency }].map(({ label, val, net }) => (
+              <div key={label}>
+                <div style={{ color: C.dim, fontSize: 11, marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: C.txt }}>{fmtC(val)}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: net > 0.5 ? C.grn : net < -0.5 ? C.red : C.mut }}>
+                  {net > 0.5 ? `+${fmtC(net)} (מגיע)` : net < -0.5 ? `${fmtC(net)} (חייב)` : "מאוזן"}
+                </div>
+              </div>
+            ))}
+          </div>
+          {off.transfers.length > 0 && <div style={{ borderTop: `1px solid ${C.bdr}`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ color: C.dim, fontSize: 11, marginBottom: 4 }}>העברות לאיזון:</div>
+            {off.transfers.map((t, i) => (
+              <div key={i} style={{ fontSize: 13, fontWeight: 700, color: C.ylw }}>{t.from} → {t.to}: {fmtC(t.amt)}</div>
+            ))}
+          </div>}
+        </Card>
+      </div>
       <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>👥 שכר צ'אטרים</h3><DT columns={[{ label: "צ'אטר", key: "name" }, { label: "סוג שכר", render: r => SALARY_TYPE_LABELS[r.salaryType] || "מכירות" }, { label: "משרד", render: r => `${fmtC(r.oSal)} (${r.officePct ?? 17}%)` }, { label: "חוץ", render: r => `${fmtC(r.rSal)} (${r.fieldPct ?? 15}%)` }, { label: "שעתי", render: r => r.salaryType !== "sales" ? fmtC(r.hourlySalary) : "—" }, { label: "סה״כ", render: r => <strong style={{ color: C.pri }}>{fmtC(r.total)}</strong> }]} rows={chSal} footer={["סה״כ", "", "", "", "", fmtC(chSal.reduce((s, c) => s + c.total, 0))]} /></div>
       <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>👩 שכר לקוחות</h3><DT columns={[{ label: "לקוחה", key: "name" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "%", render: r => `${r.pct}%` }, { label: "זכאות", render: r => fmtC(r.ent) }, { label: "נכנס אליה", render: r => fmtC(r.direct) }, { label: "יתרה", render: r => <span style={{ color: r.bal >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.bal)}</span> }]} rows={clSal} footer={["סה״כ", "", "", fmtC(clSal.reduce((s, c) => s + c.ent, 0)), "", ""]} /></div>
     </>}
@@ -3218,7 +3260,7 @@ function RecordExpensePage({ editMode, onDone }) {
       <div><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שם ההוצאה *</label><input value={form.name} onChange={e => upd("name", e.target.value)} placeholder="למשל: חשבונית חשמל" style={inputStyle} /></div>
       <div><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סכום (₪) *</label><input type="number" value={form.amount} onChange={e => upd("amount", e.target.value)} placeholder="0" style={{ ...inputStyle, fontSize: w < 768 ? 20 : 16, direction: "ltr" }} /></div>
       <div style={{ display: "flex", gap: 10 }}><div style={{ flex: 1 }}><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label><input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} /></div><div style={{ flex: 1 }}><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label><input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={{ ...inputStyle, direction: "ltr" }} /></div></div>
-      <div><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>מי שילם *</label><div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>{["דור", "יוראי", "סוכנות", "קיזוז"].map(p => <button key={p} onClick={() => upd("paidBy", p)} style={{ flex: 1, minWidth: w < 768 ? "40%" : "auto", padding: w < 768 ? "16px" : "12px", borderRadius: 10, fontSize: w < 768 ? 16 : 14, fontWeight: 600, cursor: "pointer", background: form.paidBy === p ? C.pri : C.card, color: form.paidBy === p ? "#fff" : C.dim, border: `2px solid ${form.paidBy === p ? C.pri : C.bdr}`, transition: "all .15s" }}>{p}</button>)}</div></div>
+      <div><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>מי שילם *</label><div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>{["דור", "יוראי", "סוכנות"].map(p => <button key={p} onClick={() => upd("paidBy", p)} style={{ flex: 1, minWidth: w < 768 ? "40%" : "auto", padding: w < 768 ? "16px" : "12px", borderRadius: 10, fontSize: w < 768 ? 16 : 14, fontWeight: 600, cursor: "pointer", background: form.paidBy === p ? C.pri : C.card, color: form.paidBy === p ? "#fff" : C.dim, border: `2px solid ${form.paidBy === p ? C.pri : C.bdr}`, transition: "all .15s" }}>{p}</button>)}</div></div>
       <div style={{ display: "flex", gap: 14 }}><label style={{ display: "flex", alignItems: "center", gap: 6, color: C.dim, fontSize: 13, cursor: "pointer" }}><input type="checkbox" checked={form.vatRecognized} onChange={e => upd("vatRecognized", e.target.checked)} style={{ width: 18, height: 18 }} />מע״מ</label><label style={{ display: "flex", alignItems: "center", gap: 6, color: C.dim, fontSize: 13, cursor: "pointer" }}><input type="checkbox" checked={form.taxRecognized} onChange={e => upd("taxRecognized", e.target.checked)} style={{ width: 18, height: 18 }} />מס</label></div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: form.isFixed ? `${C.pri}22` : C.card, border: `1px solid ${form.isFixed ? C.pri : C.bdr}`, borderRadius: 10, transition: "all .15s" }}>
         <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", flex: 1 }}>
