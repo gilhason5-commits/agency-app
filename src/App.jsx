@@ -9,7 +9,9 @@ import {
   fetchChatterTargets, setChatterTarget,
   fetchClientRates, saveClientRate,
   fetchAllChatterSettings, saveChatterSettings,
-  fetchAllClientSettings, saveClientSettings
+  fetchAllClientSettings, saveClientSettings,
+  fetchFixedExpenses, addFixedExpense, updateFixedExpense, removeFixedExpense,
+  fetchEmployees, addEmployee, removeEmployee
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -134,6 +136,15 @@ function renderDateHour(r) {
   return <span style={{ whiteSpace: "nowrap" }}>{fmtD(r.date)} {h ? <span style={{ fontSize: 11, color: C.mut }}>{h}</span> : ""}</span>;
 }
 function ym(y, m) { return `${y}-${String(m + 1).padStart(2, "0")}`; }
+function ymFromDate(date) { if (!date) return null; return ym(date.getFullYear(), date.getMonth()); }
+// Returns effective pcts for a given month — looks up monthlyPcts[ymi], falls back to prev month, then global
+function getMonthlyPcts(settings, ymi) {
+  const monthly = settings?.monthlyPcts || {};
+  if (monthly[ymi]) return monthly[ymi];
+  const prev = Object.keys(monthly).filter(k => k < ymi).sort();
+  if (prev.length > 0) return monthly[prev[prev.length - 1]];
+  return { officePct: settings?.officePct ?? 17, fieldPct: settings?.fieldPct ?? 15, salaryType: settings?.salaryType ?? "sales", hourlyRate: settings?.hourlyRate ?? 0 };
+}
 function useWin() { const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1200); useEffect(() => { const h = () => setW(window.innerWidth); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, []); return w; }
 
 // ═══════════════════════════════════════════════════════
@@ -663,10 +674,11 @@ const Calc = {
   chatterSalary(rows, settings, ymi) {
     let o = 0, r = 0;
     rows.forEach(x => { if (x.shiftLocation === "משרד") o += x.amountILS; else r += x.amountILS; });
-    const officePct = (settings?.officePct ?? 17) / 100;
-    const fieldPct = (settings?.fieldPct ?? 15) / 100;
-    const salaryType = settings?.salaryType ?? "sales";
-    const hourlyRate = settings?.hourlyRate ?? 0;
+    const pcts = getMonthlyPcts(settings, ymi);
+    const officePct = (pcts.officePct ?? 17) / 100;
+    const fieldPct = (pcts.fieldPct ?? 15) / 100;
+    const salaryType = pcts.salaryType ?? "sales";
+    const hourlyRate = pcts.hourlyRate ?? 0;
     const hours = (settings?.monthlyHours && ymi) ? (settings.monthlyHours[ymi] ?? 0) : 0;
     const oSal = o * officePct; const rSal = r * fieldPct;
     const salesSalary = oSal + rSal;
@@ -684,8 +696,10 @@ const Calc = {
     let chatterSalaryForClient = 0;
     clRows.forEach(r => {
       const cfg = chatterSettings[r.chatterName] || {};
-      const oPct = (cfg.officePct ?? 17) / 100;
-      const fPct = (cfg.fieldPct ?? 15) / 100;
+      const rowYmi = ymFromDate(r.date);
+      const pcts = getMonthlyPcts(cfg, rowYmi);
+      const oPct = (pcts.officePct ?? 17) / 100;
+      const fPct = (pcts.fieldPct ?? 15) / 100;
       chatterSalaryForClient += r.amountILS * (r.shiftLocation === "משרד" ? oPct : fPct);
     });
     // Client entitlement = total income - agency share - chatter salary
@@ -813,6 +827,8 @@ function Prov({ children }) {
     HistorySvc.fetchAll().then(setHistory);
     GenParamsSvc.fetch().then(setGenParams);
     loadRatesFromFirebase().then(() => setRv(v => v + 1));
+    fetchFixedExpenses().then(setFixedExps).catch(() => {});
+    fetchEmployees().then(setEmployees).catch(() => {});
   }, []);
 
   const loadDemo = useCallback(() => {
@@ -882,6 +898,31 @@ function Prov({ children }) {
   };
   const logout = () => { setUser(null); localStorage.removeItem("AGENCY_USER"); };
 
+  const [fixedExps, setFixedExps] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const addFixedExp = useCallback(async (record) => {
+    const saved = await addFixedExpense(record);
+    setFixedExps(prev => [...prev, saved]);
+    return saved;
+  }, []);
+  const removeFixedExp = useCallback(async (id) => {
+    await removeFixedExpense(id);
+    setFixedExps(prev => prev.filter(e => e.id !== id));
+  }, []);
+  const updateFixedExp = useCallback(async (id, updates) => {
+    await updateFixedExpense(id, updates);
+    setFixedExps(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+  }, []);
+  const addEmployeeCtx = useCallback(async (record) => {
+    const saved = await addEmployee(record);
+    setEmployees(prev => [...prev, saved]);
+    return saved;
+  }, []);
+  const removeEmployeeCtx = useCallback(async (id) => {
+    await removeEmployee(id);
+    setEmployees(prev => prev.filter(e => e.id !== id));
+  }, []);
+
   const [customCats, setCustomCats] = useState(() => { try { const saved = localStorage.getItem("ALL_CATS_V2"); if (saved !== null) return JSON.parse(saved); const oldCustom = JSON.parse(localStorage.getItem("CUSTOM_CATS") || "[]"); const merged = [...EXPENSE_CATEGORIES]; oldCustom.forEach(c => { if (!merged.includes(c)) merged.push(c); }); return merged; } catch { return [...EXPENSE_CATEGORIES]; } });
   const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {} return true; };
   const removeCustomCat = (name) => { const updated = customCats.filter(c => c !== name); setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {}; };
@@ -898,6 +939,8 @@ function Prov({ children }) {
       await setChatterTarget(name, targets);
       setChatterTargets(prev => ({ ...prev, [name]: targets }));
     },
+    fixedExps, setFixedExps, addFixedExp, removeFixedExp, updateFixedExp,
+    employees, setEmployees, addEmployeeCtx, removeEmployeeCtx,
     chatterSettings, setChatterSettings,
     saveChatterSetting: async (name, settings) => {
       setChatterSettings(prev => ({ ...prev, [name]: { ...(prev[name] || {}), ...settings } }));
@@ -918,7 +961,7 @@ function Prov({ children }) {
       setSettlements(prev => [...prev, saved]);
       return saved;
     }
-  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate, customCats]);
+  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate, customCats, fixedExps, employees]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
@@ -1187,23 +1230,21 @@ function SetupPage() {
 // ═══════════════════════════════════════════════════════
 // COMPONENT: FIXED EXPENSES MANAGER
 // ═══════════════════════════════════════════════════════
-function FixedExpensesManager({ fixedExps, setFixedExps, employees, setEmployees }) {
+function FixedExpensesManager({ fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx }) {
   const inpSt = { padding: "8px 10px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" };
   const btnSt = { padding: "8px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, color: C.txt };
   const [newItem, setNewItem] = useState({ name: "", amount: "", period: "monthly" });
   const [newEmp, setNewEmp] = useState({ name: "", grossAmount: "", nationalInsurance: "" });
   const toMonthly = (amount, period) => period === "monthly" ? amount : period === "quarterly" ? amount / 3 : amount / 12;
   const periodLabel = { monthly: "חודשי", quarterly: "רבעוני", yearly: "שנתי" };
-  const saveFixed = (updated) => { setFixedExps(updated); localStorage.setItem("AGENCY_FIXED_EXP", JSON.stringify(updated)); };
-  const saveEmps = (updated) => { setEmployees(updated); localStorage.setItem("AGENCY_EMPLOYEES", JSON.stringify(updated)); };
-  const addFixed = () => {
+  const addFixed = async () => {
     if (!newItem.name || !newItem.amount) return;
-    saveFixed([...fixedExps, { id: Date.now().toString(), name: newItem.name, amount: +newItem.amount, period: newItem.period }]);
+    await addFixedExp({ name: newItem.name, amount: +newItem.amount, period: newItem.period });
     setNewItem({ name: "", amount: "", period: "monthly" });
   };
-  const addEmployee = () => {
+  const addEmployeeLocal = async () => {
     if (!newEmp.name || !newEmp.grossAmount) return;
-    saveEmps([...employees, { id: Date.now().toString(), name: newEmp.name, grossAmount: +newEmp.grossAmount, nationalInsurance: +newEmp.nationalInsurance || 0 }]);
+    await addEmployeeCtx({ name: newEmp.name, grossAmount: +newEmp.grossAmount, nationalInsurance: +newEmp.nationalInsurance || 0 });
     setNewEmp({ name: "", grossAmount: "", nationalInsurance: "" });
   };
   return (
@@ -1217,7 +1258,7 @@ function FixedExpensesManager({ fixedExps, setFixedExps, employees, setEmployees
               <span style={{ color: C.dim, fontSize: 11, background: C.bg, padding: "2px 8px", borderRadius: 4 }}>{periodLabel[e.period]}</span>
               <span style={{ color: C.red, fontSize: 13, fontWeight: 600 }}>{fmtC(e.amount)}</span>
               {e.period !== "monthly" && <span style={{ color: C.mut, fontSize: 11 }}>≈{fmtC(toMonthly(e.amount, e.period))}/חו'</span>}
-              <button onClick={() => saveFixed(fixedExps.filter(x => x.id !== e.id))} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
+              <button onClick={() => removeFixedExp(e.id)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
             </div>
           </div>
         ))}
@@ -1241,7 +1282,7 @@ function FixedExpensesManager({ fixedExps, setFixedExps, employees, setEmployees
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <span style={{ color: C.ylw, fontSize: 12 }}>ברוטו: <strong>{fmtC(emp.grossAmount)}</strong></span>
                 {emp.nationalInsurance > 0 && <span style={{ color: C.dim, fontSize: 12 }}>ב.ל: {fmtC(emp.nationalInsurance)}</span>}
-                <button onClick={() => saveEmps(employees.filter(x => x.id !== emp.id))} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
+                <button onClick={() => removeEmployeeCtx(emp.id)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
               </div>
             </div>
           ))}
@@ -1259,7 +1300,7 @@ function FixedExpensesManager({ fixedExps, setFixedExps, employees, setEmployees
             <label style={{ color: newEmp.grossAmount ? C.dim : C.mut, fontSize: 11, transition: "color 0.2s" }}>ביטוח לאומי ₪</label>
             <input type="number" value={newEmp.nationalInsurance} onChange={e => setNewEmp(p => ({ ...p, nationalInsurance: e.target.value }))} placeholder="0" disabled={!newEmp.grossAmount} style={{ ...inpSt, width: 130, opacity: newEmp.grossAmount ? 1 : 0.3, transition: "opacity 0.2s" }} />
           </div>
-          <button onClick={addEmployee} style={{ ...btnSt, background: C.grn }}>+ הוסף שכיר</button>
+          <button onClick={addEmployeeLocal} style={{ ...btnSt, background: C.grn }}>+ הוסף שכיר</button>
         </div>
       </div>
     </Card>
@@ -1270,15 +1311,13 @@ function FixedExpensesManager({ fixedExps, setFixedExps, employees, setEmployees
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
-  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements } = useApp();
+  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements, fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const [lmVals, setLmVals] = useState(() => { try { return JSON.parse(localStorage.getItem("LM_DB") || "{}"); } catch { return {}; } });
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} };
   const [bizType, setBizType] = useState(() => localStorage.getItem("AGENCY_BIZ_TYPE") || "עוסק");
   const [manualNI, setManualNI] = useState(() => +localStorage.getItem("AGENCY_MANUAL_NI") || 0);
-  const [fixedExps, setFixedExps] = useState(() => { try { return JSON.parse(localStorage.getItem("AGENCY_FIXED_EXP") || "[]"); } catch { return []; } });
-  const [employees, setEmployees] = useState(() => { try { return JSON.parse(localStorage.getItem("AGENCY_EMPLOYEES") || "[]"); } catch { return []; } });
   const [showFixedMgr, setShowFixedMgr] = useState(false);
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
@@ -1584,7 +1623,7 @@ function DashPage() {
         🔒 ניהול הוצאות קבועות {showFixedMgr ? "▲" : "▼"}
         {(fixedExps.length > 0 || employees.length > 0) && <span style={{ background: C.pri, color: "#fff", fontSize: 11, borderRadius: 10, padding: "1px 7px" }}>{fixedExps.length + employees.length}</span>}
       </button>
-      {showFixedMgr && <FixedExpensesManager fixedExps={fixedExps} setFixedExps={setFixedExps} employees={employees} setEmployees={setEmployees} />}
+      {showFixedMgr && <FixedExpensesManager fixedExps={fixedExps} addFixedExp={addFixedExp} removeFixedExp={removeFixedExp} employees={employees} addEmployeeCtx={addEmployeeCtx} removeEmployeeCtx={removeEmployeeCtx} />}
     </div>
 
     {/* Tier Cubes */}
@@ -1687,6 +1726,7 @@ function IncPage() {
   const usdInILS = totalUSD * liveRate;
   const grandTotal = data.reduce((s, r) => s + r.amountILS, 0);
   const ilsOnlyTotal = data.reduce((s, r) => s + ((r.amountUSD || 0) > 0 ? 0 : r.amountILS), 0);
+  const agencyTotal = data.filter(r => !r.cancelled && (!r.paymentTarget || r.paymentTarget === "agency")).reduce((s, r) => s + r.amountILS, 0);
 
   const setPayment = async (r, target) => {
     try {
@@ -1736,6 +1776,7 @@ function IncPage() {
       <Stat icon="💰" title="סה״כ ₪" value={fmtC(grandTotal)} color={C.grn} sub={`${data.length} עסקאות • שער $: ₪${liveRate.toFixed(2)}`} />
       <Stat icon="🏦" title='סה״כ ₪ (שקל)' value={fmtC(ilsOnlyTotal)} color={C.grn} sub="עסקאות שנכנסו בשקל" />
       <Stat icon="💵" title='סה״כ $' value={fmtUSD(totalUSD)} color={C.pri} sub={`≈ ${fmtC(grandTotal - ilsOnlyTotal)} (מומר לשקל)`} />
+      <Stat icon="🏢" title="עבר דרך הסוכנות" value={fmtC(agencyTotal)} color={C.ylw} sub="תשלומים שיועדו לסוכנות" />
     </div>
     <Card style={{ marginBottom: 16 }}>
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
@@ -2350,6 +2391,8 @@ function ChatterPage({ forceSel, onBack } = {}) {
 
   const ymi = ym(year, month);
   const cfg = chatterSettings[sel] || {};
+  const effectivePcts = getMonthlyPcts(cfg, ymi);
+  const hasMonthlyOverride = !!(cfg.monthlyPcts?.[ymi]);
   const rows = incD.filter(r => r.chatterName === sel);
   const sal = Calc.chatterSalary(rows, cfg, ymi);
   const tot = rows.reduce((s, r) => s + r.amountILS, 0);
@@ -2367,12 +2410,12 @@ function ChatterPage({ forceSel, onBack } = {}) {
   }, [iY, sel, view, cfg, year]);
 
   const openSettings = () => {
-    setSettingsForm({ salaryType: cfg.salaryType || "sales", officePct: cfg.officePct ?? 17, fieldPct: cfg.fieldPct ?? 15, hourlyRate: cfg.hourlyRate ?? 0 });
+    setSettingsForm({ salaryType: effectivePcts.salaryType ?? "sales", officePct: effectivePcts.officePct ?? 17, fieldPct: effectivePcts.fieldPct ?? 15, hourlyRate: effectivePcts.hourlyRate ?? 0 });
     setEditSettings(true);
   };
   const saveSettings = async () => {
     setSaving(true);
-    await saveChatterSetting(sel, settingsForm);
+    await saveChatterSetting(sel, { monthlyPcts: { ...(cfg.monthlyPcts || {}), [ymi]: settingsForm } });
     setSaving(false);
     setEditSettings(false);
   };
@@ -2419,10 +2462,10 @@ function ChatterPage({ forceSel, onBack } = {}) {
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, paddingBottom: 14, borderBottom: `1px solid ${C.bdr}` }}>
-            <Stat icon="📋" title="סוג שכר" value={SALARY_TYPE_LABELS[cfg.salaryType || "sales"]} />
-            <Stat icon="🏢" title="משרד" value={`${cfg.officePct ?? 17}%`} />
-            <Stat icon="🏠" title="חוץ" value={`${cfg.fieldPct ?? 15}%`} />
-            {sal.salaryType !== "sales" && <Stat icon="⏰" title="שכר לשעה" value={`₪${cfg.hourlyRate ?? 0}`} />}
+            <Stat icon="📋" title="סוג שכר" value={SALARY_TYPE_LABELS[effectivePcts.salaryType || "sales"]} sub={hasMonthlyOverride ? `✎ ${MONTHS_HE[month]}` : "ברירת מחדל"} />
+            <Stat icon="🏢" title="משרד" value={`${effectivePcts.officePct ?? 17}%`} sub={hasMonthlyOverride ? `✎ ${MONTHS_HE[month]}` : "ברירת מחדל"} />
+            <Stat icon="🏠" title="חוץ" value={`${effectivePcts.fieldPct ?? 15}%`} sub={hasMonthlyOverride ? `✎ ${MONTHS_HE[month]}` : "ברירת מחדל"} />
+            {sal.salaryType !== "sales" && <Stat icon="⏰" title="שכר לשעה" value={`₪${effectivePcts.hourlyRate ?? 0}`} />}
             <Card style={{ flex: 1, minWidth: 140 }}>
               <div style={{ color: C.dim, fontSize: 12, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 16 }}>⏱️</span>שעות עבודה — {MONTHS_HE[month]}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -2468,7 +2511,7 @@ function ChatterPage({ forceSel, onBack } = {}) {
       <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }]} rows={rows.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(rows.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(tot)]} />
 
       {/* Edit settings modal */}
-      <Modal open={editSettings} onClose={() => setEditSettings(false)} title={`⚙️ הגדרות שכר — ${sel}`} width={400}>
+      <Modal open={editSettings} onClose={() => setEditSettings(false)} title={`⚙️ הגדרות שכר — ${sel} — ${MONTHS_HE[month]} ${year}`} width={400}>
         <div style={{ display: "grid", gap: 14 }}>
           <div>
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>סוג שכר</label>
@@ -2492,6 +2535,9 @@ function ChatterPage({ forceSel, onBack } = {}) {
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שכר לשעה (₪)</label>
             <input type="number" min="0" value={settingsForm.hourlyRate} onChange={e => setSettingsForm(f => ({ ...f, hourlyRate: +e.target.value }))} style={inpS} />
           </div>}
+          <div style={{ padding: "8px 10px", background: `${C.pri}15`, borderRadius: 8, fontSize: 11, color: C.dim }}>
+            ℹ️ ההגדרות ישמרו עבור <strong style={{ color: C.priL }}>{MONTHS_HE[month]} {year}</strong> בלבד. חודשים חדשים יורשים את ההגדרות של החודש הקרוב ביותר שהוגדר.
+          </div>
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <Btn variant="success" onClick={saveSettings} disabled={saving}>{saving ? "שומר..." : "💾 שמור"}</Btn>
             <Btn variant="ghost" onClick={() => setEditSettings(false)}>ביטול</Btn>
@@ -2730,20 +2776,6 @@ function ClientsOverviewPage({ onSelectClient }) {
         </ResponsiveContainer></div>
       </Card>;
     })()}
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
-      <Card>
-        <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>💵 הכנסות vs זכאות</div>
-        <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(200, clientStats.length * 44)}>
-          <BarChart data={clientStats} layout="vertical" margin={{ top: 5, right: 130, bottom: 5, left: 10 }}>
-            <XAxis type="number" reversed tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} />
-            <YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={120} interval={0} />
-            <Tooltip content={<TT />} />
-            <Bar dataKey="total" fill={C.pri} name="הכנסות" radius={[4,0,0,4]} />
-            <Bar dataKey="entitlement" fill={C.ylw} name="זכאות" radius={[4,0,0,4]} />
-          </BarChart>
-        </ResponsiveContainer></div>
-      </Card>
-    </div>
     {clientStats.length > 0 && <Card style={{ marginBottom: 16 }}>
       <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>🥧 חלוקת הכנסות</div>
       <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={220}>
@@ -2855,6 +2887,7 @@ function ClientPage({ forceSel, onBack } = {}) {
 function TgtPage() {
   const { year, month, liveRate, chatterTargets, saveChatterTarget } = useApp();
   const { iY } = useFD();
+  const [filterMonth, setFilterMonth] = useState(month);
   const [selMonth, setSelMonth] = useState(null);
   const [editTarget, setEditTarget] = useState(null); // { name, t1, t2, t3 }
   const [savingTarget, setSavingTarget] = useState(false);
@@ -2950,10 +2983,19 @@ function TgtPage() {
   };
 
   return <div style={{ direction: "rtl", maxWidth: 800 }}>
-    <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>🎯 תחזית יעדים — {year}</h2>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, margin: 0 }}>🎯 תחזית יעדים — {year}</h2>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <label style={{ color: C.dim, fontSize: 13 }}>חודש:</label>
+        <select value={filterMonth} onChange={e => setFilterMonth(+e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" }}>
+          <option value={-1}>כל החודשים</option>
+          {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
+        </select>
+      </div>
+    </div>
 
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 16, marginBottom: 24 }}>
-      {mbd.map(d => {
+      {mbd.filter(d => filterMonth === -1 || d.idx === filterMonth).map(d => {
         const isCurrent = d.idx === month;
         const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
         const currentDaily = d.inc / daysPassed;
@@ -2990,18 +3032,19 @@ function TgtPage() {
           <div>
             <div style={{ fontSize: 11, color: C.dim, marginBottom: 8 }}>יעדים שנקבעו לחודש זה:</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                <span style={{ color: C.txt }}>יעד ברזל (+5%)</span>
-                <span style={{ color: d.inc >= d.tgt1 ? C.grn : C.dim }}>{fmtC(d.tgt1)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                <span style={{ color: C.txt }}>יעד זהב (+10%)</span>
-                <span style={{ color: d.inc >= d.tgt2 ? C.grn : C.dim }}>{fmtC(d.tgt2)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                <span style={{ color: C.txt }}>יעד יהלום (+15%)</span>
-                <span style={{ color: d.inc >= d.tgt3 ? C.grn : C.dim }}>{fmtC(d.tgt3)}</span>
-              </div>
+              {[
+                { label: "יעד ברזל (+5%)", val: d.tgt1 },
+                { label: "יעד זהב (+10%)", val: d.tgt2 },
+                { label: "יעד יהלום (+15%)", val: d.tgt3 },
+              ].map(({ label, val }) => (
+                <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12 }}>
+                  <span style={{ color: C.txt }}>{label}</span>
+                  <span style={{ textAlign: "left", direction: "ltr" }}>
+                    <span style={{ color: d.inc >= val ? C.grn : C.dim, fontWeight: 600 }}>{fmtC(val)}</span>
+                    {!isFuture && <span style={{ color: C.dim, fontSize: 10, marginRight: 5 }}>({fmtC(val / d.days)}/יום)</span>}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </Card>;
@@ -3053,10 +3096,10 @@ function TgtPage() {
 // PAGE: RECORD EXPENSE (mobile-first)
 // ═══════════════════════════════════════════════════════
 function RecordExpensePage({ editMode, onDone }) {
-  const { setPage, demo, expenses, setExpenses, customCats } = useApp(); const w = useWin();
+  const { setPage, demo, expenses, setExpenses, customCats, fixedExps, addFixedExp, removeFixedExp, updateFixedExp } = useApp(); const w = useWin();
   const allCats = customCats;
   const [mode, setMode] = useState(editMode ? "manual" : null);
-  const [form, setForm] = useState(editMode ? { category: editMode.category, name: editMode.name, amount: String(editMode.amount), date: editMode.date ? `${editMode.date.getFullYear()}-${String(editMode.date.getMonth() + 1).padStart(2, "0")}-${String(editMode.date.getDate()).padStart(2, "0")}` : new Date().toISOString().split("T")[0], hour: editMode.hour || "12:00", paidBy: editMode.paidBy, vatRecognized: editMode.vatRecognized, taxRecognized: editMode.taxRecognized } : { category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true });
+  const [form, setForm] = useState(editMode ? { category: editMode.category, name: editMode.name, amount: String(editMode.amount), date: editMode.date ? `${editMode.date.getFullYear()}-${String(editMode.date.getMonth() + 1).padStart(2, "0")}-${String(editMode.date.getDate()).padStart(2, "0")}` : new Date().toISOString().split("T")[0], hour: editMode.hour || "12:00", paidBy: editMode.paidBy, vatRecognized: editMode.vatRecognized, taxRecognized: editMode.taxRecognized, isFixed: editMode.isFixed || false, fixedPeriod: editMode.fixedPeriod || "monthly" } : { category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true, isFixed: false, fixedPeriod: "monthly" });
   const [saving, setSaving] = useState(false), [saved, setSaved] = useState(false), [err, setErr] = useState(""), [scaning, setScaning] = useState(false);
   const fileRef = useRef(null); const scanRef = useRef(null); const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -3103,13 +3146,23 @@ function RecordExpensePage({ editMode, onDone }) {
         const updated = { ...editMode, ...exp, date: new Date(form.date) };
         if (!demo) await ExpSvc.edit(updated);
         setExpenses(prev => prev.map(x => x.id === editMode.id ? updated : x));
+        if (form.isFixed) {
+          const existing = fixedExps.find(f => f.linkedExpId === editMode.id);
+          if (existing) await updateFixedExp(existing.id, { name: form.name, amount: +form.amount, period: form.fixedPeriod });
+          else await addFixedExp({ linkedExpId: editMode.id, name: form.name, amount: +form.amount, period: form.fixedPeriod });
+        } else {
+          const existing = fixedExps.find(f => f.linkedExpId === editMode.id);
+          if (existing) await removeFixedExp(existing.id);
+        }
         setSaving(false); if (onDone) onDone(); return;
       }
       if (!demo) await ExpSvc.add(exp);
-      // Navigate back to record-expenses and reload data
+      if (form.isFixed) {
+        await addFixedExp({ name: form.name, amount: +form.amount, period: form.fixedPeriod });
+      }
       setSaving(false);
       setMode(null);
-      setForm({ category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true });
+      setForm({ category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true, isFixed: false, fixedPeriod: "monthly" });
       alert("✅ ההוצאה נשמרה בהצלחה!");
       window.location.reload();
     } catch (e) {
@@ -3171,6 +3224,17 @@ function RecordExpensePage({ editMode, onDone }) {
       <div style={{ display: "flex", gap: 10 }}><div style={{ flex: 1 }}><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label><input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} /></div><div style={{ flex: 1 }}><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label><input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={inputStyle} /></div></div>
       <div><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>מי שילם *</label><div style={{ display: "flex", gap: 10 }}>{["דור", "יוראי"].map(p => <button key={p} onClick={() => upd("paidBy", p)} style={{ flex: 1, padding: w < 768 ? "16px" : "12px", borderRadius: 10, fontSize: w < 768 ? 16 : 14, fontWeight: 600, cursor: "pointer", background: form.paidBy === p ? C.pri : C.card, color: form.paidBy === p ? "#fff" : C.dim, border: `2px solid ${form.paidBy === p ? C.pri : C.bdr}`, transition: "all .15s" }}>{p}</button>)}</div></div>
       <div style={{ display: "flex", gap: 14 }}><label style={{ display: "flex", alignItems: "center", gap: 6, color: C.dim, fontSize: 13, cursor: "pointer" }}><input type="checkbox" checked={form.vatRecognized} onChange={e => upd("vatRecognized", e.target.checked)} style={{ width: 18, height: 18 }} />מע״מ</label><label style={{ display: "flex", alignItems: "center", gap: 6, color: C.dim, fontSize: 13, cursor: "pointer" }}><input type="checkbox" checked={form.taxRecognized} onChange={e => upd("taxRecognized", e.target.checked)} style={{ width: 18, height: 18 }} />מס</label></div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: form.isFixed ? `${C.pri}22` : C.card, border: `1px solid ${form.isFixed ? C.pri : C.bdr}`, borderRadius: 10, transition: "all .15s" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", flex: 1 }}>
+          <input type="checkbox" checked={form.isFixed} onChange={e => upd("isFixed", e.target.checked)} style={{ width: 18, height: 18, accentColor: C.pri }} />
+          <span style={{ color: form.isFixed ? C.priL : C.dim, fontSize: 14, fontWeight: form.isFixed ? 600 : 400 }}>🔒 הוצאה קבועה</span>
+        </label>
+        {form.isFixed && <select value={form.fixedPeriod} onChange={e => upd("fixedPeriod", e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" }}>
+          <option value="monthly">חודשי</option>
+          <option value="quarterly">רבעוני</option>
+          <option value="yearly">שנתי</option>
+        </select>}
+      </div>
     </div>
       {err && <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: `${C.red}22`, color: C.red, fontSize: 12 }}>{err}</div>}
       <div style={{ display: "flex", gap: 10, marginTop: 20 }}><Btn onClick={save} variant="success" size="lg" style={{ flex: 1 }}>{saving ? "⏳" : editMode ? "💾 עדכן" : "💾 שמור"}</Btn><Btn onClick={editMode ? onDone : () => setPage("expenses")} variant="ghost" size="lg">❌</Btn></div></>;

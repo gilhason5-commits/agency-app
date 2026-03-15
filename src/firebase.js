@@ -489,3 +489,41 @@ export async function fetchAllClientSettings() {
 export async function saveClientSettings(clientName, settings) {
     await setDoc(doc(db, "clientSettings", clientName), settings, { merge: true });
 }
+
+// ═══════════════════════════════════════════════════════
+// FIXED EXPENSES API
+// ═══════════════════════════════════════════════════════
+export async function fetchFixedExpenses() {
+    const snap = await getDocs(collection(db, "fixedExpenses"));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function addFixedExpense(record) {
+    const docRef = await addDoc(collection(db, "fixedExpenses"), record);
+    return { id: docRef.id, ...record };
+}
+
+export async function updateFixedExpense(id, updates) {
+    await updateDoc(doc(db, "fixedExpenses", id), updates);
+}
+
+export async function removeFixedExpense(id) {
+    await deleteDoc(doc(db, "fixedExpenses", id));
+}
+
+// ═══════════════════════════════════════════════════════
+// EMPLOYEES API
+// ═══════════════════════════════════════════════════════
+export async function fetchEmployees() {
+    const snap = await getDocs(collection(db, "employees"));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function addEmployee(record) {
+    const docRef = await addDoc(collection(db, "employees"), record);
+    return { id: docRef.id, ...record };
+}
+
+export async function removeEmployee(id) {
+    await deleteDoc(doc(db, "employees", id));
+}
