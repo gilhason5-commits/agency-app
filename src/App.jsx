@@ -2455,16 +2455,20 @@ function ChatterPage({ forceSel, onBack } = {}) {
   const effectivePcts = getMonthlyPcts(cfg, ymi);
   const hasMonthlyOverride = !!(cfg.monthlyPcts?.[ymi]);
   const rows = incD.filter(r => r.chatterName === sel);
-  const sal = Calc.chatterSalary(rows, cfg, ymi);
-  const tot = rows.reduce((s, r) => s + r.amountILS, 0);
+  const approvedRows = rows.filter(r => isVerified(r.verified));
+  const pendingRows = rows.filter(r => !isVerified(r.verified));
+  const totalApproved = approvedRows.reduce((s, r) => s + r.amountILS, 0);
+  const totalPending = pendingRows.reduce((s, r) => s + r.amountILS, 0);
+  const sal = Calc.chatterSalary(approvedRows, cfg, ymi);
+  const tot = approvedRows.reduce((s, r) => s + r.amountILS, 0);
 
-  const byCl = useMemo(() => { const m = {}; rows.forEach(r => { m[r.modelName] = (m[r.modelName] || 0) + r.amountILS; }); return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value })); }, [rows]);
-  const byType = useMemo(() => { const m = {}; rows.forEach(r => { if (r.incomeType) { m[r.incomeType] = (m[r.incomeType] || 0) + r.amountILS; } }); return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value })); }, [rows]);
+  const byCl = useMemo(() => { const m = {}; approvedRows.forEach(r => { m[r.modelName] = (m[r.modelName] || 0) + r.amountILS; }); return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value })); }, [approvedRows]);
+  const byType = useMemo(() => { const m = {}; approvedRows.forEach(r => { if (r.incomeType) { m[r.incomeType] = (m[r.incomeType] || 0) + r.amountILS; } }); return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value })); }, [approvedRows]);
   const mbd = useMemo(() => {
     if (view !== "yearly") return [];
     return MONTHS_HE.map((m, i) => {
       const ymiI = ym(year, i);
-      const mr = iY.filter(r => r.chatterName === sel && r.date && r.date.getMonth() === i);
+      const mr = iY.filter(r => r.chatterName === sel && r.date && r.date.getMonth() === i && isVerified(r.verified));
       const s = Calc.chatterSalary(mr, cfg, ymiI);
       return { month: m, ms: MONTHS_SHORT[i], sales: mr.reduce((sum, r) => sum + r.amountILS, 0), ...s };
     });
@@ -2496,7 +2500,9 @@ function ChatterPage({ forceSel, onBack } = {}) {
     <FB><ViewFilter extraBefore={<Sel label="צ'אטר:" value={sel} onChange={v => { if (v === "__overview__" && onBack) { onBack(); } else { setSel(v); } }} options={[...(onBack ? [{ value: "__overview__", label: "סקירה כללית" }] : []), ...sortedChatters.map(c => ({ value: c, label: c }))]} />} /></FB>
     {!sel ? <p style={{ color: C.mut }}>בחר צ'אטר</p> : (view === "monthly" || view === "range") ? <>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon="💰" title="מכירות" value={fmtC(tot)} color={C.grn} sub={`${rows.length} עסקאות`} />
+        <Stat icon="✅" title="מאושרות" value={fmtC(totalApproved)} sub={`${approvedRows.length} עסקאות`} color={C.grn} />
+        {totalPending > 0 && <Stat icon="⏳" title="ממתינות" value={fmtC(totalPending)} sub={`${pendingRows.length} עסקאות`} color={C.ylw} />}
+        <Stat icon="💰" title="סה״כ" value={fmtC(tot)} color={C.pri} sub={`${approvedRows.length} עסקאות`} />
         <Stat icon="🏢" title="משרד" value={fmtC(sal.oSales)} sub={`שכר ${sal.officePct ?? 17}%: ${fmtC(sal.oSal)}`} />
         <Stat icon="🏠" title="חוץ" value={fmtC(sal.rSales)} sub={`שכר ${sal.fieldPct ?? 15}%: ${fmtC(sal.rSal)}`} />
         {sal.salaryType !== "sales" && <Stat icon="⏱️" title="שעתי" value={fmtC(sal.hourlySalary)} sub={`${sal.hours} שעות × ₪${sal.hourlyRate}`} />}
@@ -4512,7 +4518,7 @@ function ClientPortal() {
               title={clientOwes ? "הלקוחה חייבת לסוכנות" : agencyOwes ? "הסוכנות חייבת ללקוחה" : "מאוזן"}
               value={Math.abs(due) < 1 ? "מאוזן" : fmtC(Math.abs(due))}
               color={clientOwes ? C.red : agencyOwes ? C.grn : C.mut}
-              sub={`עמלה ${pct}% | נטו לסוכנות: ${fmtC(bal.ent)}`} />
+              />
             {vatClient && Math.abs(due) >= 1 && <>
               <Stat icon="🧾" title="מע״מ 18%" value={fmtC(vatAmt)} color={C.ylw} />
               <Stat icon={clientOwes ? "🔴" : "🟢"} title={`סה״כ ${clientOwes ? "לתשלום" : "להחזר"} (כולל מע״מ)`} value={fmtC(totalWithVat)} color={clientOwes ? C.red : C.grn} />
