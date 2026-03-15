@@ -882,6 +882,9 @@ function Prov({ children }) {
   };
   const logout = () => { setUser(null); localStorage.removeItem("AGENCY_USER"); };
 
+  const [fixedExps, setFixedExps] = useState(() => { try { return JSON.parse(localStorage.getItem("AGENCY_FIXED_EXP") || "[]"); } catch { return []; } });
+  const saveFixed = (updated) => { setFixedExps(updated); localStorage.setItem("AGENCY_FIXED_EXP", JSON.stringify(updated)); };
+
   const [customCats, setCustomCats] = useState(() => { try { const saved = localStorage.getItem("ALL_CATS_V2"); if (saved !== null) return JSON.parse(saved); const oldCustom = JSON.parse(localStorage.getItem("CUSTOM_CATS") || "[]"); const merged = [...EXPENSE_CATEGORIES]; oldCustom.forEach(c => { if (!merged.includes(c)) merged.push(c); }); return merged; } catch { return [...EXPENSE_CATEGORIES]; } });
   const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {} return true; };
   const removeCustomCat = (name) => { const updated = customCats.filter(c => c !== name); setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {}; };
@@ -898,6 +901,7 @@ function Prov({ children }) {
       await setChatterTarget(name, targets);
       setChatterTargets(prev => ({ ...prev, [name]: targets }));
     },
+    fixedExps, setFixedExps, saveFixed,
     chatterSettings, setChatterSettings,
     saveChatterSetting: async (name, settings) => {
       setChatterSettings(prev => ({ ...prev, [name]: { ...(prev[name] || {}), ...settings } }));
@@ -918,7 +922,7 @@ function Prov({ children }) {
       setSettlements(prev => [...prev, saved]);
       return saved;
     }
-  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate, customCats]);
+  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate, customCats, fixedExps]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
@@ -1187,14 +1191,13 @@ function SetupPage() {
 // ═══════════════════════════════════════════════════════
 // COMPONENT: FIXED EXPENSES MANAGER
 // ═══════════════════════════════════════════════════════
-function FixedExpensesManager({ fixedExps, setFixedExps, employees, setEmployees }) {
+function FixedExpensesManager({ fixedExps, saveFixed, employees, setEmployees }) {
   const inpSt = { padding: "8px 10px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" };
   const btnSt = { padding: "8px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, color: C.txt };
   const [newItem, setNewItem] = useState({ name: "", amount: "", period: "monthly" });
   const [newEmp, setNewEmp] = useState({ name: "", grossAmount: "", nationalInsurance: "" });
   const toMonthly = (amount, period) => period === "monthly" ? amount : period === "quarterly" ? amount / 3 : amount / 12;
   const periodLabel = { monthly: "חודשי", quarterly: "רבעוני", yearly: "שנתי" };
-  const saveFixed = (updated) => { setFixedExps(updated); localStorage.setItem("AGENCY_FIXED_EXP", JSON.stringify(updated)); };
   const saveEmps = (updated) => { setEmployees(updated); localStorage.setItem("AGENCY_EMPLOYEES", JSON.stringify(updated)); };
   const addFixed = () => {
     if (!newItem.name || !newItem.amount) return;
@@ -1270,14 +1273,13 @@ function FixedExpensesManager({ fixedExps, setFixedExps, employees, setEmployees
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
-  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements } = useApp();
+  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements, fixedExps, setFixedExps, saveFixed } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const [lmVals, setLmVals] = useState(() => { try { return JSON.parse(localStorage.getItem("LM_DB") || "{}"); } catch { return {}; } });
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} };
   const [bizType, setBizType] = useState(() => localStorage.getItem("AGENCY_BIZ_TYPE") || "עוסק");
   const [manualNI, setManualNI] = useState(() => +localStorage.getItem("AGENCY_MANUAL_NI") || 0);
-  const [fixedExps, setFixedExps] = useState(() => { try { return JSON.parse(localStorage.getItem("AGENCY_FIXED_EXP") || "[]"); } catch { return []; } });
   const [employees, setEmployees] = useState(() => { try { return JSON.parse(localStorage.getItem("AGENCY_EMPLOYEES") || "[]"); } catch { return []; } });
   const [showFixedMgr, setShowFixedMgr] = useState(false);
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
@@ -1584,7 +1586,7 @@ function DashPage() {
         🔒 ניהול הוצאות קבועות {showFixedMgr ? "▲" : "▼"}
         {(fixedExps.length > 0 || employees.length > 0) && <span style={{ background: C.pri, color: "#fff", fontSize: 11, borderRadius: 10, padding: "1px 7px" }}>{fixedExps.length + employees.length}</span>}
       </button>
-      {showFixedMgr && <FixedExpensesManager fixedExps={fixedExps} setFixedExps={setFixedExps} employees={employees} setEmployees={setEmployees} />}
+      {showFixedMgr && <FixedExpensesManager fixedExps={fixedExps} saveFixed={saveFixed} employees={employees} setEmployees={setEmployees} />}
     </div>
 
     {/* Tier Cubes */}
@@ -3053,10 +3055,10 @@ function TgtPage() {
 // PAGE: RECORD EXPENSE (mobile-first)
 // ═══════════════════════════════════════════════════════
 function RecordExpensePage({ editMode, onDone }) {
-  const { setPage, demo, expenses, setExpenses, customCats } = useApp(); const w = useWin();
+  const { setPage, demo, expenses, setExpenses, customCats, fixedExps, saveFixed } = useApp(); const w = useWin();
   const allCats = customCats;
   const [mode, setMode] = useState(editMode ? "manual" : null);
-  const [form, setForm] = useState(editMode ? { category: editMode.category, name: editMode.name, amount: String(editMode.amount), date: editMode.date ? `${editMode.date.getFullYear()}-${String(editMode.date.getMonth() + 1).padStart(2, "0")}-${String(editMode.date.getDate()).padStart(2, "0")}` : new Date().toISOString().split("T")[0], hour: editMode.hour || "12:00", paidBy: editMode.paidBy, vatRecognized: editMode.vatRecognized, taxRecognized: editMode.taxRecognized } : { category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true });
+  const [form, setForm] = useState(editMode ? { category: editMode.category, name: editMode.name, amount: String(editMode.amount), date: editMode.date ? `${editMode.date.getFullYear()}-${String(editMode.date.getMonth() + 1).padStart(2, "0")}-${String(editMode.date.getDate()).padStart(2, "0")}` : new Date().toISOString().split("T")[0], hour: editMode.hour || "12:00", paidBy: editMode.paidBy, vatRecognized: editMode.vatRecognized, taxRecognized: editMode.taxRecognized, isFixed: editMode.isFixed || false, fixedPeriod: editMode.fixedPeriod || "monthly" } : { category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true, isFixed: false, fixedPeriod: "monthly" });
   const [saving, setSaving] = useState(false), [saved, setSaved] = useState(false), [err, setErr] = useState(""), [scaning, setScaning] = useState(false);
   const fileRef = useRef(null); const scanRef = useRef(null); const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -3103,13 +3105,22 @@ function RecordExpensePage({ editMode, onDone }) {
         const updated = { ...editMode, ...exp, date: new Date(form.date) };
         if (!demo) await ExpSvc.edit(updated);
         setExpenses(prev => prev.map(x => x.id === editMode.id ? updated : x));
+        if (form.isFixed) {
+          const existing = fixedExps.find(f => f.linkedExpId === editMode.id);
+          if (existing) saveFixed(fixedExps.map(f => f.linkedExpId === editMode.id ? { ...f, name: form.name, amount: +form.amount, period: form.fixedPeriod } : f));
+          else saveFixed([...fixedExps, { id: Date.now().toString(), linkedExpId: editMode.id, name: form.name, amount: +form.amount, period: form.fixedPeriod }]);
+        } else {
+          saveFixed(fixedExps.filter(f => f.linkedExpId !== editMode.id));
+        }
         setSaving(false); if (onDone) onDone(); return;
       }
       if (!demo) await ExpSvc.add(exp);
-      // Navigate back to record-expenses and reload data
+      if (form.isFixed) {
+        saveFixed([...fixedExps, { id: Date.now().toString(), name: form.name, amount: +form.amount, period: form.fixedPeriod }]);
+      }
       setSaving(false);
       setMode(null);
-      setForm({ category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true });
+      setForm({ category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true, isFixed: false, fixedPeriod: "monthly" });
       alert("✅ ההוצאה נשמרה בהצלחה!");
       window.location.reload();
     } catch (e) {
@@ -3171,6 +3182,17 @@ function RecordExpensePage({ editMode, onDone }) {
       <div style={{ display: "flex", gap: 10 }}><div style={{ flex: 1 }}><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label><input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} /></div><div style={{ flex: 1 }}><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label><input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={inputStyle} /></div></div>
       <div><label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>מי שילם *</label><div style={{ display: "flex", gap: 10 }}>{["דור", "יוראי"].map(p => <button key={p} onClick={() => upd("paidBy", p)} style={{ flex: 1, padding: w < 768 ? "16px" : "12px", borderRadius: 10, fontSize: w < 768 ? 16 : 14, fontWeight: 600, cursor: "pointer", background: form.paidBy === p ? C.pri : C.card, color: form.paidBy === p ? "#fff" : C.dim, border: `2px solid ${form.paidBy === p ? C.pri : C.bdr}`, transition: "all .15s" }}>{p}</button>)}</div></div>
       <div style={{ display: "flex", gap: 14 }}><label style={{ display: "flex", alignItems: "center", gap: 6, color: C.dim, fontSize: 13, cursor: "pointer" }}><input type="checkbox" checked={form.vatRecognized} onChange={e => upd("vatRecognized", e.target.checked)} style={{ width: 18, height: 18 }} />מע״מ</label><label style={{ display: "flex", alignItems: "center", gap: 6, color: C.dim, fontSize: 13, cursor: "pointer" }}><input type="checkbox" checked={form.taxRecognized} onChange={e => upd("taxRecognized", e.target.checked)} style={{ width: 18, height: 18 }} />מס</label></div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: form.isFixed ? `${C.pri}22` : C.card, border: `1px solid ${form.isFixed ? C.pri : C.bdr}`, borderRadius: 10, transition: "all .15s" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", flex: 1 }}>
+          <input type="checkbox" checked={form.isFixed} onChange={e => upd("isFixed", e.target.checked)} style={{ width: 18, height: 18, accentColor: C.pri }} />
+          <span style={{ color: form.isFixed ? C.priL : C.dim, fontSize: 14, fontWeight: form.isFixed ? 600 : 400 }}>🔒 הוצאה קבועה</span>
+        </label>
+        {form.isFixed && <select value={form.fixedPeriod} onChange={e => upd("fixedPeriod", e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" }}>
+          <option value="monthly">חודשי</option>
+          <option value="quarterly">רבעוני</option>
+          <option value="yearly">שנתי</option>
+        </select>}
+      </div>
     </div>
       {err && <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: `${C.red}22`, color: C.red, fontSize: 12 }}>{err}</div>}
       <div style={{ display: "flex", gap: 10, marginTop: 20 }}><Btn onClick={save} variant="success" size="lg" style={{ flex: 1 }}>{saving ? "⏳" : editMode ? "💾 עדכן" : "💾 שמור"}</Btn><Btn onClick={editMode ? onDone : () => setPage("expenses")} variant="ghost" size="lg">❌</Btn></div></>;
