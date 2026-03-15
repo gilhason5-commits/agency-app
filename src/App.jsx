@@ -20,6 +20,48 @@ import {
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL || "";
 const EXPENSES_URL = import.meta.env.VITE_EXPENSES_URL || "";
 const GROK_API_KEY_DEFAULT = import.meta.env.VITE_GROK_API_KEY || "";
+const TELEGRAM_BOT_TOKEN = import.meta.env.VITE_TELEGRAM_BOT_TOKEN || "";
+const TELEGRAM_CHAT_ID = import.meta.env.VITE_TELEGRAM_CHAT_ID || "";
+
+// ═══════════════════════════════════════════════════════
+// TELEGRAM NOTIFICATIONS
+// ═══════════════════════════════════════════════════════
+const TelegramSvc = {
+  async send(text) {
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+    try {
+      await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, parse_mode: "HTML" }),
+      });
+    } catch (e) {
+      console.warn("Telegram notification failed:", e.message);
+    }
+  },
+  notifyIncomeSubmitted(row) {
+    const amount = row.amountILS ? `₪${Number(row.amountILS).toLocaleString("he-IL")}` : "";
+    return this.send(`📥 <b>עסקה חדשה ממתינה לאישור</b>\nצ'אטר: ${row.chatterName || "—"}\nלקוחה: ${row.modelName || "—"}\nסכום: ${amount}\nפלטפורמה: ${row.platform || "—"}\nתאריך: ${row.date instanceof Date ? row.date.toLocaleDateString("he-IL") : row.date || "—"}`);
+  },
+  notifyIncomeApproved(row) {
+    const amount = row.amountILS ? `₪${Number(row.amountILS).toLocaleString("he-IL")}` : "";
+    return this.send(`✅ <b>עסקה אושרה</b>\nצ'אטר: ${row.chatterName || "—"}\nלקוחה: ${row.modelName || "—"}\nסכום: ${amount}\nפלטפורמה: ${row.platform || "—"}`);
+  },
+  notifyIncomeAdded(row) {
+    const amount = row.amountILS ? `₪${Number(row.amountILS).toLocaleString("he-IL")}` : "";
+    return this.send(`💰 <b>הכנסה נוספה ידנית</b>\nצ'אטר: ${row.chatterName || "—"}\nלקוחה: ${row.modelName || "—"}\nסכום: ${amount}\nפלטפורמה: ${row.platform || "—"}`);
+  },
+  notifyExpenseAdded(exp) {
+    const amount = exp.amount ? `₪${Number(exp.amount).toLocaleString("he-IL")}` : "";
+    return this.send(`💳 <b>הוצאה תועדה</b>\nקטגוריה: ${exp.category || "—"}\nתיאור: ${exp.name || "—"}\nסכום: ${amount}\nשילם: ${exp.paidBy || "—"}`);
+  },
+  notifySettlement(data) {
+    const amount = data.amount ? `₪${Number(data.amount).toLocaleString("he-IL")}` : "";
+    const dir = data.direction === "agency_to_client" ? "סוכנות ← לקוחה" : data.direction === "client_to_agency" ? "לקוחה ← סוכנות" : data.direction || "—";
+    const entity = data.entityType === "chatter" ? `צ'אטר: ${data.modelName}` : `לקוחה: ${data.modelName}`;
+    return this.send(`🤝 <b>קיזוז/התחשבנות נרשמה</b>\n${entity}\nסכום: ${amount}\nכיוון: ${dir}${data.notes ? `\nהערות: ${data.notes}` : ""}`);
+  },
+};
 
 // Income type commission rates (hardcoded, always applied)
 const INCOME_TYPE_COMMISSIONS = { "אונלי": 20 };
@@ -2096,7 +2138,7 @@ function RecordIncomeAdmin({ onClose }) {
       };
 
       const res = await IncSvc.addDirect(newInc);
-
+      TelegramSvc.notifyIncomeAdded(res);
       setIncome(prev => [res, ...prev]);
       onClose();
     } catch (e) {
@@ -3174,6 +3216,7 @@ function RecordExpensePage({ editMode, onDone }) {
         setSaving(false); if (onDone) onDone(); return;
       }
       if (!demo) await ExpSvc.add(exp);
+      TelegramSvc.notifyExpenseAdded(exp);
       if (form.isFixed) {
         await addFixedExp({ name: form.name, amount: +form.amount, period: form.fixedPeriod });
       }
@@ -3876,6 +3919,7 @@ function ChatterPortal() {
         paymentTarget: "agency", paidToClient: false, cancelled: false
       };
       const saved = await addPending(newInc);
+      TelegramSvc.notifyIncomeSubmitted(saved);
       setIncome(prev => [{ ...saved, _fromPending: true }, ...prev]);
       setSaving(false); setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -4170,6 +4214,7 @@ function ApprovalsPage() {
           await updateIncome(row.id, { verified: "V" });
         }
       }
+      TelegramSvc.notifyIncomeApproved(row);
       setIncome(prev => prev.map(r => r.id === row.id ? { ...r, verified: "V" } : r));
     } catch (e) {
       console.error("Approve error:", e);
@@ -4738,13 +4783,15 @@ function DebtsPage() {
     if (!form.amount || isNaN(form.amount) || form.amount <= 0) return alert("הכנס סכום תקין");
     setSaving(true);
     try {
-      await addSettlement({
+      const settlementData = {
         modelName: modalClient.name,
         amount: Number(form.amount),
         direction: form.direction,
         notes: form.notes,
         date: new Date().toISOString()
-      });
+      };
+      await addSettlement(settlementData);
+      TelegramSvc.notifySettlement(settlementData);
       setModalClient(null);
     } catch (e) {
       alert("שגיאה במערכת: " + e.message);
@@ -4756,14 +4803,16 @@ function DebtsPage() {
     if (!chatterForm.amount || isNaN(chatterForm.amount) || chatterForm.amount <= 0) return alert("הכנס סכום תקין");
     setSaving(true);
     try {
-      await addSettlement({
+      const chatterSettlementData = {
         modelName: modalChatter.name,
         entityType: "chatter",
         amount: Number(chatterForm.amount),
         direction: chatterForm.direction,
         notes: chatterForm.notes,
         date: new Date().toISOString()
-      });
+      };
+      await addSettlement(chatterSettlementData);
+      TelegramSvc.notifySettlement(chatterSettlementData);
       setModalChatter(null);
     } catch (e) {
       alert("שגיאה במערכת: " + e.message);
