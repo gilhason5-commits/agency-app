@@ -9,7 +9,9 @@ import {
   fetchChatterTargets, setChatterTarget,
   fetchClientRates, saveClientRate,
   fetchAllChatterSettings, saveChatterSettings,
-  fetchAllClientSettings, saveClientSettings
+  fetchAllClientSettings, saveClientSettings,
+  fetchFixedExpenses, addFixedExpense, updateFixedExpense, removeFixedExpense,
+  fetchEmployees, addEmployee, removeEmployee
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -813,6 +815,8 @@ function Prov({ children }) {
     HistorySvc.fetchAll().then(setHistory);
     GenParamsSvc.fetch().then(setGenParams);
     loadRatesFromFirebase().then(() => setRv(v => v + 1));
+    fetchFixedExpenses().then(setFixedExps).catch(() => {});
+    fetchEmployees().then(setEmployees).catch(() => {});
   }, []);
 
   const loadDemo = useCallback(() => {
@@ -882,8 +886,30 @@ function Prov({ children }) {
   };
   const logout = () => { setUser(null); localStorage.removeItem("AGENCY_USER"); };
 
-  const [fixedExps, setFixedExps] = useState(() => { try { return JSON.parse(localStorage.getItem("AGENCY_FIXED_EXP") || "[]"); } catch { return []; } });
-  const saveFixed = (updated) => { setFixedExps(updated); localStorage.setItem("AGENCY_FIXED_EXP", JSON.stringify(updated)); };
+  const [fixedExps, setFixedExps] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const addFixedExp = useCallback(async (record) => {
+    const saved = await addFixedExpense(record);
+    setFixedExps(prev => [...prev, saved]);
+    return saved;
+  }, []);
+  const removeFixedExp = useCallback(async (id) => {
+    await removeFixedExpense(id);
+    setFixedExps(prev => prev.filter(e => e.id !== id));
+  }, []);
+  const updateFixedExp = useCallback(async (id, updates) => {
+    await updateFixedExpense(id, updates);
+    setFixedExps(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+  }, []);
+  const addEmployeeCtx = useCallback(async (record) => {
+    const saved = await addEmployee(record);
+    setEmployees(prev => [...prev, saved]);
+    return saved;
+  }, []);
+  const removeEmployeeCtx = useCallback(async (id) => {
+    await removeEmployee(id);
+    setEmployees(prev => prev.filter(e => e.id !== id));
+  }, []);
 
   const [customCats, setCustomCats] = useState(() => { try { const saved = localStorage.getItem("ALL_CATS_V2"); if (saved !== null) return JSON.parse(saved); const oldCustom = JSON.parse(localStorage.getItem("CUSTOM_CATS") || "[]"); const merged = [...EXPENSE_CATEGORIES]; oldCustom.forEach(c => { if (!merged.includes(c)) merged.push(c); }); return merged; } catch { return [...EXPENSE_CATEGORIES]; } });
   const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {} return true; };
@@ -901,7 +927,8 @@ function Prov({ children }) {
       await setChatterTarget(name, targets);
       setChatterTargets(prev => ({ ...prev, [name]: targets }));
     },
-    fixedExps, setFixedExps, saveFixed,
+    fixedExps, setFixedExps, addFixedExp, removeFixedExp, updateFixedExp,
+    employees, setEmployees, addEmployeeCtx, removeEmployeeCtx,
     chatterSettings, setChatterSettings,
     saveChatterSetting: async (name, settings) => {
       setChatterSettings(prev => ({ ...prev, [name]: { ...(prev[name] || {}), ...settings } }));
@@ -922,7 +949,7 @@ function Prov({ children }) {
       setSettlements(prev => [...prev, saved]);
       return saved;
     }
-  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate, customCats, fixedExps]);
+  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate, customCats, fixedExps, employees]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
@@ -1191,22 +1218,21 @@ function SetupPage() {
 // ═══════════════════════════════════════════════════════
 // COMPONENT: FIXED EXPENSES MANAGER
 // ═══════════════════════════════════════════════════════
-function FixedExpensesManager({ fixedExps, saveFixed, employees, setEmployees }) {
+function FixedExpensesManager({ fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx }) {
   const inpSt = { padding: "8px 10px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" };
   const btnSt = { padding: "8px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, color: C.txt };
   const [newItem, setNewItem] = useState({ name: "", amount: "", period: "monthly" });
   const [newEmp, setNewEmp] = useState({ name: "", grossAmount: "", nationalInsurance: "" });
   const toMonthly = (amount, period) => period === "monthly" ? amount : period === "quarterly" ? amount / 3 : amount / 12;
   const periodLabel = { monthly: "חודשי", quarterly: "רבעוני", yearly: "שנתי" };
-  const saveEmps = (updated) => { setEmployees(updated); localStorage.setItem("AGENCY_EMPLOYEES", JSON.stringify(updated)); };
-  const addFixed = () => {
+  const addFixed = async () => {
     if (!newItem.name || !newItem.amount) return;
-    saveFixed([...fixedExps, { id: Date.now().toString(), name: newItem.name, amount: +newItem.amount, period: newItem.period }]);
+    await addFixedExp({ name: newItem.name, amount: +newItem.amount, period: newItem.period });
     setNewItem({ name: "", amount: "", period: "monthly" });
   };
-  const addEmployee = () => {
+  const addEmployeeLocal = async () => {
     if (!newEmp.name || !newEmp.grossAmount) return;
-    saveEmps([...employees, { id: Date.now().toString(), name: newEmp.name, grossAmount: +newEmp.grossAmount, nationalInsurance: +newEmp.nationalInsurance || 0 }]);
+    await addEmployeeCtx({ name: newEmp.name, grossAmount: +newEmp.grossAmount, nationalInsurance: +newEmp.nationalInsurance || 0 });
     setNewEmp({ name: "", grossAmount: "", nationalInsurance: "" });
   };
   return (
@@ -1220,7 +1246,7 @@ function FixedExpensesManager({ fixedExps, saveFixed, employees, setEmployees })
               <span style={{ color: C.dim, fontSize: 11, background: C.bg, padding: "2px 8px", borderRadius: 4 }}>{periodLabel[e.period]}</span>
               <span style={{ color: C.red, fontSize: 13, fontWeight: 600 }}>{fmtC(e.amount)}</span>
               {e.period !== "monthly" && <span style={{ color: C.mut, fontSize: 11 }}>≈{fmtC(toMonthly(e.amount, e.period))}/חו'</span>}
-              <button onClick={() => saveFixed(fixedExps.filter(x => x.id !== e.id))} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
+              <button onClick={() => removeFixedExp(e.id)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
             </div>
           </div>
         ))}
@@ -1244,7 +1270,7 @@ function FixedExpensesManager({ fixedExps, saveFixed, employees, setEmployees })
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <span style={{ color: C.ylw, fontSize: 12 }}>ברוטו: <strong>{fmtC(emp.grossAmount)}</strong></span>
                 {emp.nationalInsurance > 0 && <span style={{ color: C.dim, fontSize: 12 }}>ב.ל: {fmtC(emp.nationalInsurance)}</span>}
-                <button onClick={() => saveEmps(employees.filter(x => x.id !== emp.id))} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
+                <button onClick={() => removeEmployeeCtx(emp.id)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
               </div>
             </div>
           ))}
@@ -1262,7 +1288,7 @@ function FixedExpensesManager({ fixedExps, saveFixed, employees, setEmployees })
             <label style={{ color: newEmp.grossAmount ? C.dim : C.mut, fontSize: 11, transition: "color 0.2s" }}>ביטוח לאומי ₪</label>
             <input type="number" value={newEmp.nationalInsurance} onChange={e => setNewEmp(p => ({ ...p, nationalInsurance: e.target.value }))} placeholder="0" disabled={!newEmp.grossAmount} style={{ ...inpSt, width: 130, opacity: newEmp.grossAmount ? 1 : 0.3, transition: "opacity 0.2s" }} />
           </div>
-          <button onClick={addEmployee} style={{ ...btnSt, background: C.grn }}>+ הוסף שכיר</button>
+          <button onClick={addEmployeeLocal} style={{ ...btnSt, background: C.grn }}>+ הוסף שכיר</button>
         </div>
       </div>
     </Card>
@@ -1273,14 +1299,13 @@ function FixedExpensesManager({ fixedExps, saveFixed, employees, setEmployees })
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
-  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements, fixedExps, setFixedExps, saveFixed } = useApp();
+  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements, fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const [lmVals, setLmVals] = useState(() => { try { return JSON.parse(localStorage.getItem("LM_DB") || "{}"); } catch { return {}; } });
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} };
   const [bizType, setBizType] = useState(() => localStorage.getItem("AGENCY_BIZ_TYPE") || "עוסק");
   const [manualNI, setManualNI] = useState(() => +localStorage.getItem("AGENCY_MANUAL_NI") || 0);
-  const [employees, setEmployees] = useState(() => { try { return JSON.parse(localStorage.getItem("AGENCY_EMPLOYEES") || "[]"); } catch { return []; } });
   const [showFixedMgr, setShowFixedMgr] = useState(false);
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
@@ -1586,7 +1611,7 @@ function DashPage() {
         🔒 ניהול הוצאות קבועות {showFixedMgr ? "▲" : "▼"}
         {(fixedExps.length > 0 || employees.length > 0) && <span style={{ background: C.pri, color: "#fff", fontSize: 11, borderRadius: 10, padding: "1px 7px" }}>{fixedExps.length + employees.length}</span>}
       </button>
-      {showFixedMgr && <FixedExpensesManager fixedExps={fixedExps} saveFixed={saveFixed} employees={employees} setEmployees={setEmployees} />}
+      {showFixedMgr && <FixedExpensesManager fixedExps={fixedExps} addFixedExp={addFixedExp} removeFixedExp={removeFixedExp} employees={employees} addEmployeeCtx={addEmployeeCtx} removeEmployeeCtx={removeEmployeeCtx} />}
     </div>
 
     {/* Tier Cubes */}
@@ -1689,6 +1714,7 @@ function IncPage() {
   const usdInILS = totalUSD * liveRate;
   const grandTotal = data.reduce((s, r) => s + r.amountILS, 0);
   const ilsOnlyTotal = data.reduce((s, r) => s + ((r.amountUSD || 0) > 0 ? 0 : r.amountILS), 0);
+  const agencyTotal = data.filter(r => !r.cancelled && (!r.paymentTarget || r.paymentTarget === "agency")).reduce((s, r) => s + r.amountILS, 0);
 
   const setPayment = async (r, target) => {
     try {
@@ -1738,6 +1764,7 @@ function IncPage() {
       <Stat icon="💰" title="סה״כ ₪" value={fmtC(grandTotal)} color={C.grn} sub={`${data.length} עסקאות • שער $: ₪${liveRate.toFixed(2)}`} />
       <Stat icon="🏦" title='סה״כ ₪ (שקל)' value={fmtC(ilsOnlyTotal)} color={C.grn} sub="עסקאות שנכנסו בשקל" />
       <Stat icon="💵" title='סה״כ $' value={fmtUSD(totalUSD)} color={C.pri} sub={`≈ ${fmtC(grandTotal - ilsOnlyTotal)} (מומר לשקל)`} />
+      <Stat icon="🏢" title="עבר דרך הסוכנות" value={fmtC(agencyTotal)} color={C.ylw} sub="תשלומים שיועדו לסוכנות" />
     </div>
     <Card style={{ marginBottom: 16 }}>
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
@@ -2857,6 +2884,7 @@ function ClientPage({ forceSel, onBack } = {}) {
 function TgtPage() {
   const { year, month, liveRate, chatterTargets, saveChatterTarget } = useApp();
   const { iY } = useFD();
+  const [filterMonth, setFilterMonth] = useState(month);
   const [selMonth, setSelMonth] = useState(null);
   const [editTarget, setEditTarget] = useState(null); // { name, t1, t2, t3 }
   const [savingTarget, setSavingTarget] = useState(false);
@@ -2952,10 +2980,19 @@ function TgtPage() {
   };
 
   return <div style={{ direction: "rtl", maxWidth: 800 }}>
-    <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>🎯 תחזית יעדים — {year}</h2>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, margin: 0 }}>🎯 תחזית יעדים — {year}</h2>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <label style={{ color: C.dim, fontSize: 13 }}>חודש:</label>
+        <select value={filterMonth} onChange={e => setFilterMonth(+e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" }}>
+          <option value={-1}>כל החודשים</option>
+          {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
+        </select>
+      </div>
+    </div>
 
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 16, marginBottom: 24 }}>
-      {mbd.map(d => {
+      {mbd.filter(d => filterMonth === -1 || d.idx === filterMonth).map(d => {
         const isCurrent = d.idx === month;
         const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
         const currentDaily = d.inc / daysPassed;
@@ -3055,7 +3092,7 @@ function TgtPage() {
 // PAGE: RECORD EXPENSE (mobile-first)
 // ═══════════════════════════════════════════════════════
 function RecordExpensePage({ editMode, onDone }) {
-  const { setPage, demo, expenses, setExpenses, customCats, fixedExps, saveFixed } = useApp(); const w = useWin();
+  const { setPage, demo, expenses, setExpenses, customCats, fixedExps, addFixedExp, removeFixedExp, updateFixedExp } = useApp(); const w = useWin();
   const allCats = customCats;
   const [mode, setMode] = useState(editMode ? "manual" : null);
   const [form, setForm] = useState(editMode ? { category: editMode.category, name: editMode.name, amount: String(editMode.amount), date: editMode.date ? `${editMode.date.getFullYear()}-${String(editMode.date.getMonth() + 1).padStart(2, "0")}-${String(editMode.date.getDate()).padStart(2, "0")}` : new Date().toISOString().split("T")[0], hour: editMode.hour || "12:00", paidBy: editMode.paidBy, vatRecognized: editMode.vatRecognized, taxRecognized: editMode.taxRecognized, isFixed: editMode.isFixed || false, fixedPeriod: editMode.fixedPeriod || "monthly" } : { category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true, isFixed: false, fixedPeriod: "monthly" });
@@ -3107,16 +3144,17 @@ function RecordExpensePage({ editMode, onDone }) {
         setExpenses(prev => prev.map(x => x.id === editMode.id ? updated : x));
         if (form.isFixed) {
           const existing = fixedExps.find(f => f.linkedExpId === editMode.id);
-          if (existing) saveFixed(fixedExps.map(f => f.linkedExpId === editMode.id ? { ...f, name: form.name, amount: +form.amount, period: form.fixedPeriod } : f));
-          else saveFixed([...fixedExps, { id: Date.now().toString(), linkedExpId: editMode.id, name: form.name, amount: +form.amount, period: form.fixedPeriod }]);
+          if (existing) await updateFixedExp(existing.id, { name: form.name, amount: +form.amount, period: form.fixedPeriod });
+          else await addFixedExp({ linkedExpId: editMode.id, name: form.name, amount: +form.amount, period: form.fixedPeriod });
         } else {
-          saveFixed(fixedExps.filter(f => f.linkedExpId !== editMode.id));
+          const existing = fixedExps.find(f => f.linkedExpId === editMode.id);
+          if (existing) await removeFixedExp(existing.id);
         }
         setSaving(false); if (onDone) onDone(); return;
       }
       if (!demo) await ExpSvc.add(exp);
       if (form.isFixed) {
-        saveFixed([...fixedExps, { id: Date.now().toString(), name: form.name, amount: +form.amount, period: form.fixedPeriod }]);
+        await addFixedExp({ name: form.name, amount: +form.amount, period: form.fixedPeriod });
       }
       setSaving(false);
       setMode(null);
