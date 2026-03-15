@@ -1479,7 +1479,6 @@ function DashPage() {
       {/* Row 2: Expenses → gross profit */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
-        <Stat icon="🔒" title="הוצאות קבועות" value={fmtC(fixedMonthly + empMonthly)} color={C.red} sub={employees.length > 0 ? `כולל ${employees.length} שכיר${employees.length > 1 ? "ים" : ""}` : "חודשי"} />
         <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
       </div>
 
