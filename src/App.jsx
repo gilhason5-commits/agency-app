@@ -1230,22 +1230,16 @@ function SetupPage() {
 // ═══════════════════════════════════════════════════════
 // COMPONENT: FIXED EXPENSES MANAGER
 // ═══════════════════════════════════════════════════════
-function FixedExpensesManager({ fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx }) {
+function FixedExpensesManager({ fixedExps, addFixedExp, removeFixedExp }) {
   const inpSt = { padding: "8px 10px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" };
   const btnSt = { padding: "8px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, color: C.txt };
   const [newItem, setNewItem] = useState({ name: "", amount: "", period: "monthly" });
-  const [newEmp, setNewEmp] = useState({ name: "", grossAmount: "", nationalInsurance: "" });
   const toMonthly = (amount, period) => period === "monthly" ? amount : period === "quarterly" ? amount / 3 : amount / 12;
   const periodLabel = { monthly: "חודשי", quarterly: "רבעוני", yearly: "שנתי" };
   const addFixed = async () => {
     if (!newItem.name || !newItem.amount) return;
     await addFixedExp({ name: newItem.name, amount: +newItem.amount, period: newItem.period });
     setNewItem({ name: "", amount: "", period: "monthly" });
-  };
-  const addEmployeeLocal = async () => {
-    if (!newEmp.name || !newEmp.grossAmount) return;
-    await addEmployeeCtx({ name: newEmp.name, grossAmount: +newEmp.grossAmount, nationalInsurance: +newEmp.nationalInsurance || 0 });
-    setNewEmp({ name: "", grossAmount: "", nationalInsurance: "" });
   };
   return (
     <Card style={{ marginBottom: 16, direction: "rtl" }}>
@@ -1263,7 +1257,7 @@ function FixedExpensesManager({ fixedExps, addFixedExp, removeFixedExp, employee
           </div>
         ))}
       </div>}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <input value={newItem.name} onChange={e => setNewItem(p => ({ ...p, name: e.target.value }))} onKeyDown={e => e.key === "Enter" && addFixed()} placeholder="שם הוצאה" style={{ ...inpSt, flex: 1, minWidth: 120 }} />
         <input type="number" value={newItem.amount} onChange={e => setNewItem(p => ({ ...p, amount: e.target.value }))} onKeyDown={e => e.key === "Enter" && addFixed()} placeholder="סכום ₪" style={{ ...inpSt, width: 110 }} />
         <select value={newItem.period} onChange={e => setNewItem(p => ({ ...p, period: e.target.value }))} style={inpSt}>
@@ -1272,36 +1266,6 @@ function FixedExpensesManager({ fixedExps, addFixedExp, removeFixedExp, employee
           <option value="yearly">שנתי</option>
         </select>
         <button onClick={addFixed} style={{ ...btnSt, background: C.pri }}>+ הוסף הוצאה</button>
-      </div>
-      <div style={{ borderTop: `1px solid ${C.bdr}`, paddingTop: 14 }}>
-        <h4 style={{ color: C.txt, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>👥 שכירים</h4>
-        {employees.length > 0 && <div style={{ marginBottom: 12 }}>
-          {employees.map(emp => (
-            <div key={emp.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.bdr}` }}>
-              <span style={{ color: C.txt, fontSize: 13 }}>{emp.name}</span>
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <span style={{ color: C.ylw, fontSize: 12 }}>ברוטו: <strong>{fmtC(emp.grossAmount)}</strong></span>
-                {emp.nationalInsurance > 0 && <span style={{ color: C.dim, fontSize: 12 }}>ב.ל: {fmtC(emp.nationalInsurance)}</span>}
-                <button onClick={() => removeEmployeeCtx(emp.id)} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
-              </div>
-            </div>
-          ))}
-        </div>}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ color: C.dim, fontSize: 11 }}>שם שכיר</label>
-            <input value={newEmp.name} onChange={e => setNewEmp(p => ({ ...p, name: e.target.value }))} placeholder="שם" style={{ ...inpSt, width: 130 }} />
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ color: C.dim, fontSize: 11 }}>ברוטו ₪</label>
-            <input type="number" value={newEmp.grossAmount} onChange={e => setNewEmp(p => ({ ...p, grossAmount: e.target.value }))} placeholder="0" style={{ ...inpSt, width: 110 }} />
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ color: newEmp.grossAmount ? C.dim : C.mut, fontSize: 11, transition: "color 0.2s" }}>ביטוח לאומי ₪</label>
-            <input type="number" value={newEmp.nationalInsurance} onChange={e => setNewEmp(p => ({ ...p, nationalInsurance: e.target.value }))} placeholder="0" disabled={!newEmp.grossAmount} style={{ ...inpSt, width: 130, opacity: newEmp.grossAmount ? 1 : 0.3, transition: "opacity 0.2s" }} />
-          </div>
-          <button onClick={addEmployeeLocal} style={{ ...btnSt, background: C.grn }}>+ הוסף שכיר</button>
-        </div>
       </div>
     </Card>
   );
@@ -1621,9 +1585,9 @@ function DashPage() {
     <div style={{ marginTop: 24 }}>
       <button onClick={() => setShowFixedMgr(p => !p)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, cursor: "pointer", padding: "8px 16px", fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
         🔒 ניהול הוצאות קבועות {showFixedMgr ? "▲" : "▼"}
-        {(fixedExps.length > 0 || employees.length > 0) && <span style={{ background: C.pri, color: "#fff", fontSize: 11, borderRadius: 10, padding: "1px 7px" }}>{fixedExps.length + employees.length}</span>}
+        {fixedExps.length > 0 && <span style={{ background: C.pri, color: "#fff", fontSize: 11, borderRadius: 10, padding: "1px 7px" }}>{fixedExps.length}</span>}
       </button>
-      {showFixedMgr && <FixedExpensesManager fixedExps={fixedExps} addFixedExp={addFixedExp} removeFixedExp={removeFixedExp} employees={employees} addEmployeeCtx={addEmployeeCtx} removeEmployeeCtx={removeEmployeeCtx} />}
+      {showFixedMgr && <FixedExpensesManager fixedExps={fixedExps} addFixedExp={addFixedExp} removeFixedExp={removeFixedExp} />}
     </div>
 
     {/* Tier Cubes */}
@@ -2338,7 +2302,7 @@ function ExpPage() {
           </Card>}
         </div>
         <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>✍️ הוצאות ידניות ({MONTHS_HE[month]})</h3>
-          <DT columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "ספק/סיבה", key: "category" }, { label: "פירוט", key: "name" }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "תשלום", key: "paidBy" }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={data.filter(e => e.source === "ידני").sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", fmtC(data.filter(e => e.source === "ידני").reduce((s, e) => s + e.amount, 0)), "", ""]} />
+          <DT columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "ספק/סיבה", key: "category" }, { label: "פירוט", render: r => <span>{r.name}{r.installmentTotal > 0 && <span style={{ marginRight: 6, fontSize: 10, background: `${C.ylw}33`, color: C.ylw, border: `1px solid ${C.ylw}55`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>💳 {r.installmentCurrent}/{r.installmentTotal}</span>}</span> }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "תשלום", key: "paidBy" }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={data.filter(e => e.source === "ידני").sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", fmtC(data.filter(e => e.source === "ידני").reduce((s, e) => s + e.amount, 0)), "", ""]} />
         </div>
         <Modal open={!!popCat} onClose={() => setPopCat(null)} title={`📂 ${popCat}`}>{data.filter(e => e.category === popCat).sort((a, b) => (b.date || 0) - (a.date || 0)).map(e => <div key={e.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.bdr}` }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ flex: 1 }}><div style={{ fontWeight: 600, color: C.txt, fontSize: 13 }}>{e.name}</div><div style={{ fontSize: 10, color: C.mut, marginTop: 3 }}>{fmtD(e.date)} {e.hour && `• ${e.hour}`} • {e.paidBy} • {e.source === "אוטומטי" ? "🤖" : "✍️"} {e.source}</div></div><div style={{ textAlign: "left" }}><div style={{ fontSize: 15, fontWeight: 700, color: C.red, marginBottom: 4 }}>{fmtC(e.amount)}</div>{e.source === "ידני" && <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => { setEditExp(e); setPopCat(null); }}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(e)} style={{ color: C.red }}>🗑️</Btn></div>}</div></div></div>)}</Modal>
         <Modal open={!!delExp} onClose={() => setDelExp(null)} title="🗑️ מחיקה" width={360}><p style={{ color: C.dim, fontSize: 13, marginBottom: 16 }}>למחוק "{delExp?.name}" ({fmtC(delExp?.amount)})?</p><div style={{ display: "flex", gap: 8 }}><Btn variant="danger" onClick={() => handleDelete(delExp)}>כן</Btn><Btn variant="ghost" onClick={() => setDelExp(null)}>לא</Btn></div></Modal>
@@ -2348,7 +2312,7 @@ function ExpPage() {
       </>}
       <div style={{ marginTop: 28, overflowX: "auto" }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>🧾 כל החשבוניות</h3>
         <div style={{ fontSize: 11, whiteSpace: "nowrap" }}>
-          <DT textSm columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "סוג", key: "docType" }, { label: "ספק/סיבה", key: "category", wrap: true, tdStyle: { maxWidth: 100 } }, { label: "פירוט", key: "name", wrap: true, tdStyle: { minWidth: 100, maxWidth: 280 } }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "מעמ", render: r => <button onClick={() => updField(r, "vatRecognized", !r.vatRecognized)} style={{ background: r.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: r.vatRecognized ? C.grn : C.red, border: `1px solid ${r.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.vatRecognized ? "כן" : "לא"}</button> }, { label: "מס", render: r => <button onClick={() => updField(r, "taxRecognized", !r.taxRecognized)} style={{ background: r.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: r.taxRecognized ? C.grn : C.red, border: `1px solid ${r.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.taxRecognized ? "כן" : "לא"}</button> }, { label: "תשלום", key: "paidBy" }, { label: "מזהה", key: "hour", wrap: true, tdStyle: { maxWidth: 100 } }, { label: "מסמך", render: r => r.receiptImage ? <a href={r.receiptImage} target="_blank" rel="noreferrer" style={{ color: C.pri, fontWeight: "bold" }}>5</a> : "" }, { label: "סיווג הוצאה", render: r => <select value={allCats.includes(r.classification) ? r.classification : ""} onChange={e => { if (e.target.value) updCat(r, e.target.value); }} style={{ background: C.card, color: C.txt, border: `1px solid ${C.bdr}`, borderRadius: 6, padding: "6px 4px", fontSize: 11, outline: "none", width: "100%", cursor: "pointer" }}><option value="">{r.classification || "בחר סיווג..."}</option>{allCats.filter(c => c !== r.classification).map(c => <option key={c} value={c}>{c}</option>)}</select>, tdStyle: { minWidth: 120 } }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)} style={{ color: C.pri }}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", fmtC(total), "", "", "", "", "", "", ""]} />
+          <DT textSm columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "סוג", key: "docType" }, { label: "ספק/סיבה", key: "category", wrap: true, tdStyle: { maxWidth: 100 } }, { label: "פירוט", render: r => <span>{r.name}{r.installmentTotal > 0 && <span style={{ marginRight: 6, fontSize: 10, background: `${C.ylw}33`, color: C.ylw, border: `1px solid ${C.ylw}55`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>💳 {r.installmentCurrent}/{r.installmentTotal}</span>}</span>, wrap: true, tdStyle: { minWidth: 100, maxWidth: 280 } }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "מעמ", render: r => <button onClick={() => updField(r, "vatRecognized", !r.vatRecognized)} style={{ background: r.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: r.vatRecognized ? C.grn : C.red, border: `1px solid ${r.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.vatRecognized ? "כן" : "לא"}</button> }, { label: "מס", render: r => <button onClick={() => updField(r, "taxRecognized", !r.taxRecognized)} style={{ background: r.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: r.taxRecognized ? C.grn : C.red, border: `1px solid ${r.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.taxRecognized ? "כן" : "לא"}</button> }, { label: "תשלום", key: "paidBy" }, { label: "מזהה", key: "hour", wrap: true, tdStyle: { maxWidth: 100 } }, { label: "מסמך", render: r => r.receiptImage ? <a href={r.receiptImage} target="_blank" rel="noreferrer" style={{ color: C.pri, fontWeight: "bold" }}>5</a> : "" }, { label: "סיווג הוצאה", render: r => <select value={allCats.includes(r.classification) ? r.classification : ""} onChange={e => { if (e.target.value) updCat(r, e.target.value); }} style={{ background: C.card, color: C.txt, border: `1px solid ${C.bdr}`, borderRadius: 6, padding: "6px 4px", fontSize: 11, outline: "none", width: "100%", cursor: "pointer" }}><option value="">{r.classification || "בחר סיווג..."}</option>{allCats.filter(c => c !== r.classification).map(c => <option key={c} value={c}>{c}</option>)}</select>, tdStyle: { minWidth: 120 } }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)} style={{ color: C.pri }}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={data.sort((a, b) => (b.date || 0) - (a.date || 0))} footer={["סה״כ", "", "", "", fmtC(total), "", "", "", "", "", "", ""]} />
         </div>
       </div>
       <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>⚖️ קיזוז דור / יוראי</h3><Card style={{ display: "flex", gap: 20, flexWrap: "wrap" }}><div><div style={{ color: C.dim, fontSize: 11 }}>דור</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(off.dor)}</div></div><div><div style={{ color: C.dim, fontSize: 11 }}>יוראי</div><div style={{ fontSize: 18, fontWeight: 700, color: C.txt }}>{fmtC(off.yurai)}</div></div><div><div style={{ color: C.dim, fontSize: 11 }}>קיזוז</div><div style={{ fontSize: 14, fontWeight: 700, color: C.ylw }}>{off.owes} → {off.paid}: {fmtC(off.off)}</div></div></Card></div>
@@ -3099,7 +3063,7 @@ function RecordExpensePage({ editMode, onDone }) {
   const { setPage, demo, expenses, setExpenses, customCats, fixedExps, addFixedExp, removeFixedExp, updateFixedExp } = useApp(); const w = useWin();
   const allCats = customCats;
   const [mode, setMode] = useState(editMode ? "manual" : null);
-  const [form, setForm] = useState(editMode ? { category: editMode.category, name: editMode.name, amount: String(editMode.amount), date: editMode.date ? `${editMode.date.getFullYear()}-${String(editMode.date.getMonth() + 1).padStart(2, "0")}-${String(editMode.date.getDate()).padStart(2, "0")}` : new Date().toISOString().split("T")[0], hour: editMode.hour || "12:00", paidBy: editMode.paidBy, vatRecognized: editMode.vatRecognized, taxRecognized: editMode.taxRecognized, isFixed: editMode.isFixed || false, fixedPeriod: editMode.fixedPeriod || "monthly" } : { category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true, isFixed: false, fixedPeriod: "monthly" });
+  const [form, setForm] = useState(editMode ? { category: editMode.category, name: editMode.name, amount: String(editMode.amount), date: editMode.date ? `${editMode.date.getFullYear()}-${String(editMode.date.getMonth() + 1).padStart(2, "0")}-${String(editMode.date.getDate()).padStart(2, "0")}` : new Date().toISOString().split("T")[0], hour: editMode.hour || "12:00", paidBy: editMode.paidBy, vatRecognized: editMode.vatRecognized, taxRecognized: editMode.taxRecognized, isFixed: editMode.isFixed || false, fixedPeriod: editMode.fixedPeriod || "monthly", isInstallment: false, installmentCount: "3" } : { category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true, isFixed: false, fixedPeriod: "monthly", isInstallment: false, installmentCount: "3" });
   const [saving, setSaving] = useState(false), [saved, setSaved] = useState(false), [err, setErr] = useState(""), [scaning, setScaning] = useState(false);
   const fileRef = useRef(null); const scanRef = useRef(null); const upd = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -3139,8 +3103,27 @@ function RecordExpensePage({ editMode, onDone }) {
 
   const save = async () => {
     if (!form.category || !form.name || !form.amount || !form.paidBy) { setErr("נא למלא שדות חובה"); return; }
+    if (form.isInstallment && (!form.installmentCount || +form.installmentCount < 2)) { setErr("נא להזין מספר תשלומים (לפחות 2)"); return; }
     setSaving(true); setErr("");
     try {
+      const baseDate = new Date(form.date);
+      if (form.isInstallment && !editMode) {
+        const count = +form.installmentCount;
+        const totalAmount = +form.amount;
+        const perInstallment = Math.round((totalAmount / count) * 100) / 100;
+        for (let i = 1; i <= count; i++) {
+          const d = new Date(baseDate);
+          d.setMonth(d.getMonth() + (i - 1));
+          const exp = { category: form.category, name: form.name, amount: perInstallment, date: d, hour: form.hour, paidBy: form.paidBy, vatRecognized: form.vatRecognized, taxRecognized: form.taxRecognized, isFixed: false, source: "ידני", receiptImage: null, installmentCurrent: i, installmentTotal: count };
+          if (!demo) await ExpSvc.add(exp);
+        }
+        setSaving(false);
+        setMode(null);
+        setForm({ category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true, isFixed: false, fixedPeriod: "monthly", isInstallment: false, installmentCount: "3" });
+        alert(`✅ נשמרו ${count} תשלומים בהצלחה!`);
+        window.location.reload();
+        return;
+      }
       const exp = { ...form, amount: +form.amount, source: "ידני", receiptImage: null };
       if (editMode) {
         const updated = { ...editMode, ...exp, date: new Date(form.date) };
@@ -3162,7 +3145,7 @@ function RecordExpensePage({ editMode, onDone }) {
       }
       setSaving(false);
       setMode(null);
-      setForm({ category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true, isFixed: false, fixedPeriod: "monthly" });
+      setForm({ category: "", name: "", amount: "", date: new Date().toISOString().split("T")[0], hour: new Date().toTimeString().substring(0, 5), paidBy: "", vatRecognized: false, taxRecognized: true, isFixed: false, fixedPeriod: "monthly", isInstallment: false, installmentCount: "3" });
       alert("✅ ההוצאה נשמרה בהצלחה!");
       window.location.reload();
     } catch (e) {
@@ -3226,7 +3209,7 @@ function RecordExpensePage({ editMode, onDone }) {
       <div style={{ display: "flex", gap: 14 }}><label style={{ display: "flex", alignItems: "center", gap: 6, color: C.dim, fontSize: 13, cursor: "pointer" }}><input type="checkbox" checked={form.vatRecognized} onChange={e => upd("vatRecognized", e.target.checked)} style={{ width: 18, height: 18 }} />מע״מ</label><label style={{ display: "flex", alignItems: "center", gap: 6, color: C.dim, fontSize: 13, cursor: "pointer" }}><input type="checkbox" checked={form.taxRecognized} onChange={e => upd("taxRecognized", e.target.checked)} style={{ width: 18, height: 18 }} />מס</label></div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: form.isFixed ? `${C.pri}22` : C.card, border: `1px solid ${form.isFixed ? C.pri : C.bdr}`, borderRadius: 10, transition: "all .15s" }}>
         <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", flex: 1 }}>
-          <input type="checkbox" checked={form.isFixed} onChange={e => upd("isFixed", e.target.checked)} style={{ width: 18, height: 18, accentColor: C.pri }} />
+          <input type="checkbox" checked={form.isFixed} onChange={e => { upd("isFixed", e.target.checked); if (e.target.checked) upd("isInstallment", false); }} style={{ width: 18, height: 18, accentColor: C.pri }} />
           <span style={{ color: form.isFixed ? C.priL : C.dim, fontSize: 14, fontWeight: form.isFixed ? 600 : 400 }}>🔒 הוצאה קבועה</span>
         </label>
         {form.isFixed && <select value={form.fixedPeriod} onChange={e => upd("fixedPeriod", e.target.value)} style={{ padding: "6px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" }}>
@@ -3235,6 +3218,19 @@ function RecordExpensePage({ editMode, onDone }) {
           <option value="yearly">שנתי</option>
         </select>}
       </div>
+      {!editMode && <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 14px", background: form.isInstallment ? `${C.ylw}18` : C.card, border: `1px solid ${form.isInstallment ? C.ylw : C.bdr}`, borderRadius: 10, transition: "all .15s" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={form.isInstallment} onChange={e => { upd("isInstallment", e.target.checked); if (e.target.checked) upd("isFixed", false); }} style={{ width: 18, height: 18, accentColor: C.ylw }} />
+          <span style={{ color: form.isInstallment ? C.ylw : C.dim, fontSize: 14, fontWeight: form.isInstallment ? 600 : 400 }}>💳 תשלומים</span>
+        </label>
+        {form.isInstallment && <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <label style={{ color: C.dim, fontSize: 12 }}>מספר תשלומים</label>
+          <input type="number" min="2" max="60" value={form.installmentCount} onChange={e => upd("installmentCount", e.target.value)} style={{ padding: "8px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", width: 100 }} />
+          {form.amount && form.installmentCount && +form.installmentCount >= 2 && <div style={{ color: C.ylw, fontSize: 12, marginTop: 2 }}>
+            {Math.round((+form.amount / +form.installmentCount) * 100) / 100}₪ לחודש × {form.installmentCount} חודשים (מתחיל {form.date || "היום"})
+          </div>}
+        </div>}
+      </div>}
     </div>
       {err && <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: `${C.red}22`, color: C.red, fontSize: 12 }}>{err}</div>}
       <div style={{ display: "flex", gap: 10, marginTop: 20 }}><Btn onClick={save} variant="success" size="lg" style={{ flex: 1 }}>{saving ? "⏳" : editMode ? "💾 עדכן" : "💾 שמור"}</Btn><Btn onClick={editMode ? onDone : () => setPage("expenses")} variant="ghost" size="lg">❌</Btn></div></>;
