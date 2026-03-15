@@ -4512,7 +4512,7 @@ function ClientPortal() {
               title={clientOwes ? "הלקוחה חייבת לסוכנות" : agencyOwes ? "הסוכנות חייבת ללקוחה" : "מאוזן"}
               value={Math.abs(due) < 1 ? "מאוזן" : fmtC(Math.abs(due))}
               color={clientOwes ? C.red : agencyOwes ? C.grn : C.mut}
-              sub={`עמלה ${pct}% | נטו לסוכנות: ${fmtC(bal.ent)}`} />
+              />
             {vatClient && Math.abs(due) >= 1 && <>
               <Stat icon="🧾" title="מע״מ 18%" value={fmtC(vatAmt)} color={C.ylw} />
               <Stat icon={clientOwes ? "🔴" : "🟢"} title={`סה״כ ${clientOwes ? "לתשלום" : "להחזר"} (כולל מע״מ)`} value={fmtC(totalWithVat)} color={clientOwes ? C.red : C.grn} />
