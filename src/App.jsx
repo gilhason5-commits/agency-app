@@ -3834,7 +3834,7 @@ ${overridesText || "אין"}
 // ═══════════════════════════════════════════════════════
 // CHATTER PORTAL
 // ═══════════════════════════════════════════════════════
-function ChatterPortal() {
+function ChatterPortal({ hideHeader } = {}) {
   const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets, sheetUsers, chatterSettings } = useApp();
   const { iM, iY } = useFD();
   const w = useWin();
@@ -3966,7 +3966,7 @@ function ChatterPortal() {
 
   return <div style={{ minHeight: "100vh", background: C.bg, direction: "rtl" }}>
     {/* Header */}
-    <div style={{ background: C.card, borderBottom: `1px solid ${C.bdr}`, padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 100 }}>
+    {!hideHeader && <div style={{ background: C.card, borderBottom: `1px solid ${C.bdr}`, padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 100 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <span style={{ fontSize: 20 }}>👤</span>
         <div>
@@ -3983,7 +3983,24 @@ function ChatterPortal() {
         </select>
         <Btn variant="ghost" size="sm" onClick={logout}>🚪 יציאה</Btn>
       </div>
-    </div>
+    </div>}
+    {hideHeader && <div style={{ background: C.card, borderBottom: `1px solid ${C.bdr}`, padding: "12px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 100 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontSize: 20 }}>👤</span>
+        <div>
+          <div style={{ color: C.txt, fontWeight: 700, fontSize: 15 }}>{chatterName}</div>
+          <div style={{ color: C.dim, fontSize: 11 }}>מנהל משמרת</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <select value={month} onChange={e => setMonth(+e.target.value)} style={{ background: C.card, color: C.txt, border: `1px solid ${C.bdr}`, borderRadius: 6, padding: "4px 8px", fontSize: 12 }}>
+          {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
+        </select>
+        <select value={year} onChange={e => setYear(+e.target.value)} style={{ background: C.card, color: C.txt, border: `1px solid ${C.bdr}`, borderRadius: 6, padding: "4px 8px", fontSize: 12 }}>
+          {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+      </div>
+    </div>}
 
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: w < 768 ? "16px 10px" : "24px" }}>
       {/* Summary Cards */}
@@ -4206,6 +4223,53 @@ function ChatterPortal() {
       }
 
     </div>
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════
+// SHIFT MANAGER PORTAL
+// ═══════════════════════════════════════════════════════
+const SM_NAV = [
+  { key: "main", label: "ראשי", icon: "👤" },
+  { key: "approvals", label: "אישורים", icon: "✅" },
+  { key: "chatters", label: "צ'אטרים", icon: "👥" },
+];
+
+function ShiftManagerPortal() {
+  const { logout } = useApp();
+  const w = useWin();
+  const [smPage, setSmPage] = useState("main");
+
+  const renderPage = () => {
+    if (smPage === "approvals") return <ApprovalsPage />;
+    if (smPage === "chatters") return <ChatterHub />;
+    return <ChatterPortal hideHeader />;
+  };
+
+  return <div style={{ display: "flex", minHeight: "100vh", background: C.bg, direction: "rtl" }}>
+    {/* Desktop Sidebar */}
+    {w >= 768 && <div style={{ width: 180, background: C.card, borderLeft: `1px solid ${C.bdr}`, padding: "16px 0", display: "flex", flexDirection: "column", gap: 2, flexShrink: 0, height: "100vh", position: "sticky", top: 0 }}>
+      <div style={{ padding: "0 16px 16px", borderBottom: `1px solid ${C.bdr}`, marginBottom: 6 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: C.pri }}>🔑 מנהל משמרת</div>
+      </div>
+      {SM_NAV.map(it => <button key={it.key} onClick={() => setSmPage(it.key)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 16px", background: smPage === it.key ? `${C.pri}22` : "transparent", border: "none", borderRight: smPage === it.key ? `3px solid ${C.pri}` : "3px solid transparent", color: smPage === it.key ? C.pri : C.dim, cursor: "pointer", textAlign: "right", fontSize: 12, fontWeight: smPage === it.key ? 600 : 400, transition: "all .15s" }}><span style={{ fontSize: 14 }}>{it.icon}</span>{it.label}</button>)}
+      <div style={{ flex: 1 }} />
+      <button onClick={logout} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 16px", background: "transparent", border: "none", color: C.red, cursor: "pointer", textAlign: "right", fontSize: 12 }}><span style={{ fontSize: 14 }}>🚪</span>יציאה</button>
+    </div>}
+
+    {/* Main content */}
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+      {smPage !== "main" && <div style={{ padding: w < 768 ? "14px 10px 80px" : "24px", overflowY: "auto", flex: 1 }}>{renderPage()}</div>}
+      {smPage === "main" && renderPage()}
+    </div>
+
+    {/* Mobile bottom nav */}
+    {w < 768 && <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: C.card, borderTop: `1px solid ${C.bdr}`, zIndex: 900 }}>
+      <div style={{ display: "flex", justifyContent: "space-around", padding: "6px 4px" }}>
+        {SM_NAV.map(it => <button key={it.key} onClick={() => setSmPage(it.key)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "transparent", border: "none", color: smPage === it.key ? C.pri : C.mut, cursor: "pointer", padding: "4px 10px", fontSize: 9, fontWeight: smPage === it.key ? 700 : 400 }}><span style={{ fontSize: 18 }}>{it.icon}</span>{it.label}</button>)}
+        <button onClick={logout} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, background: "transparent", border: "none", color: C.red, cursor: "pointer", padding: "4px 10px", fontSize: 9 }}><span style={{ fontSize: 18 }}>🚪</span>צא</button>
+      </div>
+    </div>}
   </div>;
 }
 
@@ -4630,7 +4694,7 @@ function UserManagementPage() {
     setAdding(true); setErr(""); setMsg("");
     try {
       await UserSvc.add(newUser.name.trim(), newUser.pass.trim(), newUser.role);
-      setMsg(`✅ ${newUser.role === "chatter" ? "צ'אטר" : "לקוחה"} "${newUser.name}" נוסף/ה בהצלחה!`);
+      setMsg(`✅ ${newUser.role === "chatter" ? "צ'אטר" : newUser.role === "shift_manager" ? "מנהל משמרת" : "לקוחה"} "${newUser.name}" נוסף/ה בהצלחה!`);
       setNewUser({ name: "", pass: "", role: newUser.role });
       await loadUsers();
     } catch (e) { setErr("שגיאה: " + e.message); }
@@ -4648,6 +4712,7 @@ function UserManagementPage() {
 
   const chatters = users.filter(u => u.role === "chatter");
   const clients = users.filter(u => u.role === "client");
+  const shiftManagers = users.filter(u => u.role === "shift_manager");
   const inputStyle = { padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", flex: 1, minWidth: 100 };
 
   const entityTable = (title, icon, list) => (
@@ -4683,6 +4748,7 @@ function UserManagementPage() {
 
     {entityTable("צ'אטרים", "👤", chatters)}
     {entityTable("לקוחות", "👩", clients)}
+    {entityTable("מנהלי משמרת", "🔑", shiftManagers)}
 
     <Card style={{ marginBottom: 24 }}>
       <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>➕ הוסף משתמש חדש</h4>
@@ -4690,6 +4756,7 @@ function UserManagementPage() {
         <select value={newUser.role} onChange={e => setNewUser(p => ({ ...p, role: e.target.value }))} style={{ ...inputStyle, flex: "0 0 auto", minWidth: 90, cursor: "pointer" }}>
           <option value="chatter">צ'אטר</option>
           <option value="client">לקוחה</option>
+          <option value="shift_manager">מנהל משמרת</option>
         </select>
         <input placeholder="שם" value={newUser.name} onChange={e => setNewUser(p => ({ ...p, name: e.target.value }))} style={inputStyle} />
         <input placeholder="סיסמה" value={newUser.pass} onChange={e => setNewUser(p => ({ ...p, pass: e.target.value }))} style={inputStyle} />
@@ -5052,6 +5119,7 @@ function Content() {
   const w = useWin();
   if (import.meta.env.VITE_USE_AUTH === "true" && !user) return <LoginPage />;
   if (user?.role === "chatter") return <ChatterPortal />;
+  if (user?.role === "shift_manager") return <ShiftManagerPortal />;
   if (user?.role === "client") return <ClientPortal />;
   // SetupPage disabled — connection is managed automatically
   const P = PAGES[page] || DashPage;
