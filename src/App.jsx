@@ -1395,7 +1395,7 @@ function DashPage() {
   const grossProfit = agencyIncome - mp.exp - fixedMonthly - empMonthly;
   const nonDeductible = activeE.filter(e => !e.taxRecognized).reduce((s, e) => s + (e.amount || 0), 0);
   const niTotal = empNIMonthly + manualNI;
-  const taxableIncome = (agencyIncome - vat) - mp.exp - fixedMonthly - niTotal + nonDeductible;
+  const taxableIncome = (agencyIncome - vat) - mp.exp - fixedMonthly - niTotal + nonDeductible - lmCurr;
   const incomeTax = taxableIncome > 0
     ? (bizType === "חברה"
         ? taxableIncome * 0.23
