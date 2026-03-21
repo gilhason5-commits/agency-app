@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import {
-    getFirestore, collection, getDocs, addDoc, updateDoc,
+    getFirestore, collection, getDocs, getDoc, addDoc, updateDoc,
     deleteDoc, doc, writeBatch, setDoc
 } from "firebase/firestore";
 
@@ -342,6 +342,15 @@ export async function removeUser(id) {
 
 export async function updateUserPassword(id, newPassword) {
     await updateDoc(doc(db, "users", id), { password: newPassword });
+}
+
+export async function getAdminPassword() {
+    const snap = await getDoc(doc(db, "config", "admin"));
+    return snap.exists() ? snap.data().password : null;
+}
+
+export async function setAdminPassword(newPassword) {
+    await setDoc(doc(db, "config", "admin"), { password: newPassword });
 }
 
 export async function saveAllUsers(users) {

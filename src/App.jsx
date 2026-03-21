@@ -3,7 +3,7 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Cart
 import {
   fetchAllIncome, addIncome, updateIncome, removeIncome, saveAllIncome, clearAllIncome, migrateCommissions, retroRecalculate, restoreCorruptedRecords,
   fetchPending, addPending, updatePending, removePending, approvePending, rejectPending, fixOrphanedApprovals,
-  fetchUsers, addUser, removeUser, findUser, saveAllUsers, updateUserPassword,
+  fetchUsers, addUser, removeUser, findUser, saveAllUsers, updateUserPassword, getAdminPassword, setAdminPassword,
   fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses,
   fetchSettlements, addSettlement, removeSettlement,
   fetchChatterTargets, setChatterTarget,
@@ -924,9 +924,14 @@ function Prov({ children }) {
     const cleanPass = pass.trim();
 
     // Admin login
-    if (cleanName === "אדמין" && cleanPass === "11220099") {
-      const u = { role: "admin", name: "admin" };
-      setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
+    if (cleanName === "אדמין") {
+      let adminPass = "11220099";
+      try { const fb = await getAdminPassword(); if (fb) adminPass = fb; } catch {}
+      if (cleanPass === adminPass) {
+        const u = { role: "admin", name: "admin" };
+        setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
+      }
+      return { ok: false, Debug: "שם משתמש או סיסמה שגויים." };
     }
 
     // Chatter/Client login — check Firebase users
@@ -1772,6 +1777,8 @@ function IncPage() {
   const grandTotal = data.reduce((s, r) => s + r.amountILS, 0);
   const ilsOnlyTotal = data.reduce((s, r) => s + ((r.amountUSD || 0) > 0 ? 0 : r.amountILS), 0);
   const agencyTotal = data.filter(r => !r.cancelled && (!r.paymentTarget || r.paymentTarget === "agency")).reduce((s, r) => s + r.amountILS, 0);
+  const totalPreCommUSD = data.reduce((s, r) => s + (r.preCommissionUSD || 0), 0);
+  const totalPreCommILS = data.reduce((s, r) => s + (r.preCommissionILS || 0), 0);
 
   const setPayment = async (r, target) => {
     try {
@@ -1827,7 +1834,7 @@ function IncPage() {
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "הערה", render: r => { if (!r.notes) return ""; const words = r.notes.trim().split(/\s+/); if (words.length <= 3) return <span style={{ fontSize: 11, color: C.dim }}>{r.notes}</span>; return <span onClick={() => setNoteView(r.notes)} style={{ fontSize: 11, color: C.pri, cursor: "pointer", whiteSpace: "nowrap" }} title="לחץ לצפייה בהערה המלאה">{words.slice(0, 3).join(" ")}...</span>; } }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", "", "", fmtUSD(totalUSD), fmtC(grandTotal), "", "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "הערה", render: r => { if (!r.notes) return ""; const words = r.notes.trim().split(/\s+/); if (words.length <= 3) return <span style={{ fontSize: 11, color: C.dim }}>{r.notes}</span>; return <span onClick={() => setNoteView(r.notes)} style={{ fontSize: 11, color: C.pri, cursor: "pointer", whiteSpace: "nowrap" }} title="לחץ לצפייה בהערה המלאה">{words.slice(0, 3).join(" ")}...</span>; } }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", totalPreCommUSD > 0 ? fmtUSD(totalPreCommUSD) : "", totalPreCommILS > 0 ? fmtC(totalPreCommILS) : "", fmtUSD(totalUSD), fmtC(grandTotal), "", "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
 
     {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד מכירה ידנית" width={500}>
       <RecordIncomeAdmin onClose={() => setShowIncForm(false)} />
@@ -4785,6 +4792,19 @@ function UserManagementPage() {
   const [editPassUser, setEditPassUser] = useState(null); // { id, name }
   const [newPass, setNewPass] = useState("");
   const [savingPass, setSavingPass] = useState(false);
+  const [adminPass, setAdminPass] = useState("");
+  const [savingAdminPass, setSavingAdminPass] = useState(false);
+
+  const handleAdminPassChange = async () => {
+    if (!adminPass.trim()) { setErr("נא להזין סיסמה חדשה"); return; }
+    setSavingAdminPass(true); setErr(""); setMsg("");
+    try {
+      await setAdminPassword(adminPass.trim());
+      setMsg("✅ סיסמת האדמין עודכנה בהצלחה!");
+      setAdminPass("");
+    } catch (e) { setErr("שגיאה בעדכון סיסמה: " + e.message); }
+    setSavingAdminPass(false);
+  };
 
   const handleChangePassword = async () => {
     if (!newPass.trim()) { setErr("נא להזין סיסמה חדשה"); return; }
@@ -4852,6 +4872,16 @@ function UserManagementPage() {
         </Btn>
       </div>
       <div style={{ color: C.dim, fontSize: 11 }}>המשתמש יתווסף ישירות ויוכל להתחבר מיד — בלי deploy!</div>
+    </Card>
+
+    <Card style={{ marginBottom: 24 }}>
+      <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>🔐 שינוי סיסמת אדמין</h4>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input type="text" placeholder="סיסמה חדשה לפורטל אדמין" value={adminPass} onChange={e => setAdminPass(e.target.value)} style={inputStyle} />
+        <Btn onClick={handleAdminPassChange} disabled={savingAdminPass} style={{ whiteSpace: "nowrap" }}>
+          {savingAdminPass ? "⏳ שומר..." : "🔐 עדכן סיסמה"}
+        </Btn>
+      </div>
     </Card>
 
     {editPassUser && <Modal open={true} onClose={() => setEditPassUser(null)} title={`🔑 שינוי סיסמה — ${editPassUser.name}`} width={380}>
