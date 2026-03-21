@@ -3,7 +3,7 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Cart
 import {
   fetchAllIncome, addIncome, updateIncome, removeIncome, saveAllIncome, clearAllIncome, migrateCommissions, retroRecalculate, restoreCorruptedRecords,
   fetchPending, addPending, updatePending, removePending, approvePending, rejectPending, fixOrphanedApprovals,
-  fetchUsers, addUser, removeUser, findUser, saveAllUsers, updateUserPassword,
+  fetchUsers, addUser, removeUser, findUser, saveAllUsers, updateUserPassword, getAdminPassword, setAdminPassword,
   fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses,
   fetchSettlements, addSettlement, removeSettlement,
   fetchChatterTargets, setChatterTarget,
@@ -924,9 +924,14 @@ function Prov({ children }) {
     const cleanPass = pass.trim();
 
     // Admin login
-    if (cleanName === "אדמין" && cleanPass === "11220099") {
-      const u = { role: "admin", name: "admin" };
-      setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
+    if (cleanName === "אדמין") {
+      let adminPass = "11220099";
+      try { const fb = await getAdminPassword(); if (fb) adminPass = fb; } catch {}
+      if (cleanPass === adminPass) {
+        const u = { role: "admin", name: "admin" };
+        setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
+      }
+      return { ok: false, Debug: "שם משתמש או סיסמה שגויים." };
     }
 
     // Chatter/Client login — check Firebase users
@@ -4785,6 +4790,19 @@ function UserManagementPage() {
   const [editPassUser, setEditPassUser] = useState(null); // { id, name }
   const [newPass, setNewPass] = useState("");
   const [savingPass, setSavingPass] = useState(false);
+  const [adminPass, setAdminPass] = useState("");
+  const [savingAdminPass, setSavingAdminPass] = useState(false);
+
+  const handleAdminPassChange = async () => {
+    if (!adminPass.trim()) { setErr("נא להזין סיסמה חדשה"); return; }
+    setSavingAdminPass(true); setErr(""); setMsg("");
+    try {
+      await setAdminPassword(adminPass.trim());
+      setMsg("✅ סיסמת האדמין עודכנה בהצלחה!");
+      setAdminPass("");
+    } catch (e) { setErr("שגיאה בעדכון סיסמה: " + e.message); }
+    setSavingAdminPass(false);
+  };
 
   const handleChangePassword = async () => {
     if (!newPass.trim()) { setErr("נא להזין סיסמה חדשה"); return; }
@@ -4852,6 +4870,16 @@ function UserManagementPage() {
         </Btn>
       </div>
       <div style={{ color: C.dim, fontSize: 11 }}>המשתמש יתווסף ישירות ויוכל להתחבר מיד — בלי deploy!</div>
+    </Card>
+
+    <Card style={{ marginBottom: 24 }}>
+      <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>🔐 שינוי סיסמת אדמין</h4>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <input type="text" placeholder="סיסמה חדשה לפורטל אדמין" value={adminPass} onChange={e => setAdminPass(e.target.value)} style={inputStyle} />
+        <Btn onClick={handleAdminPassChange} disabled={savingAdminPass} style={{ whiteSpace: "nowrap" }}>
+          {savingAdminPass ? "⏳ שומר..." : "🔐 עדכן סיסמה"}
+        </Btn>
+      </div>
     </Card>
 
     {editPassUser && <Modal open={true} onClose={() => setEditPassUser(null)} title={`🔑 שינוי סיסמה — ${editPassUser.name}`} width={380}>
