@@ -2425,7 +2425,8 @@ function ExpPage() {
 const SALARY_TYPE_LABELS = { sales: "מכירות בלבד", hourly: "שעתי בלבד", both: "שעתי + מכירות" };
 
 function ChatterPage({ forceSel, onBack } = {}) {
-  const { year, month, setMonth, view, setView, chatterSettings, saveChatterSetting } = useApp();
+  const { year, month, setMonth, view, setView, chatterSettings, saveChatterSetting, user, chatterTargets } = useApp();
+  const isSM = user?.role === "shift_manager";
   const { iM, iY, iRange, chatters } = useFD();
   const [sel, setSel] = useState(forceSel || "");
   const [editSettings, setEditSettings] = useState(false);
@@ -2503,10 +2504,10 @@ function ChatterPage({ forceSel, onBack } = {}) {
         <Stat icon="✅" title="מאושרות" value={fmtC(totalApproved)} sub={`${approvedRows.length} עסקאות`} color={C.grn} />
         {totalPending > 0 && <Stat icon="⏳" title="ממתינות" value={fmtC(totalPending)} sub={`${pendingRows.length} עסקאות`} color={C.ylw} />}
         <Stat icon="💰" title="סה״כ" value={fmtC(tot)} color={C.pri} sub={`${approvedRows.length} עסקאות`} />
-        <Stat icon="🏢" title="משרד" value={fmtC(sal.oSales)} sub={`שכר ${sal.officePct ?? 17}%: ${fmtC(sal.oSal)}`} />
-        <Stat icon="🏠" title="חוץ" value={fmtC(sal.rSales)} sub={`שכר ${sal.fieldPct ?? 15}%: ${fmtC(sal.rSal)}`} />
-        {sal.salaryType !== "sales" && <Stat icon="⏱️" title="שעתי" value={fmtC(sal.hourlySalary)} sub={`${sal.hours} שעות × ₪${sal.hourlyRate}`} />}
-        <Stat icon="💵" title="משכורת" value={fmtC(sal.total)} color={C.pri} sub={SALARY_TYPE_LABELS[sal.salaryType] || "מכירות"} />
+        <Stat icon="🏢" title="משרד" value={fmtC(sal.oSales)} sub={isSM ? `${approvedRows.filter(r => r.shiftLocation === "משרד").length} עסקאות` : `שכר ${sal.officePct ?? 17}%: ${fmtC(sal.oSal)}`} />
+        <Stat icon="🏠" title="חוץ" value={fmtC(sal.rSales)} sub={isSM ? `${approvedRows.filter(r => r.shiftLocation !== "משרד").length} עסקאות` : `שכר ${sal.fieldPct ?? 15}%: ${fmtC(sal.rSal)}`} />
+        {!isSM && sal.salaryType !== "sales" && <Stat icon="⏱️" title="שעתי" value={fmtC(sal.hourlySalary)} sub={`${sal.hours} שעות × ₪${sal.hourlyRate}`} />}
+        {!isSM && <Stat icon="💵" title="משכורת" value={fmtC(sal.total)} color={C.pri} sub={SALARY_TYPE_LABELS[sal.salaryType] || "מכירות"} />}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
@@ -2514,8 +2515,66 @@ function ChatterPage({ forceSel, onBack } = {}) {
         {byType.length > 0 && <Card><div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>מכירות לפי סוג הכנסה</div><div style={{ width: "100%", direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(180, byType.length * 30)}><BarChart data={byType} layout="vertical" margin={{ top: 5, right: 150, bottom: 5, left: 20 }}><XAxis type="number" reversed={true} tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={150} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.priL} radius={[4, 0, 0, 4]} name="מכירות"><LabelList dataKey="value" position="insideLeft" formatter={v => `₪${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} /></Bar></BarChart></ResponsiveContainer></div></Card>}
       </div>
 
+      {/* Targets section for shift manager */}
+      {isSM && sel && (() => {
+        const customT = chatterTargets[sel];
+        const prevMonth = month === 0 ? 11 : month - 1;
+        const prevYear = month === 0 ? year - 1 : year;
+        const lastMonthIncome = iY.filter(r => r.chatterName === sel && r.date && r.date.getFullYear() === prevYear && r.date.getMonth() === prevMonth);
+        const lastMonthTotal = lastMonthIncome.reduce((s, r) => s + r.amountILS, 0);
+        const currentTotal = approvedRows.reduce((s, r) => s + r.amountILS, 0);
+        const autoTargets = [
+          { label: "יעד 5%", val: Math.round(lastMonthTotal * 1.05), color: "#22c55e", pct: 5 },
+          { label: "יעד 10%", val: Math.round(lastMonthTotal * 1.10), color: "#f59e0b", pct: 10 },
+          { label: "יעד 15%", val: Math.round(lastMonthTotal * 1.15), color: "#ef4444", pct: 15 },
+        ];
+        const targets = customT
+          ? [{ label: "יעד 1", val: customT.t1, color: "#22c55e" }, { label: "יעד 2", val: customT.t2, color: "#f59e0b" }, { label: "יעד 3", val: customT.t3, color: "#ef4444" }]
+          : autoTargets;
+        const targetsWithProgress = targets.map(t => {
+          const goal = t.val;
+          const progress = goal > 0 ? Math.min(Math.round((currentTotal / goal) * 100), 100) : 0;
+          return { ...t, goal, progress };
+        });
+        return <Card style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, margin: 0 }}>🎯 יעדים — {sel}</h3>
+            <div style={{ display: "flex", gap: 16, fontSize: 12, color: C.dim }}>
+              <span>📅 סה"כ חודש קודם: <strong style={{ color: C.priL }}>{fmtC(lastMonthTotal)}</strong></span>
+            </div>
+          </div>
+          {lastMonthTotal === 0 && !customT ? (
+            <div style={{ color: C.mut, fontSize: 13, textAlign: "center", padding: 16 }}>אין נתונים מחודש קודם לחישוב יעדים</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {targetsWithProgress.map((t, i) => (
+                <div key={i}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: t.color }}>{t.label}</span>
+                      {t.pct && <span style={{ fontSize: 11, color: C.dim }}>+{t.pct}% מחודש קודם</span>}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: C.txt }}>{fmtC(currentTotal)}</span>
+                      <span style={{ fontSize: 11, color: C.dim }}>/</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: t.color }}>{fmtC(t.goal)}</span>
+                    </div>
+                  </div>
+                  <div style={{ background: C.bg, borderRadius: 8, height: 28, overflow: "hidden", position: "relative", border: `1px solid ${C.bdr}` }}>
+                    <div style={{ height: "100%", borderRadius: 8, background: `linear-gradient(90deg, ${t.color}44, ${t.color})`, width: `${t.progress}%`, transition: "width 0.5s ease-in-out", minWidth: t.progress > 0 ? 20 : 0 }} />
+                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: t.progress >= 50 ? "#fff" : C.txt }}>
+                      {t.progress}%{t.progress >= 100 && " 🎉"}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>;
+      })()}
+
       {/* Salary + Reconciliation combined */}
-      {(() => {
+      {!isSM && (() => {
         const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
         const balance = sal.total - paidDirect;
         const vatAmt = Math.abs(balance) * 0.18;
@@ -2578,7 +2637,7 @@ function ChatterPage({ forceSel, onBack } = {}) {
       <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }]} rows={rows.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(rows.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(tot)]} />
 
       {/* Edit settings modal */}
-      <Modal open={editSettings} onClose={() => setEditSettings(false)} title={`⚙️ הגדרות שכר — ${sel} — ${MONTHS_HE[month]} ${year}`} width={400}>
+      {!isSM && <Modal open={editSettings} onClose={() => setEditSettings(false)} title={`⚙️ הגדרות שכר — ${sel} — ${MONTHS_HE[month]} ${year}`} width={400}>
         <div style={{ display: "grid", gap: 14 }}>
           <div>
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>סוג שכר</label>
@@ -2610,21 +2669,21 @@ function ChatterPage({ forceSel, onBack } = {}) {
             <Btn variant="ghost" onClick={() => setEditSettings(false)}>ביטול</Btn>
           </div>
         </div>
-      </Modal>
+      </Modal>}
 
       {/* Edit hours modal */}
-      <Modal open={editHours} onClose={() => setEditHours(false)} title={`⏱️ שעות — ${sel} — ${MONTHS_HE[month]}`} width={320}>
+      {!isSM && <Modal open={editHours} onClose={() => setEditHours(false)} title={`⏱️ שעות — ${sel} — ${MONTHS_HE[month]}`} width={320}>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>מספר שעות עבודה החודש</label>
         <input type="number" min="0" value={hoursVal} onChange={e => setHoursVal(e.target.value)} style={{ ...inpS, fontSize: 22, marginBottom: 14 }} />
         <div style={{ display: "flex", gap: 8 }}>
           <Btn variant="success" onClick={saveHours} disabled={saving}>{saving ? "שומר..." : "💾 שמור"}</Btn>
           <Btn variant="ghost" onClick={() => setEditHours(false)}>ביטול</Btn>
         </div>
-      </Modal>
+      </Modal>}
 
     </> : <>
-      <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><ComposedChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="sales" fill={C.pri} radius={[4, 4, 0, 0]} name="מכירות" /><Line type="monotone" dataKey="total" stroke={C.ylw} strokeWidth={2} dot={{ r: 3 }} name="משכורת" /></ComposedChart></ResponsiveContainer></Card>
-      <DT columns={[{ label: "חודש", key: "month" }, { label: "מכירות", render: r => fmtC(r.sales) }, { label: "משרד", render: r => fmtC(r.oSales) }, { label: "חוץ", render: r => fmtC(r.rSales) }, { label: "שכר", render: r => <strong style={{ color: C.pri }}>{fmtC(r.total)}</strong> }]} rows={mbd} footer={["סה״כ", fmtC(mbd.reduce((s, r) => s + r.sales, 0)), "", "", fmtC(mbd.reduce((s, r) => s + r.total, 0))]} />
+      <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><ComposedChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="sales" fill={C.pri} radius={[4, 4, 0, 0]} name="מכירות" />{!isSM && <Line type="monotone" dataKey="total" stroke={C.ylw} strokeWidth={2} dot={{ r: 3 }} name="משכורת" />}</ComposedChart></ResponsiveContainer></Card>
+      <DT columns={[{ label: "חודש", key: "month" }, { label: "מכירות", render: r => fmtC(r.sales) }, { label: "משרד", render: r => fmtC(r.oSales) }, { label: "חוץ", render: r => fmtC(r.rSales) }, ...(isSM ? [] : [{ label: "שכר", render: r => <strong style={{ color: C.pri }}>{fmtC(r.total)}</strong> }])]} rows={mbd} footer={isSM ? ["סה״כ", fmtC(mbd.reduce((s, r) => s + r.sales, 0)), "", ""] : ["סה״כ", fmtC(mbd.reduce((s, r) => s + r.sales, 0)), "", "", fmtC(mbd.reduce((s, r) => s + r.total, 0))]} />
     </>}
   </div>;
 }
@@ -2644,7 +2703,8 @@ function InlinePctInput({ value, onSave }) {
 const ENTITY_COLORS = ['#6366f1', '#22c55e', '#f97316', '#eab308', '#8b5cf6', '#06b6d4', '#f43f5e', '#84cc16', '#ec4899', '#14b8a6'];
 
 function ChattersOverviewPage({ onSelectChatter }) {
-  const { year, month, view, chatterSettings, saveChatterSetting } = useApp();
+  const { year, month, view, chatterSettings, saveChatterSetting, user } = useApp();
+  const isSM = user?.role === "shift_manager";
   const { iM, iY, iRange, chatters } = useFD();
   const incD = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const ymi = ym(year, new Date().getMonth());
@@ -2681,7 +2741,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
       <Stat icon="👥" title="מספר צ'אטרים" value={chatterStats.length} />
       <Stat icon="💰" title="סה״כ מכירות" value={fmtC(totalSales)} color={C.grn} />
-      <Stat icon="💵" title="סה״כ משכורות" value={fmtC(totalSalary)} color={C.ylw} />
+      {!isSM && <Stat icon="💵" title="סה״כ משכורות" value={fmtC(totalSalary)} color={C.ylw} />}
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
       <Card>
@@ -2698,7 +2758,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
           </BarChart>
         </ResponsiveContainer></div>
       </Card>
-      <Card>
+      {!isSM && <Card>
         <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📊 השוואת ROI לפי צ'אטר</div>
         <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(200, chatterStats.length * 44)}>
           <BarChart data={[...chatterStats].sort((a, b) => b.roi - a.roi)} layout="vertical" margin={{ top: 5, right: 130, bottom: 5, left: 10 }}>
@@ -2711,7 +2771,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
             </Bar>
           </BarChart>
         </ResponsiveContainer></div>
-      </Card>
+      </Card>}
     </div>
     {(() => {
       const hourlyData = (() => {
@@ -2748,13 +2808,15 @@ function ChattersOverviewPage({ onSelectChatter }) {
       <DT columns={[
         { label: "צ'אטר", render: r => <button onClick={() => onSelectChatter(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontWeight: 700, fontSize: 13, padding: 0 }}>{r.name}</button> },
         { label: "מכירות", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.total)}</span> },
-        { label: "% משרד", render: r => <InlinePctInput value={r.officePct} onSave={v => saveChatterSetting(r.name, { officePct: v })} /> },
-        { label: "% חוץ", render: r => <InlinePctInput value={r.fieldPct} onSave={v => saveChatterSetting(r.name, { fieldPct: v })} /> },
-        { label: "משכורת", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.salary)}</span> },
-        { label: "רווח נקי", render: r => <span style={{ color: r.netProfit >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.netProfit)}</span> },
+        ...(isSM ? [] : [
+          { label: "% משרד", render: r => <InlinePctInput value={r.officePct} onSave={v => saveChatterSetting(r.name, { officePct: v })} /> },
+          { label: "% חוץ", render: r => <InlinePctInput value={r.fieldPct} onSave={v => saveChatterSetting(r.name, { fieldPct: v })} /> },
+          { label: "משכורת", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.salary)}</span> },
+          { label: "רווח נקי", render: r => <span style={{ color: r.netProfit >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.netProfit)}</span> },
+        ]),
         { label: "", render: r => <button onClick={() => onSelectChatter(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>פרטים ←</button> }
       ]} rows={chatterStats.map(c => ({ ...c, officePct: (chatterSettings[c.name] || {}).officePct ?? 17, fieldPct: (chatterSettings[c.name] || {}).fieldPct ?? 15 }))}
-      footer={["סה״כ", fmtC(totalSales), "", "", fmtC(totalSalary), fmtC(totalSales - totalSalary), ""]} />
+      footer={isSM ? ["סה״כ", fmtC(totalSales), ""] : ["סה״כ", fmtC(totalSales), "", "", fmtC(totalSalary), fmtC(totalSales - totalSalary), ""]} />
     </Card>
   </div>;
 }
@@ -4008,9 +4070,9 @@ function ChatterPortal({ hideHeader } = {}) {
         <Stat icon="✅" title="מאושרות" value={fmtC(totalApproved)} sub={`${approved.length} עסקאות`} color={C.grn} />
         <Stat icon="⏳" title="ממתינות" value={fmtC(totalPending)} sub={`${pending.length} עסקאות`} color={C.ylw} />
         <Stat icon="💰" title="סה״כ החודש" value={fmtC(currentMonthTotal)} sub={`${myIncome.length} עסקאות`} color={C.pri} />
-        <Stat icon="🏢" title="משרד" value={fmtC(sal.oSales)} sub={`שכר ${sal.officePct ?? 17}%: ${fmtC(sal.oSal)}`} />
-        <Stat icon="🏠" title="חוץ" value={fmtC(sal.rSales)} sub={`שכר ${sal.fieldPct ?? 15}%: ${fmtC(sal.rSal)}`} />
-        <Stat icon="💵" title="משכורת" value={fmtC(sal.total)} color={C.pri} sub={SALARY_TYPE_LABELS[sal.salaryType] || "מכירות"} />
+        <Stat icon="🏢" title="משרד" value={fmtC(sal.oSales)} sub={hideHeader ? `${approved.filter(r => r.shiftLocation === "משרד").length} עסקאות` : `שכר ${sal.officePct ?? 17}%: ${fmtC(sal.oSal)}`} />
+        <Stat icon="🏠" title="חוץ" value={fmtC(sal.rSales)} sub={hideHeader ? `${approved.filter(r => r.shiftLocation !== "משרד").length} עסקאות` : `שכר ${sal.fieldPct ?? 15}%: ${fmtC(sal.rSal)}`} />
+        {!hideHeader && <Stat icon="💵" title="משכורת" value={fmtC(sal.total)} color={C.pri} sub={SALARY_TYPE_LABELS[sal.salaryType] || "מכירות"} />}
       </div>
 
       {/* Last Month Context + Targets */}
