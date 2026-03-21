@@ -3,7 +3,7 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Cart
 import {
   fetchAllIncome, addIncome, updateIncome, removeIncome, saveAllIncome, clearAllIncome, migrateCommissions, retroRecalculate, restoreCorruptedRecords,
   fetchPending, addPending, updatePending, removePending, approvePending, rejectPending, fixOrphanedApprovals,
-  fetchUsers, addUser, removeUser, findUser, saveAllUsers,
+  fetchUsers, addUser, removeUser, findUser, saveAllUsers, updateUserPassword,
   fetchAllExpenses, addExpense, updateExpense, removeExpense, saveAllExpenses,
   fetchSettlements, addSettlement, removeSettlement,
   fetchChatterTargets, setChatterTarget,
@@ -555,6 +555,9 @@ const UserSvc = {
   },
   async remove(id) {
     return removeUser(id);
+  },
+  async updatePassword(id, newPass) {
+    await updateUserPassword(id, newPass);
   }
 };
 
@@ -1126,11 +1129,13 @@ function Stat({ title, value, sub, color, icon }) { return <Card style={{ flex: 
 function FB({ children }) { return <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 16, direction: "rtl" }}>{children}</div>; }
 const VIEW_OPTIONS = [{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }, { value: "range", label: "טווח תאריכים" }];
 function ViewFilter({ extraBefore } = {}) {
-  const { view, setView, month, setMonth, dateRange, setDateRange } = useApp();
+  const { view, setView, month, setMonth, dateRange, setDateRange, user } = useApp();
+  const isSM = user?.role === "shift_manager";
+  const filteredOptions = isSM ? VIEW_OPTIONS.filter(o => o.value !== "yearly") : VIEW_OPTIONS;
   const inp = { background: "var(--c-card,#1e2130)", border: "1px solid #2a2f45", borderRadius: 8, color: "#e2e8f0", padding: "5px 8px", fontSize: 12, outline: "none", cursor: "pointer" };
   return <>
     {extraBefore}
-    <Sel label="תצוגה:" value={view} onChange={v => setView(v)} options={VIEW_OPTIONS} />
+    <Sel label="תצוגה:" value={view} onChange={v => setView(v)} options={filteredOptions} />
     {view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}
     {view === "range" && <>
       <label style={{ display: "flex", alignItems: "center", gap: 5, color: "#94a3b8", fontSize: 12 }}>
@@ -4777,6 +4782,23 @@ function UserManagementPage() {
   const shiftManagers = users.filter(u => u.role === "shift_manager");
   const inputStyle = { padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", flex: 1, minWidth: 100 };
 
+  const [editPassUser, setEditPassUser] = useState(null); // { id, name }
+  const [newPass, setNewPass] = useState("");
+  const [savingPass, setSavingPass] = useState(false);
+
+  const handleChangePassword = async () => {
+    if (!newPass.trim()) { setErr("נא להזין סיסמה חדשה"); return; }
+    setSavingPass(true); setErr(""); setMsg("");
+    try {
+      await UserSvc.updatePassword(editPassUser.id, newPass.trim());
+      setMsg(`✅ הסיסמה של "${editPassUser.name}" עודכנה בהצלחה!`);
+      setEditPassUser(null);
+      setNewPass("");
+      await loadUsers();
+    } catch (e) { setErr("שגיאה בעדכון סיסמה: " + e.message); }
+    setSavingPass(false);
+  };
+
   const entityTable = (title, icon, list) => (
     <Card style={{ marginBottom: 16 }}>
       <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 12 }}>{icon} {title} ({list.length})</h3>
@@ -4788,7 +4810,10 @@ function UserManagementPage() {
                 <span style={{ color: C.txt, fontWeight: 600 }}>{u.name}</span>
                 <span style={{ color: C.dim, marginRight: 8 }}> • ••••</span>
               </div>
-              <Btn variant="ghost" size="sm" onClick={() => handleDelete(u)} style={{ color: C.red, fontSize: 12 }}>🗑️</Btn>
+              <div style={{ display: "flex", gap: 6 }}>
+                <Btn variant="ghost" size="sm" onClick={() => { setEditPassUser({ id: u._rowIndex, name: u.name }); setNewPass(""); }} style={{ color: C.pri, fontSize: 12 }}>🔑 סיסמה</Btn>
+                <Btn variant="ghost" size="sm" onClick={() => handleDelete(u)} style={{ color: C.red, fontSize: 12 }}>🗑️</Btn>
+              </div>
             </div>
           ))}
         </div>
@@ -4829,16 +4854,18 @@ function UserManagementPage() {
       <div style={{ color: C.dim, fontSize: 11 }}>המשתמש יתווסף ישירות ויוכל להתחבר מיד — בלי deploy!</div>
     </Card>
 
-    <Card style={{ background: `${C.pri}08`, border: `1px solid ${C.pri}33` }}>
-      <h4 style={{ color: C.pri, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>💡 הנחיות חשובות</h4>
-      <div style={{ color: C.dim, fontSize: 12, lineHeight: 1.8 }}>
-        <div>• השם חייב להתאים בדיוק לשם שמופיע בדו״חות העסקאות.</div>
-        <div>• מומלץ לתת סיסמות פשוטות שקל לזכור (למשל מספר טלפון).</div>
-        <div>• המשתמשים נשמרים ישירות לדאטה-בייס ויכולים להתחבר מיד!</div>
+    {editPassUser && <Modal open={true} onClose={() => setEditPassUser(null)} title={`🔑 שינוי סיסמה — ${editPassUser.name}`} width={380}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div>
+          <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>סיסמה חדשה</label>
+          <input type="text" value={newPass} onChange={e => setNewPass(e.target.value)} placeholder="הזן סיסמה חדשה..." style={inputStyle} autoFocus />
+        </div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Btn variant="ghost" onClick={() => setEditPassUser(null)}>ביטול</Btn>
+          <Btn variant="success" onClick={handleChangePassword} disabled={savingPass}>{savingPass ? "⏳ שומר..." : "💾 שמור"}</Btn>
+        </div>
       </div>
-    </Card>
-
-    <ImportFromSheetsCard />
+    </Modal>}
   </div>;
 }
 

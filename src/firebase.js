@@ -340,6 +340,10 @@ export async function removeUser(id) {
     await deleteDoc(doc(db, "users", id));
 }
 
+export async function updateUserPassword(id, newPassword) {
+    await updateDoc(doc(db, "users", id), { password: newPassword });
+}
+
 export async function saveAllUsers(users) {
     const batch = writeBatch(db);
     const colRef = collection(db, "users");
