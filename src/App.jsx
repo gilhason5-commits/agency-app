@@ -1126,11 +1126,13 @@ function Stat({ title, value, sub, color, icon }) { return <Card style={{ flex: 
 function FB({ children }) { return <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 16, direction: "rtl" }}>{children}</div>; }
 const VIEW_OPTIONS = [{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }, { value: "range", label: "טווח תאריכים" }];
 function ViewFilter({ extraBefore } = {}) {
-  const { view, setView, month, setMonth, dateRange, setDateRange } = useApp();
+  const { view, setView, month, setMonth, dateRange, setDateRange, user } = useApp();
+  const isSM = user?.role === "shift_manager";
+  const filteredOptions = isSM ? VIEW_OPTIONS.filter(o => o.value !== "yearly") : VIEW_OPTIONS;
   const inp = { background: "var(--c-card,#1e2130)", border: "1px solid #2a2f45", borderRadius: 8, color: "#e2e8f0", padding: "5px 8px", fontSize: 12, outline: "none", cursor: "pointer" };
   return <>
     {extraBefore}
-    <Sel label="תצוגה:" value={view} onChange={v => setView(v)} options={VIEW_OPTIONS} />
+    <Sel label="תצוגה:" value={view} onChange={v => setView(v)} options={filteredOptions} />
     {view === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}
     {view === "range" && <>
       <label style={{ display: "flex", alignItems: "center", gap: 5, color: "#94a3b8", fontSize: 12 }}>
