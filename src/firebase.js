@@ -353,6 +353,15 @@ export async function setAdminPassword(newPassword) {
     await setDoc(doc(db, "config", "admin"), { password: newPassword });
 }
 
+export async function forceLogoutAll() {
+    await setDoc(doc(db, "config", "forceLogout"), { at: Date.now() });
+}
+
+export async function getForceLogoutAt() {
+    const snap = await getDoc(doc(db, "config", "forceLogout"));
+    return snap.exists() ? snap.data().at : 0;
+}
+
 export async function saveAllUsers(users) {
     const batch = writeBatch(db);
     const colRef = collection(db, "users");
