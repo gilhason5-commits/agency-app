@@ -11,7 +11,8 @@ import {
   fetchAllChatterSettings, saveChatterSettings,
   fetchAllClientSettings, saveClientSettings,
   fetchFixedExpenses, addFixedExpense, updateFixedExpense, removeFixedExpense,
-  fetchEmployees, addEmployee, removeEmployee
+  fetchEmployees, addEmployee, removeEmployee,
+  forceLogoutAll, getForceLogoutAt
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -928,7 +929,7 @@ function Prov({ children }) {
       let adminPass = "11220099";
       try { const fb = await getAdminPassword(); if (fb) adminPass = fb; } catch {}
       if (cleanPass === adminPass) {
-        const u = { role: "admin", name: "admin" };
+        const u = { role: "admin", name: "admin", loginAt: Date.now() };
         setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
       }
       return { ok: false, Debug: "שם משתמש או סיסמה שגויים." };
@@ -946,7 +947,7 @@ function Prov({ children }) {
         );
 
         if (match) {
-          const u = { role: match.role, name: match.name };
+          const u = { role: match.role, name: match.name, loginAt: Date.now() };
           setUser(u); localStorage.setItem("AGENCY_USER", JSON.stringify(u)); return { ok: true };
         }
 
@@ -962,6 +963,16 @@ function Prov({ children }) {
     return { ok: false, Debug: "נא להזין שם משתמש" };
   };
   const logout = () => { setUser(null); localStorage.removeItem("AGENCY_USER"); };
+
+  // Check if admin forced all users to re-login
+  useEffect(() => {
+    if (!user || !user.loginAt) return;
+    getForceLogoutAt().then(forceAt => {
+      if (forceAt && user.loginAt < forceAt) {
+        logout();
+      }
+    }).catch(() => {});
+  }, []);
 
   const [fixedExps, setFixedExps] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -4795,6 +4806,18 @@ function UserManagementPage() {
   const [adminPass, setAdminPass] = useState("");
   const [savingAdminPass, setSavingAdminPass] = useState(false);
 
+  const [forcingLogout, setForcingLogout] = useState(false);
+
+  const handleForceLogoutAll = async () => {
+    if (!confirm("לנתק את כל המשתמשים? הם יצטרכו להתחבר מחדש.")) return;
+    setForcingLogout(true); setErr(""); setMsg("");
+    try {
+      await forceLogoutAll();
+      setMsg("✅ כל המשתמשים ינותקו בכניסה הבאה שלהם!");
+    } catch (e) { setErr("שגיאה בניתוק: " + e.message); }
+    setForcingLogout(false);
+  };
+
   const handleAdminPassChange = async () => {
     if (!adminPass.trim()) { setErr("נא להזין סיסמה חדשה"); return; }
     setSavingAdminPass(true); setErr(""); setMsg("");
@@ -4882,6 +4905,14 @@ function UserManagementPage() {
           {savingAdminPass ? "⏳ שומר..." : "🔐 עדכן סיסמה"}
         </Btn>
       </div>
+    </Card>
+
+    <Card style={{ marginBottom: 24 }}>
+      <h4 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>🚪 ניתוק כל המשתמשים</h4>
+      <div style={{ color: C.dim, fontSize: 12, marginBottom: 12 }}>מנתק את כל המשתמשים המחוברים — הם יצטרכו להתחבר מחדש עם הסיסמה החדשה.</div>
+      <Btn onClick={handleForceLogoutAll} disabled={forcingLogout} style={{ background: C.red }}>
+        {forcingLogout ? "⏳ מנתק..." : "🚪 נתק את כל המשתמשים"}
+      </Btn>
     </Card>
 
     {editPassUser && <Modal open={true} onClose={() => setEditPassUser(null)} title={`🔑 שינוי סיסמה — ${editPassUser.name}`} width={380}>
