@@ -4680,16 +4680,10 @@ function ClientPortal() {
         <h3 style={{ color: C.dim, fontSize: 14, marginBottom: 12 }}>🧾 פירוט עסקאות</h3>
         <DT textSm columns={[
           { label: "תאריך", render: renderDateHour },
-          { label: "סוג הכנסה", key: "incomeType" },
-          { label: "שם קונה", render: r => r.buyerName || "—" },
-          { label: "צ'אטר", key: "chatterName" },
           { label: "פלטפורמה", key: "platform" },
-          { label: "מיקום", key: "shiftLocation" },
-          { label: "עמ׳ $", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" },
-          { label: "עמ׳ ₪", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" },
           { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
           { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> },
-        ]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(data.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome), ""]} />
+        ]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", fmtUSD(data.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome)]} />
       </Card>
     </div>
   </div>;
