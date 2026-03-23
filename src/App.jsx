@@ -277,25 +277,33 @@ const API = {
 const ExRate = {
   _rate: null,
   async fetchUsdIls() {
-    // Check localStorage cache (valid for 24h)
+    // Check localStorage cache (valid for current calendar day)
+    const today = new Date().toISOString().slice(0, 10);
     const cached = localStorage.getItem("USD_ILS_RATE");
     if (cached) {
-      const { rate, ts } = JSON.parse(cached);
-      if (Date.now() - ts < 24 * 60 * 60 * 1000) { this._rate = rate; return rate; }
+      const { rate, day } = JSON.parse(cached);
+      if (day === today) { this._rate = rate; return rate; }
     }
     try {
       const resp = await fetch("https://api.exchangerate-api.com/v4/latest/USD");
       const data = await resp.json();
       const rate = data.rates?.ILS || 3.08;
       this._rate = rate;
-      localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate, ts: Date.now() }));
+      localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate, day: today }));
       return rate;
     } catch {
       this._rate = this._rate || 3.08;
       return this._rate;
     }
   },
-  get() { return this._rate || 3.08; }
+  get() {
+    if (this._rate) return this._rate;
+    try {
+      const cached = JSON.parse(localStorage.getItem("USD_ILS_RATE"));
+      if (cached?.rate) { this._rate = cached.rate; return cached.rate; }
+    } catch {}
+    return 3.08;
+  }
 };
 
 // ═══════════════════════════════════════════════════════
