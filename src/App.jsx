@@ -859,7 +859,7 @@ function Prov({ children }) {
 
       console.log(`Loaded: ${inc.length} income, ${pending.length} pending`);
       setIncome([...fixedInc, ...pendingMarked]);
-      setLoadStep(`נטענו ${inc.length} שורות הכנסה + ${pending.length} ממתינות`);
+      setLoadStep("");
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
       try { const sets = await fetchSettlements(); console.log("Fetched settlements:", sets); setSettlements(sets); } catch (e) { console.error("Error fetching settlements:", e); }
       try { const ct = await fetchChatterTargets(); setChatterTargets(ct); } catch (e) { console.error("Error fetching chatterTargets:", e); }
@@ -4610,10 +4610,8 @@ function ClientPortal() {
       </FB>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} sub={`${txCount} עסקאות`} />
-        <Stat icon="🏢" title="דרך הסוכנות" value={fmtC(bal.through)} />
-        <Stat icon="👩" title="ישירות" value={fmtC(bal.direct)} color={C.org} />
-        <Stat icon="💵" title="זכאות (שכר צפוי)" value={fmtC(bal.ent)} color={C.pri} />
+        <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} />
+        <Stat icon="📊" title="סה״כ עסקאות" value={txCount} color={C.pri} />
       </div>
 
       {/* Monthly Targets */}
@@ -4680,16 +4678,10 @@ function ClientPortal() {
         <h3 style={{ color: C.dim, fontSize: 14, marginBottom: 12 }}>🧾 פירוט עסקאות</h3>
         <DT textSm columns={[
           { label: "תאריך", render: renderDateHour },
-          { label: "סוג הכנסה", key: "incomeType" },
-          { label: "שם קונה", render: r => r.buyerName || "—" },
-          { label: "צ'אטר", key: "chatterName" },
           { label: "פלטפורמה", key: "platform" },
-          { label: "מיקום", key: "shiftLocation" },
-          { label: "עמ׳ $", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" },
-          { label: "עמ׳ ₪", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" },
           { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
           { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> },
-        ]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(data.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome), ""]} />
+        ]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", fmtUSD(data.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome)]} />
       </Card>
     </div>
   </div>;
