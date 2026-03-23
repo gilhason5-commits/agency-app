@@ -859,7 +859,7 @@ function Prov({ children }) {
 
       console.log(`Loaded: ${inc.length} income, ${pending.length} pending`);
       setIncome([...fixedInc, ...pendingMarked]);
-      setLoadStep(`נטענו ${inc.length} שורות הכנסה + ${pending.length} ממתינות`);
+      setLoadStep("");
       try { const exp = await ExpSvc.fetchAll(); console.log("Fetched expenses:", exp); setExpenses(exp); } catch (e) { console.error(e); }
       try { const sets = await fetchSettlements(); console.log("Fetched settlements:", sets); setSettlements(sets); } catch (e) { console.error("Error fetching settlements:", e); }
       try { const ct = await fetchChatterTargets(); setChatterTargets(ct); } catch (e) { console.error("Error fetching chatterTargets:", e); }
