@@ -4610,10 +4610,8 @@ function ClientPortal() {
       </FB>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} sub={`${txCount} עסקאות`} />
-        <Stat icon="🏢" title="דרך הסוכנות" value={fmtC(bal.through)} />
-        <Stat icon="👩" title="ישירות" value={fmtC(bal.direct)} color={C.org} />
-        <Stat icon="💵" title="זכאות (שכר צפוי)" value={fmtC(bal.ent)} color={C.pri} />
+        <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} />
+        <Stat icon="📊" title="סה״כ עסקאות" value={txCount} color={C.pri} />
       </div>
 
       {/* Monthly Targets */}
