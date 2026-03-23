@@ -284,17 +284,31 @@ const ExRate = {
       const { rate, day } = JSON.parse(cached);
       if (day === today) { this._rate = rate; return rate; }
     }
-    try {
-      const resp = await fetch("https://api.exchangerate-api.com/v4/latest/USD");
-      const data = await resp.json();
-      const rate = data.rates?.ILS || 3.08;
-      this._rate = rate;
-      localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate, day: today }));
-      return rate;
-    } catch {
-      this._rate = this._rate || 3.08;
-      return this._rate;
+    // Try Bank of Israel official representative rate first
+    const sources = [
+      async () => {
+        const r = await fetch(`https://edge.boi.gov.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/EXR/1.0/RER_USD_ILS?startperiod=${today}&endperiod=${today}&format=sdmx-json`);
+        const d = await r.json();
+        return +d?.data?.dataSets?.[0]?.series?.["0:0:0:0"]?.observations?.[Object.keys(d.data.dataSets[0].series["0:0:0:0"].observations).pop()]?.[0];
+      },
+      async () => {
+        const r = await fetch("https://api.exchangerate-api.com/v4/latest/USD");
+        const d = await r.json();
+        return d.rates?.ILS;
+      },
+    ];
+    for (const src of sources) {
+      try {
+        const rate = await src();
+        if (rate && rate > 2 && rate < 6) {
+          this._rate = rate;
+          localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate, day: today }));
+          return rate;
+        }
+      } catch {}
     }
+    this._rate = this._rate || 3.14;
+    return this._rate;
   },
   get() {
     if (this._rate) return this._rate;
@@ -302,7 +316,7 @@ const ExRate = {
       const cached = JSON.parse(localStorage.getItem("USD_ILS_RATE"));
       if (cached?.rate) { this._rate = cached.rate; return cached.rate; }
     } catch {}
-    return 3.08;
+    return 3.14;
   }
 };
 
@@ -2040,7 +2054,7 @@ function EditIncomeModal({ record, onClose }) {
     if (!amount) { setErr("נא להזין סכום"); return; }
     setSaving(true); setErr("");
     try {
-      const rate = liveRate || 3.08;
+      const rate = liveRate || 3.14;
       const inputILS = currency === "ILS" ? +amount || 0 : 0;
       const inputUSD = currency === "USD" ? +amount || 0 : 0;
       const commFields = computeCommissionFields(record.platform, incomeType, inputILS, inputUSD, rate);
@@ -2162,7 +2176,7 @@ function RecordIncomeAdmin({ onClose }) {
     try {
       const typeStr = form.incomeType === "__other__" ? form.customIncomeType : form.incomeType;
 
-      const rate = liveRate || 3.08;
+      const rate = liveRate || 3.14;
       const inputILS = form.currency === "ILS" ? +form.amount || 0 : 0;
       const inputUSD = form.currency === "USD" ? +form.amount || 0 : 0;
       const commFields = computeCommissionFields(form.platform, typeStr, inputILS, inputUSD, rate);
@@ -3936,7 +3950,7 @@ function ChatterPortal({ hideHeader } = {}) {
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState("");
   const [form, setForm] = useState({
-    modelName: "", platform: "", amountILS: "", amountUSD: "", usdRate: "3.08", currency: "ILS",
+    modelName: "", platform: "", amountILS: "", amountUSD: "", usdRate: "3.14", currency: "ILS",
     date: new Date().toISOString().split("T")[0],
     hour: new Date().toTimeString().substring(0, 5),
     shiftLocation: "משרד", notes: "", incomeType: "", customIncomeType: "", buyerName: ""
@@ -4026,7 +4040,7 @@ function ChatterPortal({ hideHeader } = {}) {
     if (!form.modelName || (!form.amountILS && !form.amountUSD)) { setErr("נא למלא לקוחה וסכום"); return; }
     setSaving(true); setErr("");
 
-    const rate = +form.usdRate || 3.08;
+    const rate = +form.usdRate || 3.14;
     const inputILS = +form.amountILS || 0;
     const inputUSD = +form.amountUSD || 0;
     const finalIncomeType = form.incomeType === "__other__" ? form.customIncomeType : form.incomeType;
