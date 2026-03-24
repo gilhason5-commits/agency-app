@@ -1241,10 +1241,6 @@ function TopBar() {
       {loadStep && <span style={{ fontSize: 11, color: C.priL }}>{loadStep}</span>}
     </div>
     <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <span style={{ width: 7, height: 7, borderRadius: "50%", background: connected ? C.grn : C.red }} />
-        <span style={{ fontSize: 11, color: C.mut }}>{demo ? "הדגמה" : connected ? "מחובר ל-Sheets" : "לא מחובר"}</span>
-      </div>
       {w < 768 && <Btn variant="ghost" size="sm" onClick={logout} style={{ color: C.red, padding: 0 }}>🚪</Btn>}
     </div>
   </div>;
