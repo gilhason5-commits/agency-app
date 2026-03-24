@@ -277,25 +277,47 @@ const API = {
 const ExRate = {
   _rate: null,
   async fetchUsdIls() {
-    // Check localStorage cache (valid for 24h)
+    // Check localStorage cache (valid for current calendar day)
+    const today = new Date().toISOString().slice(0, 10);
     const cached = localStorage.getItem("USD_ILS_RATE");
     if (cached) {
-      const { rate, ts } = JSON.parse(cached);
-      if (Date.now() - ts < 24 * 60 * 60 * 1000) { this._rate = rate; return rate; }
+      const { rate, day } = JSON.parse(cached);
+      if (day === today) { this._rate = rate; return rate; }
     }
-    try {
-      const resp = await fetch("https://api.exchangerate-api.com/v4/latest/USD");
-      const data = await resp.json();
-      const rate = data.rates?.ILS || 3.08;
-      this._rate = rate;
-      localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate, ts: Date.now() }));
-      return rate;
-    } catch {
-      this._rate = this._rate || 3.08;
-      return this._rate;
+    // Try Bank of Israel official representative rate first
+    const sources = [
+      async () => {
+        const r = await fetch(`https://edge.boi.gov.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/EXR/1.0/RER_USD_ILS?startperiod=${today}&endperiod=${today}&format=sdmx-json`);
+        const d = await r.json();
+        return +d?.data?.dataSets?.[0]?.series?.["0:0:0:0"]?.observations?.[Object.keys(d.data.dataSets[0].series["0:0:0:0"].observations).pop()]?.[0];
+      },
+      async () => {
+        const r = await fetch("https://api.exchangerate-api.com/v4/latest/USD");
+        const d = await r.json();
+        return d.rates?.ILS;
+      },
+    ];
+    for (const src of sources) {
+      try {
+        const rate = await src();
+        if (rate && rate > 2 && rate < 6) {
+          this._rate = rate;
+          localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate, day: today }));
+          return rate;
+        }
+      } catch {}
     }
+    this._rate = this._rate || 3.14;
+    return this._rate;
   },
-  get() { return this._rate || 3.08; }
+  get() {
+    if (this._rate) return this._rate;
+    try {
+      const cached = JSON.parse(localStorage.getItem("USD_ILS_RATE"));
+      if (cached?.rate) { this._rate = cached.rate; return cached.rate; }
+    } catch {}
+    return 3.14;
+  }
 };
 
 // ═══════════════════════════════════════════════════════
@@ -1219,10 +1241,6 @@ function TopBar() {
       {loadStep && <span style={{ fontSize: 11, color: C.priL }}>{loadStep}</span>}
     </div>
     <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <span style={{ width: 7, height: 7, borderRadius: "50%", background: connected ? C.grn : C.red }} />
-        <span style={{ fontSize: 11, color: C.mut }}>{demo ? "הדגמה" : connected ? "מחובר ל-Sheets" : "לא מחובר"}</span>
-      </div>
       {w < 768 && <Btn variant="ghost" size="sm" onClick={logout} style={{ color: C.red, padding: 0 }}>🚪</Btn>}
     </div>
   </div>;
@@ -2032,7 +2050,7 @@ function EditIncomeModal({ record, onClose }) {
     if (!amount) { setErr("נא להזין סכום"); return; }
     setSaving(true); setErr("");
     try {
-      const rate = liveRate || 3.08;
+      const rate = liveRate || 3.14;
       const inputILS = currency === "ILS" ? +amount || 0 : 0;
       const inputUSD = currency === "USD" ? +amount || 0 : 0;
       const commFields = computeCommissionFields(record.platform, incomeType, inputILS, inputUSD, rate);
@@ -2154,7 +2172,7 @@ function RecordIncomeAdmin({ onClose }) {
     try {
       const typeStr = form.incomeType === "__other__" ? form.customIncomeType : form.incomeType;
 
-      const rate = liveRate || 3.08;
+      const rate = liveRate || 3.14;
       const inputILS = form.currency === "ILS" ? +form.amount || 0 : 0;
       const inputUSD = form.currency === "USD" ? +form.amount || 0 : 0;
       const commFields = computeCommissionFields(form.platform, typeStr, inputILS, inputUSD, rate);
@@ -2290,7 +2308,7 @@ function RecordIncomeAdmin({ onClose }) {
 // PAGE: EXPENSES
 // ═══════════════════════════════════════════════════════
 function ExpPage() {
-  const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo, rv, chatterSettings, customCats, addCustomCat, removeCustomCat, renameCustomCat } = useApp();
+  const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo, rv, chatterSettings, clientSettings, customCats, addCustomCat, removeCustomCat, renameCustomCat } = useApp();
   const allCats = customCats;
   const [showAddCat, setShowAddCat] = useState(false);
   const [newCatName, setNewCatName] = useState("");
@@ -2306,9 +2324,9 @@ function ExpPage() {
   const off = Calc.offset(view === "monthly" ? eM : eY);
   const incD = view === "monthly" ? iM : iY;
   const chNames = [...new Set(incD.map(r => r.chatterName).filter(Boolean))];
-  const chSal = chNames.map(n => { const cfg = chatterSettings[n] || {}; const s = Calc.chatterSalary(incD.filter(r => r.chatterName === n), cfg, ymi); return { name: n, ...s }; }).sort((a, b) => b.total - a.total);
+  const chSal = chNames.map(n => { const cfg = chatterSettings[n] || {}; const s = Calc.chatterSalary(incD.filter(r => r.chatterName === n), cfg, ymi); const hasVat = cfg.vatChatter ?? false; const vatAmt = s.total * 0.18; const totalWithVat = hasVat ? s.total * 1.18 : s.total; return { name: n, ...s, hasVat, vatAmt, totalWithVat }; }).sort((a, b) => b.total - a.total);
   const clNames = [...new Set(incD.map(r => r.modelName).filter(Boolean))];
-  const clSal = clNames.map(n => { const p = getRate(n, ym(year, month)); const b = Calc.clientBal(incD, n, p, [], chatterSettings); return { name: n, ...b }; }).sort((a, b) => b.totalIncome - a.totalIncome);
+  const clSal = clNames.map(n => { const p = getRate(n, ym(year, month)); const b = Calc.clientBal(incD, n, p, [], chatterSettings); const hasVat = (clientSettings[n] || {}).vatClient ?? false; const vatAmt = b.ent * 0.18; const entWithVat = hasVat ? b.ent * 1.18 : b.ent; return { name: n, ...b, hasVat, vatAmt, entWithVat }; }).sort((a, b) => b.totalIncome - a.totalIncome);
   const updCat = async (e, newCat) => { const updated = { ...e, classification: newCat }; setExpenses(prev => prev.map(x => x.id === e.id ? updated : x)); try { await ExpSvc.edit(updated); } catch (err) { console.error(err); } };
   const updField = async (e, field, val) => { const updated = { ...e, [field]: val }; setExpenses(prev => prev.map(x => x.id === e.id ? updated : x)); try { await ExpSvc.edit(updated); } catch (err) { console.error(err); } };
   const handleDelete = async (e) => { if (demo) { setExpenses(expenses.filter(x => x.id !== e.id)); setDelExp(null); setPopCat(null); return; } try { await ExpSvc.remove(e); setExpenses(expenses.filter(x => x.id !== e.id)); setDelExp(null); setPopCat(null); } catch (err) { alert(err.message); } };
@@ -2365,8 +2383,8 @@ function ExpPage() {
       {view === "monthly" ? <>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 16 }}>
           {(() => {
-            const chTotal = chSal.reduce((s, c) => s + c.total, 0);
-            const clTotal = clSal.reduce((s, c) => s + c.ent, 0);
+            const chTotal = chSal.reduce((s, c) => s + c.totalWithVat, 0);
+            const clTotal = clSal.reduce((s, c) => s + c.entWithVat, 0);
             const grandTotal = total + chTotal + clTotal;
             return <Card style={{ flex: 1, minWidth: 200, padding: "14px 18px" }}>
               <div style={{ color: C.dim, fontSize: 12, marginBottom: 4 }}>💳 סה״כ הוצאות — {MONTHS_HE[month]}</div>
@@ -2436,8 +2454,8 @@ function ExpPage() {
           </div>}
         </Card>
       </div>
-      <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>👥 שכר צ'אטרים</h3><DT columns={[{ label: "צ'אטר", key: "name" }, { label: "סוג שכר", render: r => SALARY_TYPE_LABELS[r.salaryType] || "מכירות" }, { label: "משרד", render: r => `${fmtC(r.oSal)} (${r.officePct ?? 17}%)` }, { label: "חוץ", render: r => `${fmtC(r.rSal)} (${r.fieldPct ?? 15}%)` }, { label: "שעתי", render: r => r.salaryType !== "sales" ? fmtC(r.hourlySalary) : "—" }, { label: "סה״כ", render: r => <strong style={{ color: C.pri }}>{fmtC(r.total)}</strong> }]} rows={chSal} footer={["סה״כ", "", "", "", "", fmtC(chSal.reduce((s, c) => s + c.total, 0))]} /></div>
-      <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>👩 שכר לקוחות</h3><DT columns={[{ label: "לקוחה", key: "name" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "%", render: r => `${r.pct}%` }, { label: "זכאות", render: r => fmtC(r.ent) }, { label: "נכנס אליה", render: r => fmtC(r.direct) }, { label: "יתרה", render: r => <span style={{ color: r.bal >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.bal)}</span> }]} rows={clSal} footer={["סה״כ", "", "", fmtC(clSal.reduce((s, c) => s + c.ent, 0)), "", ""]} /></div>
+      <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>👥 שכר צ'אטרים</h3><DT columns={[{ label: "צ'אטר", key: "name" }, { label: "סוג שכר", render: r => SALARY_TYPE_LABELS[r.salaryType] || "מכירות" }, { label: "משרד", render: r => `${fmtC(r.oSal)} (${r.officePct ?? 17}%)` }, { label: "חוץ", render: r => `${fmtC(r.rSal)} (${r.fieldPct ?? 15}%)` }, { label: "שעתי", render: r => r.salaryType !== "sales" ? fmtC(r.hourlySalary) : "—" }, { label: "סה״כ", render: r => r.hasVat ? <div><div style={{ fontSize: 11, color: C.dim }}>שכר: {fmtC(r.total)}</div><div style={{ fontSize: 11, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div><strong style={{ color: C.pri }}>{fmtC(r.totalWithVat)}</strong></div> : <strong style={{ color: C.pri }}>{fmtC(r.total)}</strong> }]} rows={chSal} footer={["סה״כ", "", "", "", "", fmtC(chSal.reduce((s, c) => s + c.totalWithVat, 0))]} /></div>
+      <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>👩 שכר לקוחות</h3><DT columns={[{ label: "לקוחה", key: "name" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "%", render: r => `${r.pct}%` }, { label: "זכאות", render: r => r.hasVat ? <div><div style={{ fontSize: 11, color: C.dim }}>שכר: {fmtC(r.ent)}</div><div style={{ fontSize: 11, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div><strong style={{ color: C.pri }}>{fmtC(r.entWithVat)}</strong></div> : fmtC(r.ent) }, { label: "נכנס אליה", render: r => fmtC(r.direct) }, { label: "יתרה", render: r => <span style={{ color: r.bal >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.bal)}</span> }]} rows={clSal} footer={["סה״כ", "", "", fmtC(clSal.reduce((s, c) => s + c.entWithVat, 0)), "", ""]} /></div>
     </>}
   </div>;
 }
@@ -3928,7 +3946,7 @@ function ChatterPortal({ hideHeader } = {}) {
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState("");
   const [form, setForm] = useState({
-    modelName: "", platform: "", amountILS: "", amountUSD: "", usdRate: "3.08", currency: "ILS",
+    modelName: "", platform: "", amountILS: "", amountUSD: "", usdRate: "3.14", currency: "ILS",
     date: new Date().toISOString().split("T")[0],
     hour: new Date().toTimeString().substring(0, 5),
     shiftLocation: "משרד", notes: "", incomeType: "", customIncomeType: "", buyerName: ""
@@ -4018,7 +4036,7 @@ function ChatterPortal({ hideHeader } = {}) {
     if (!form.modelName || (!form.amountILS && !form.amountUSD)) { setErr("נא למלא לקוחה וסכום"); return; }
     setSaving(true); setErr("");
 
-    const rate = +form.usdRate || 3.08;
+    const rate = +form.usdRate || 3.14;
     const inputILS = +form.amountILS || 0;
     const inputUSD = +form.amountUSD || 0;
     const finalIncomeType = form.incomeType === "__other__" ? form.customIncomeType : form.incomeType;
