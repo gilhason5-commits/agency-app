@@ -3267,10 +3267,23 @@ function TgtPage() {
               {e.prevInc > 0 && <> | חודש קודם: <strong>{fmtC(e.prevInc)}</strong></>}
               {custom && <span style={{ color: C.ylw, marginRight: 4 }}> ✎ יעד ידני</span>}
             </div>
+            <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+              {[{ label: "+5%", val: t1, hit: hit1 }, { label: "+10%", val: t2, hit: hit2 }, { label: "+15%", val: t3, hit: hit3 }].map(t => (
+                <div key={t.label} style={{
+                  flex: 1, textAlign: "center", padding: "3px 2px", borderRadius: 6, fontSize: 10,
+                  background: e.daily >= (t.val / e.days) ? `${C.grn}22` : `${C.bg}`,
+                  color: e.daily >= (t.val / e.days) ? C.grn : C.dim,
+                  border: `1px solid ${e.daily >= (t.val / e.days) ? `${C.grn}44` : C.bdr}`
+                }}>
+                  <div style={{ fontWeight: 700 }}>{t.label}</div>
+                  <div style={{ fontSize: 9 }}>{fmtC(t.val / e.days)}/יום</div>
+                </div>
+              ))}
+            </div>
             <div style={{ display: "flex", gap: 4 }}>
               {[{ label: "+5%", val: t1, hit: hit1 }, { label: "+10%", val: t2, hit: hit2 }, { label: "+15%", val: t3, hit: hit3 }].map(t => (
                 <div key={t.label} style={{
-                  flex: 1, textAlign: "center", padding: "4px 2px", borderRadius: 6, fontSize: 10,
+                  flex: 1, textAlign: "center", padding: "3px 2px", borderRadius: 6, fontSize: 10,
                   background: t.hit ? `${C.grn}22` : `${C.bg}`,
                   color: t.hit ? C.grn : C.dim,
                   border: `1px solid ${t.hit ? `${C.grn}44` : C.bdr}`
