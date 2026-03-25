@@ -527,6 +527,20 @@ export async function saveCommissionSettings(commissions) {
 }
 
 // ═══════════════════════════════════════════════════════
+// AGENCY SETTINGS API (all shared config synced via Firebase)
+// ═══════════════════════════════════════════════════════
+export async function fetchAgencySettings() {
+    try {
+        const snap = await getDoc(doc(db, "config", "agencySettings"));
+        return snap.exists() ? snap.data() : {};
+    } catch { return {}; }
+}
+
+export async function saveAgencySettings(settings) {
+    await setDoc(doc(db, "config", "agencySettings"), settings, { merge: true });
+}
+
+// ═══════════════════════════════════════════════════════
 // FIXED EXPENSES API
 // ═══════════════════════════════════════════════════════
 export async function fetchFixedExpenses() {

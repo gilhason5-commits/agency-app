@@ -13,7 +13,8 @@ import {
   fetchFixedExpenses, addFixedExpense, updateFixedExpense, removeFixedExpense,
   fetchEmployees, addEmployee, removeEmployee,
   forceLogoutAll, getForceLogoutAt,
-  fetchCommissionSettings, saveCommissionSettings
+  fetchCommissionSettings, saveCommissionSettings,
+  fetchAgencySettings, saveAgencySettings
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -836,9 +837,11 @@ function setRate(n, ymi, p) {
 async function loadRatesFromFirebase() {
   try {
     const data = await fetchClientRates();
+    // Firebase is source of truth — overwrite local rates
+    Object.keys(_rates).forEach(k => delete _rates[k]);
     Object.entries(data).forEach(([name, months]) => {
+      _rates[name] = {};
       Object.entries(months).forEach(([ymi, pct]) => {
-        if (!_rates[name]) _rates[name] = {};
         _rates[name][ymi] = pct;
       });
     });
@@ -902,6 +905,15 @@ function Prov({ children }) {
       try { const cs = await fetchAllChatterSettings(); setChatterSettings(cs); } catch (e) { console.error("Error fetching chatterSettings:", e); }
       try { const cls = await fetchAllClientSettings(); setClientSettings(cls); } catch (e) { console.error("Error fetching clientSettings:", e); }
       try { const fbComm = await fetchCommissionSettings(); _syncCommissionsFromFirebase(fbComm); setRv(v => v + 1); } catch (e) { console.error("Error fetching commissions:", e); }
+      try {
+        const ag = await fetchAgencySettings();
+        if (ag.customCats?.length) { setCustomCats(ag.customCats); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(ag.customCats)); } catch {} }
+        if (ag.lmVals) { try { localStorage.setItem("LM_DB", JSON.stringify(ag.lmVals)); } catch {} }
+        if (ag.customIncomeTypes?.length) { try { localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(ag.customIncomeTypes)); } catch {} }
+        if (ag.tierThresholds) { try { localStorage.setItem("AGENCY_TIER_THRESHOLDS", JSON.stringify(ag.tierThresholds)); } catch {} }
+        if (ag.bizType) { try { localStorage.setItem("AGENCY_BIZ_TYPE", ag.bizType); } catch {} }
+        if (ag.manualNI != null) { try { localStorage.setItem("AGENCY_MANUAL_NI", String(ag.manualNI)); } catch {} }
+      } catch (e) { console.error("Error fetching agencySettings:", e); }
       try { const u = await UserSvc.fetchAll(); setSheetUsers(u); } catch (e) { console.error("Error fetching users:", e); }
       setConnected(true);
       setTimeout(() => setLoadStep(""), 3000);
@@ -1037,9 +1049,10 @@ function Prov({ children }) {
   }, []);
 
   const [customCats, setCustomCats] = useState(() => { try { const saved = localStorage.getItem("ALL_CATS_V2"); if (saved !== null) return JSON.parse(saved); const oldCustom = JSON.parse(localStorage.getItem("CUSTOM_CATS") || "[]"); const merged = [...EXPENSE_CATEGORIES]; oldCustom.forEach(c => { if (!merged.includes(c)) merged.push(c); }); return merged; } catch { return [...EXPENSE_CATEGORIES]; } });
-  const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {} return true; };
-  const removeCustomCat = (name) => { const updated = customCats.filter(c => c !== name); setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {}; };
-  const renameCustomCat = (oldName, newName) => { const n = newName.trim(); if (!n || n === oldName || customCats.includes(n)) return false; const updated = customCats.map(c => c === oldName ? n : c); setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {} return true; };
+  const _syncCatsToFB = (cats) => { try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(cats)); } catch {} saveAgencySettings({ customCats: cats }).catch(() => {}); };
+  const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); _syncCatsToFB(updated); return true; };
+  const removeCustomCat = (name) => { const updated = customCats.filter(c => c !== name); setCustomCats(updated); _syncCatsToFB(updated); };
+  const renameCustomCat = (oldName, newName) => { const n = newName.trim(); if (!n || n === oldName || customCats.includes(n)) return false; const updated = customCats.map(c => c === oldName ? n : c); setCustomCats(updated); _syncCatsToFB(updated); return true; };
 
   const val = useMemo(() => ({
     year, setYear, month, setMonth, view, setView, dateRange, setDateRange, page, setPage,
@@ -1410,7 +1423,7 @@ function DashPage() {
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const [lmVals, setLmVals] = useState(() => { try { return JSON.parse(localStorage.getItem("LM_DB") || "{}"); } catch { return {}; } });
-  const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} };
+  const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} saveAgencySettings({ lmVals: updated }).catch(() => {}); };
   const [bizType, setBizType] = useState(() => localStorage.getItem("AGENCY_BIZ_TYPE") || "עוסק");
   const [manualNI, setManualNI] = useState(() => +localStorage.getItem("AGENCY_MANUAL_NI") || 0);
   const _dashOpenMonth = useState(null);
@@ -1638,8 +1651,8 @@ function DashPage() {
       {/* Business type toggle + ל.מ */}
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 0, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.bdr}` }}>
-          <button onClick={() => { setBizType("עוסק"); localStorage.setItem("AGENCY_BIZ_TYPE", "עוסק"); }} style={{ padding: "7px 16px", background: bizType === "עוסק" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "עוסק" ? 700 : 400 }}>עוסק מורשה</button>
-          <button onClick={() => { setBizType("חברה"); localStorage.setItem("AGENCY_BIZ_TYPE", "חברה"); }} style={{ padding: "7px 16px", background: bizType === "חברה" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "חברה" ? 700 : 400 }}>חברה</button>
+          <button onClick={() => { setBizType("עוסק"); localStorage.setItem("AGENCY_BIZ_TYPE", "עוסק"); saveAgencySettings({ bizType: "עוסק" }).catch(() => {}); }} style={{ padding: "7px 16px", background: bizType === "עוסק" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "עוסק" ? 700 : 400 }}>עוסק מורשה</button>
+          <button onClick={() => { setBizType("חברה"); localStorage.setItem("AGENCY_BIZ_TYPE", "חברה"); saveAgencySettings({ bizType: "חברה" }).catch(() => {}); }} style={{ padding: "7px 16px", background: bizType === "חברה" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "חברה" ? 700 : 400 }}>חברה</button>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <label style={{ color: C.dim, fontSize: 12 }}>ל.מ (ניכויים) ₪</label>
@@ -1647,7 +1660,7 @@ function DashPage() {
         </div>
         {employees.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <label style={{ color: C.dim, fontSize: 12 }}>ב.ל נוסף (שכירים) ₪</label>
-          <input type="number" value={manualNI || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setManualNI(v); localStorage.setItem("AGENCY_MANUAL_NI", v); }} style={{ width: 100, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
+          <input type="number" value={manualNI || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setManualNI(v); localStorage.setItem("AGENCY_MANUAL_NI", v); saveAgencySettings({ manualNI: v }).catch(() => {}); }} style={{ width: 100, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
         </div>}
       </div>
 
@@ -1846,6 +1859,7 @@ function TierCubes({ income }) {
     const next = { ...thresholds, [key]: v };
     setThresholds(next);
     localStorage.setItem("AGENCY_TIER_THRESHOLDS", JSON.stringify(next));
+    saveAgencySettings({ tierThresholds: next }).catch(() => {});
   };
 
   const chatterTotals = useMemo(() => {
@@ -2050,6 +2064,7 @@ function IncomeTypesModal({ onClose }) {
         setCustomTypes(prev => {
           const updated = prev.map(t => t === oldName ? newName : t);
           localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
+          saveAgencySettings({ customIncomeTypes: updated }).catch(() => {});
           return updated;
         });
       }
@@ -2075,6 +2090,7 @@ function IncomeTypesModal({ onClose }) {
       setCustomTypes(prev => {
         const updated = prev.filter(t => t !== type);
         localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
+        saveAgencySettings({ customIncomeTypes: updated }).catch(() => {});
         return updated;
       });
     } catch (e) { alert("שגיאה: " + e.message); }
@@ -2090,6 +2106,7 @@ function IncomeTypesModal({ onClose }) {
     setCustomTypes(prev => {
       const updated = [...prev, name];
       localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
+      saveAgencySettings({ customIncomeTypes: updated }).catch(() => {});
       return updated;
     });
     setNewType(""); setNewComm("");
