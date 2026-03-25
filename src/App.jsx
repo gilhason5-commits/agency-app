@@ -1431,8 +1431,8 @@ function DashPage() {
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
-  const moneyThroughAgency = activeI.filter(r => !r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
-  const moneyThroughAgencyCount = activeI.filter(r => !r.paidToClient).length;
+  const moneyThroughAgency = activeI.filter(r => !r.cancelled && (!r.paymentTarget || r.paymentTarget === "agency")).reduce((s, r) => s + r.amountILS, 0);
+  const moneyThroughAgencyCount = activeI.filter(r => !r.cancelled && (!r.paymentTarget || r.paymentTarget === "agency")).length;
   const ymi = ym(year, month);
   const totalChatterSalary = useMemo(() => {
     const names = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
@@ -1600,7 +1600,7 @@ function DashPage() {
       const [openMonth, setOpenMonth] = _dashOpenMonth;
       const isYearly = view === "yearly";
       return <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
-        {mbd.filter((_, i) => i <= month).map(d => {
+        {mbd.filter((_, i) => isYearly ? i <= month : i === month).map(d => {
           const isCurrent = d.idx === month;
           const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
           const currentDaily = d.inc / daysPassed;
@@ -1708,13 +1708,47 @@ function DashPage() {
         {fixedMonthly > 0 && <div style={{ color: C.dim, fontSize: 11, marginTop: 4 }}>הוצאות קבועות: {fmtC(fixedMonthly)} | שכירים: {fmtC(empMonthly)}</div>}
       </Card>}
     </div> : <>
+      {/* Row 1: Sales breakdown → agency income */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-        <Stat icon="💰" title={`צפי מכירות — ${year}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iY.length} עסקאות`} />
-        <Stat icon="💳" title="הוצאות" value={fmtC(mp.exp)} color={C.red} />
-        <Stat icon="👑" title="צפי זכאות לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
-        <Stat icon="💬" title="צפי שכר צ'אטים" value={fmtC(totalChatterSalary)} color={C.ylw} />
-        <Stat icon="📈" title="צפי רווח לפני מס" value={fmtC(netProfit)} color={netProfit >= 0 ? C.grn : C.red} />
+        <Stat icon="💰" title={`מכירות — ${year}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iY.length} עסקאות`} />
+        <Stat icon="👑" title="זכאות לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
+        <Stat icon="💬" title="שכר צ'אטרים" value={fmtC(totalChatterSalary)} color={C.ylw} />
+        <Stat icon="📥" title="צפי הכנסה שלי" value={fmtC(agencyIncome)} color={agencyIncome >= 0 ? C.grn : C.red} sub="אחרי זכאות לקוחות" />
       </div>
+
+      {/* Row 2: Expenses → gross profit */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+        <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
+        {nonDeductible > 0 && <Stat icon="🚫" title="הוצאות לא מוכרות" value={fmtC(nonDeductible)} color={C.red} sub="מוסיף לבסיס החייב במס" />}
+        <Stat icon="🔄" title="כסף שעבר דרכנו" value={fmtC(moneyThroughAgency)} color={C.pri} sub={`${moneyThroughAgencyCount} עסקאות עברו דרכנו`} />
+        <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
+      </div>
+
+      {/* Row 3: Tax / VAT / NI */}
+      <Card style={{ marginBottom: 12, background: `${C.red}08`, border: `1px solid ${C.red}30` }}>
+        <div style={{ color: C.ylw, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>🧾 מסים ותשלומים חובה</div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <Stat icon="📋" title="מע״מ (18%)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatBase)}`} />
+          <Stat icon="🏛️" title={`מס הכנסה${bizType === "חברה" ? " (23%)" : " (מדרגות)"}`} value={<span>{taxableIncome > 0 && <span style={{ display: "block", fontSize: 11, color: C.mut, fontWeight: 400, marginBottom: 2 }}>{effectiveTaxRate.toFixed(1)}% מהבסיס החייב</span>}{fmtC(incomeTax)}</span>} color={C.ylw} sub={`בסיס: ${fmtC(Math.max(0, taxableIncome))}`} />
+          <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + ידני" : "ידני"} />
+          <Stat icon="💸" title="סה״כ מסים" value={fmtC(vat + incomeTax + niTotal)} color={C.red} sub="מע״מ + מס + ב.ל" />
+        </div>
+      </Card>
+
+      {/* Row 4: Net profit + cash to bank + payment gaps */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+        <Stat icon="💚" title="רווח נטו" value={fmtC(netProfitFull)} color={netProfitFull >= 0 ? C.grn : C.red} sub="אחרי כל הניכויים" />
+        <Stat icon="🏦" title="כסף לבנק" value={fmtC(cashToBank)} color={cashToBank >= 0 ? C.grn : C.red} sub="רווח נטו פחות ל.מ" />
+        <Stat icon={paymentGap > 0 ? "🔴" : paymentGap < 0 ? "🟢" : "⚪"} title="פערי תשלומים" value={fmtC(Math.abs(paymentGap))} color={paymentGap > 0 ? C.red : paymentGap < 0 ? C.grn : C.mut} sub={paymentGap > 0 ? "אנחנו חייבים" : paymentGap < 0 ? "חייבים לנו" : "מאוזן"} />
+      </div>
+
+      {/* Burn rate */}
+      {burnRate > 0 && <Card style={{ marginBottom: 16, background: `${C.red}10`, border: `2px solid ${C.red}40`, textAlign: "center" }}>
+        <div style={{ color: C.red, fontSize: 13, fontWeight: 600, marginBottom: 4 }}>🔥 שריפה חודשית</div>
+        <div style={{ fontSize: 36, fontWeight: 800, color: C.red }}>{fmtC(burnRate)}</div>
+        <div style={{ color: C.mut, fontSize: 12, marginTop: 6 }}>עלות ההחזקה של העסק ללא הכנסות</div>
+        {fixedMonthly > 0 && <div style={{ color: C.dim, fontSize: 11, marginTop: 4 }}>הוצאות קבועות: {fmtC(fixedMonthly)} | שכירים: {fmtC(empMonthly)}</div>}
+      </Card>}
       {(() => {
         const mergedData = mbd.map((d, i) => {
           const commMonth = commData.months[i] || {};
@@ -5293,8 +5327,8 @@ function DebtsPage() {
             {
               label: 'חוב מסכם לתשלום',
               render: r => {
-                const bg = r.finalDue < 1 ? 'transparent' : (r.actualDue > 0 ? `${C.grn}15` : `${C.red}15`);
-                const col = r.finalDue < 1 ? C.mut : (r.actualDue > 0 ? C.grn : C.red);
+                const bg = r.finalDue < 1 ? 'transparent' : (r.actualDue > 0 ? `${C.red}15` : `${C.grn}15`);
+                const col = r.finalDue < 1 ? C.mut : (r.actualDue > 0 ? C.red : C.grn);
                 const txt = r.finalDue < 1 ? 'מאוזן' : (r.actualDue > 0 ? 'אנחנו צריכים לשלם לה' : 'היא צריכה להעביר לנו');
                 return <div style={{ background: bg, color: col, padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 13 }}>
                   {r.hasVat && r.finalDue >= 1 ? <>
