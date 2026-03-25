@@ -3121,7 +3121,20 @@ function ClientsOverviewPage({ onSelectClient }) {
         { label: "זכאות לקוחה", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.entitlement)}</span> },
         { label: "שולם ישירות ללקוחה", render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
         { label: "שולם ישירות אלינו", render: r => <span style={{ color: C.dim }}>{fmtC(r.through)}</span> },
-        { label: "יתרה", render: r => <div><span style={{ color: r.balance >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(Math.abs(r.balance))}</span><div style={{ fontSize: 10, color: r.balance >= 0 ? C.grn : C.red }}>{r.balance >= 0 ? "חייבים ללקוחה" : "לקוחה חייבת"}</div></div> },
+        { label: "יתרה", render: r => {
+          const abs = Math.abs(r.balance);
+          const vatAmt = abs * 0.18;
+          const final = abs * (r.hasVat ? 1.18 : 1);
+          const col = abs < 1 ? C.mut : (r.balance >= 0 ? C.red : C.grn);
+          const txt = abs < 1 ? "מאוזן" : (r.balance >= 0 ? "אנחנו צריכים לשלם לה" : "היא צריכה להעביר לנו");
+          if (r.hasVat && abs >= 1) return <div style={{ color: col, fontWeight: 700 }}>
+            <div style={{ fontSize: 10, color: C.dim }}>זכאות: {fmtC(abs)}</div>
+            <div style={{ fontSize: 10, color: C.ylw }}>מע״מ 18%: {fmtC(vatAmt)}</div>
+            <div style={{ fontSize: 16 }}>{fmtC(final)}</div>
+            <div style={{ fontSize: 9 }}>{txt} (כולל מע״מ)</div>
+          </div>;
+          return <div style={{ color: col, fontWeight: 700 }}><div style={{ fontSize: 16 }}>{fmtC(final)}</div><div style={{ fontSize: 9 }}>{txt}</div></div>;
+        }},
         { label: "", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>פרטים ←</button> }
       ]} rows={clientStats} footer={["סה״כ", fmtC(totalIncome), "", "", fmtC(totalAgencyShare), fmtC(totalEntitlement), "", fmtC(totalThrough), "", ""]} />
     </Card>
