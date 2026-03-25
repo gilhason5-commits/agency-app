@@ -1582,11 +1582,16 @@ function DashPage() {
         const isCurrent = d.idx === month;
         const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
         const currentDaily = d.inc / daysPassed;
-        const hit = currentDaily >= (d.tgt1 / d.days);
-        return <Card key={d.idx} style={{ minWidth: 100, textAlign: "center", borderColor: hit ? `${C.grn}44` : `${C.red}44`, padding: "8px 10px", background: isCurrent ? `${C.pri}11` : C.card }}>
+        const dailyTarget = d.tgt1 / d.days;
+        const hit = currentDaily >= dailyTarget;
+        const projection = isCurrent ? currentDaily * d.days : d.inc;
+        return <Card key={d.idx} style={{ minWidth: 120, textAlign: "center", borderColor: hit ? `${C.grn}44` : `${C.red}44`, padding: "8px 10px", background: isCurrent ? `${C.pri}11` : C.card }}>
           <div style={{ fontSize: 10, color: C.dim, marginBottom: 2 }}>{d.ms}{isCurrent ? " (נוכחי)" : ""}</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: hit ? C.grn : C.red }}>{fmtC(currentDaily)} <span style={{ fontSize: 10, fontWeight: 400, color: C.mut }}>/יום</span></div>
-          <div style={{ fontSize: 10, color: C.mut, marginTop: 4 }}>יעד 1: {fmtC(d.tgt1)}</div>
+          <div style={{ fontSize: 10, color: C.ylw, marginTop: 3 }}>יעד יומי: {fmtC(dailyTarget)}</div>
+          <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>סה״כ: {fmtC(d.inc)}</div>
+          <div style={{ fontSize: 10, color: C.mut, marginTop: 1 }}>יעד חודשי: {fmtC(d.tgt1)}</div>
+          {isCurrent && <div style={{ fontSize: 10, color: C.pri, marginTop: 2 }}>צפי: {fmtC(projection)}</div>}
         </Card>;
       })}
     </div>
