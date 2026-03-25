@@ -1433,6 +1433,8 @@ function DashPage() {
   const mp = Calc.profit(activeI, activeE);
   const moneyThroughAgency = activeI.filter(r => !r.cancelled && (!r.paymentTarget || r.paymentTarget === "agency")).reduce((s, r) => s + r.amountILS, 0);
   const moneyThroughAgencyCount = activeI.filter(r => !r.cancelled && (!r.paymentTarget || r.paymentTarget === "agency")).length;
+  const moneyThroughChatter = activeI.filter(r => !r.cancelled && r.paymentTarget === "chatter").reduce((s, r) => s + r.amountILS, 0);
+  const moneyThroughChatterCount = activeI.filter(r => !r.cancelled && r.paymentTarget === "chatter").length;
   const ymi = ym(year, month);
   const totalChatterSalary = useMemo(() => {
     const names = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
@@ -1692,6 +1694,7 @@ function DashPage() {
         <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
         {nonDeductible > 0 && <Stat icon="🚫" title="הוצאות לא מוכרות" value={fmtC(nonDeductible)} color={C.red} sub="מוסיף לבסיס החייב במס" />}
         <Stat icon="🔄" title="כסף שעבר דרכנו" value={fmtC(moneyThroughAgency)} color={C.pri} sub={`${moneyThroughAgencyCount} עסקאות עברו דרכנו`} />
+        <Stat icon="👥" title="כסף עבר דרך צ'אטרים" value={fmtC(moneyThroughChatter)} color={C.org} sub={`${moneyThroughChatterCount} עסקאות שולמו לצ'אטר`} />
         <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
       </div>
 
@@ -1735,6 +1738,7 @@ function DashPage() {
         <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
         {nonDeductible > 0 && <Stat icon="🚫" title="הוצאות לא מוכרות" value={fmtC(nonDeductible)} color={C.red} sub="מוסיף לבסיס החייב במס" />}
         <Stat icon="🔄" title="כסף שעבר דרכנו" value={fmtC(moneyThroughAgency)} color={C.pri} sub={`${moneyThroughAgencyCount} עסקאות עברו דרכנו`} />
+        <Stat icon="👥" title="כסף עבר דרך צ'אטרים" value={fmtC(moneyThroughChatter)} color={C.org} sub={`${moneyThroughChatterCount} עסקאות שולמו לצ'אטר`} />
         <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
       </div>
 
