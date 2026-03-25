@@ -1475,7 +1475,7 @@ function DashPage() {
   const cashToBank = netProfitFull - lmCurr;
   // ────────────────────────────────────────────────────────────────
 
-  const paymentGap = useMemo(() => {
+  const paymentGaps = useMemo(() => {
     const isMonthly = view === "monthly";
     const filterDate = s => {
       const d = new Date(s.timestamp || s.date || Date.now());
@@ -1484,16 +1484,21 @@ function DashPage() {
     const periodSets = settlements.filter(filterDate);
     // Client gaps (with VAT)
     const clientNames = [...new Set(activeI.map(r => r.modelName).filter(Boolean))];
-    const clientGap = clientNames.reduce((sum, n) => {
+    let weOweClients = 0, clientsOweUs = 0, weOweClientsVat = 0, clientsOweUsVat = 0;
+    clientNames.forEach(n => {
       const pct = getRate(n, ymi);
       const bal = Calc.clientBal(activeI, n, pct, periodSets.filter(s => s.entityType !== "chatter"), chatterSettings);
       const hasVat = (clientSettings[n] || {}).vatClient ?? false;
-      return sum + bal.actualDue;
-    }, 0);
-    // Chatter gaps (without VAT, to match debts page totals)
+      const abs = Math.abs(bal.actualDue);
+      const vatAmt = hasVat ? abs * 0.18 : 0;
+      if (bal.actualDue > 0) { weOweClients += abs; weOweClientsVat += vatAmt; }
+      else if (bal.actualDue < 0) { clientsOweUs += abs; clientsOweUsVat += vatAmt; }
+    });
+    // Chatter gaps (with VAT)
     const chatterNames = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
     const chatterSets = periodSets.filter(s => s.entityType === "chatter");
-    const chatterGap = chatterNames.reduce((sum, name) => {
+    let weOweChatters = 0, chattersOweUs = 0, weOweChattersVat = 0, chattersOweUsVat = 0;
+    chatterNames.forEach(name => {
       const rows = activeI.filter(r => r.chatterName === name);
       const cfg = chatterSettings[name] || {};
       const sal = Calc.chatterSalary(rows, cfg, ymi).total;
@@ -1504,10 +1509,17 @@ function DashPage() {
         if (s.direction === "ChatterToAgency") netSettled -= s.amount;
       });
       const balance = sal - paidDirect - netSettled;
-      return sum + balance;
-    }, 0);
-    return clientGap + chatterGap;
-  }, [activeI, settlements, chatterSettings, ymi, view, month, year]);
+      const hasVat = cfg.vatChatter ?? false;
+      const abs = Math.abs(balance);
+      const vatAmt = hasVat ? abs * 0.18 : 0;
+      if (balance > 0) { weOweChatters += abs; weOweChattersVat += vatAmt; }
+      else if (balance < 0) { chattersOweUs += abs; chattersOweUsVat += vatAmt; }
+    });
+    const totalWeOwe = weOweClients + weOweClientsVat + weOweChatters + weOweChattersVat;
+    const totalTheyOwe = clientsOweUs + clientsOweUsVat + chattersOweUs + chattersOweUsVat;
+    return { weOweClients, clientsOweUs, weOweChatters, chattersOweUs, weOweClientsVat, clientsOweUsVat, weOweChattersVat, chattersOweUsVat, totalWeOwe, totalTheyOwe, net: totalWeOwe - totalTheyOwe };
+  }, [activeI, settlements, chatterSettings, clientSettings, ymi, view, month, year]);
+  const paymentGap = paymentGaps.net;
 
   const actualProfit = netProfit + paymentGap;
 
@@ -1697,7 +1709,8 @@ function DashPage() {
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <Stat icon="💚" title="רווח נטו" value={fmtC(netProfitFull)} color={netProfitFull >= 0 ? C.grn : C.red} sub="אחרי כל הניכויים" />
         <Stat icon="🏦" title="כסף לבנק" value={fmtC(cashToBank)} color={cashToBank >= 0 ? C.grn : C.red} sub="רווח נטו פחות ל.מ" />
-        <Stat icon={paymentGap > 0 ? "🔴" : paymentGap < 0 ? "🟢" : "⚪"} title="פערי תשלומים" value={fmtC(Math.abs(paymentGap))} color={paymentGap > 0 ? C.red : paymentGap < 0 ? C.grn : C.mut} sub={paymentGap > 0 ? "אנחנו חייבים" : paymentGap < 0 ? "חייבים לנו" : "מאוזן"} />
+        <Stat icon="🔴" title="אני חייב להעביר" value={fmtC(paymentGaps.totalWeOwe)} color={C.red} sub={paymentGaps.weOweClientsVat + paymentGaps.weOweChattersVat > 0 ? `כולל מע״מ ${fmtC(paymentGaps.weOweClientsVat + paymentGaps.weOweChattersVat)}` : ""} />
+        <Stat icon="🟢" title="חייבים לי" value={fmtC(paymentGaps.totalTheyOwe)} color={C.grn} sub={paymentGaps.clientsOweUsVat + paymentGaps.chattersOweUsVat > 0 ? `כולל מע״מ ${fmtC(paymentGaps.clientsOweUsVat + paymentGaps.chattersOweUsVat)}` : ""} />
       </div>
 
       {/* Burn rate */}
@@ -1739,7 +1752,8 @@ function DashPage() {
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <Stat icon="💚" title="רווח נטו" value={fmtC(netProfitFull)} color={netProfitFull >= 0 ? C.grn : C.red} sub="אחרי כל הניכויים" />
         <Stat icon="🏦" title="כסף לבנק" value={fmtC(cashToBank)} color={cashToBank >= 0 ? C.grn : C.red} sub="רווח נטו פחות ל.מ" />
-        <Stat icon={paymentGap > 0 ? "🔴" : paymentGap < 0 ? "🟢" : "⚪"} title="פערי תשלומים" value={fmtC(Math.abs(paymentGap))} color={paymentGap > 0 ? C.red : paymentGap < 0 ? C.grn : C.mut} sub={paymentGap > 0 ? "אנחנו חייבים" : paymentGap < 0 ? "חייבים לנו" : "מאוזן"} />
+        <Stat icon="🔴" title="אני חייב להעביר" value={fmtC(paymentGaps.totalWeOwe)} color={C.red} sub={paymentGaps.weOweClientsVat + paymentGaps.weOweChattersVat > 0 ? `כולל מע״מ ${fmtC(paymentGaps.weOweClientsVat + paymentGaps.weOweChattersVat)}` : ""} />
+        <Stat icon="🟢" title="חייבים לי" value={fmtC(paymentGaps.totalTheyOwe)} color={C.grn} sub={paymentGaps.clientsOweUsVat + paymentGaps.chattersOweUsVat > 0 ? `כולל מע״מ ${fmtC(paymentGaps.clientsOweUsVat + paymentGaps.chattersOweUsVat)}` : ""} />
       </div>
 
       {/* Burn rate */}
