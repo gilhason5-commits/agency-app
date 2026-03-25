@@ -13,7 +13,8 @@ import {
   fetchFixedExpenses, addFixedExpense, updateFixedExpense, removeFixedExpense,
   fetchEmployees, addEmployee, removeEmployee,
   forceLogoutAll, getForceLogoutAt,
-  fetchCommissionSettings, saveCommissionSettings
+  fetchCommissionSettings, saveCommissionSettings,
+  fetchAgencySettings, saveAgencySettings
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -298,6 +299,15 @@ const ExRate = {
       const { rate, day } = JSON.parse(cached);
       if (day === today) { this._rate = rate; return rate; }
     }
+    // Try Firebase first (shared rate set by first device today)
+    try {
+      const ag = await fetchAgencySettings();
+      if (ag.usdRate?.day === today && ag.usdRate?.rate > 2) {
+        this._rate = ag.usdRate.rate;
+        localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate: ag.usdRate.rate, day: today }));
+        return ag.usdRate.rate;
+      }
+    } catch {}
     // Try Bank of Israel official representative rate first
     const sources = [
       async () => {
@@ -317,6 +327,8 @@ const ExRate = {
         if (rate && rate > 2 && rate < 6) {
           this._rate = rate;
           localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate, day: today }));
+          // Save to Firebase so all devices use the same rate today
+          saveAgencySettings({ usdRate: { rate, day: today } }).catch(() => {});
           return rate;
         }
       } catch {}
@@ -836,9 +848,11 @@ function setRate(n, ymi, p) {
 async function loadRatesFromFirebase() {
   try {
     const data = await fetchClientRates();
+    // Firebase is source of truth — overwrite local rates
+    Object.keys(_rates).forEach(k => delete _rates[k]);
     Object.entries(data).forEach(([name, months]) => {
+      _rates[name] = {};
       Object.entries(months).forEach(([ymi, pct]) => {
-        if (!_rates[name]) _rates[name] = {};
         _rates[name][ymi] = pct;
       });
     });
@@ -902,6 +916,15 @@ function Prov({ children }) {
       try { const cs = await fetchAllChatterSettings(); setChatterSettings(cs); } catch (e) { console.error("Error fetching chatterSettings:", e); }
       try { const cls = await fetchAllClientSettings(); setClientSettings(cls); } catch (e) { console.error("Error fetching clientSettings:", e); }
       try { const fbComm = await fetchCommissionSettings(); _syncCommissionsFromFirebase(fbComm); setRv(v => v + 1); } catch (e) { console.error("Error fetching commissions:", e); }
+      try {
+        const ag = await fetchAgencySettings();
+        if (ag.customCats?.length) { setCustomCats(ag.customCats); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(ag.customCats)); } catch {} }
+        if (ag.lmVals) { try { localStorage.setItem("LM_DB", JSON.stringify(ag.lmVals)); } catch {} }
+        if (ag.customIncomeTypes?.length) { try { localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(ag.customIncomeTypes)); } catch {} }
+        if (ag.tierThresholds) { try { localStorage.setItem("AGENCY_TIER_THRESHOLDS", JSON.stringify(ag.tierThresholds)); } catch {} }
+        if (ag.bizType) { try { localStorage.setItem("AGENCY_BIZ_TYPE", ag.bizType); } catch {} }
+        if (ag.manualNI != null) { try { localStorage.setItem("AGENCY_MANUAL_NI", String(ag.manualNI)); } catch {} }
+      } catch (e) { console.error("Error fetching agencySettings:", e); }
       try { const u = await UserSvc.fetchAll(); setSheetUsers(u); } catch (e) { console.error("Error fetching users:", e); }
       setConnected(true);
       setTimeout(() => setLoadStep(""), 3000);
@@ -1037,9 +1060,10 @@ function Prov({ children }) {
   }, []);
 
   const [customCats, setCustomCats] = useState(() => { try { const saved = localStorage.getItem("ALL_CATS_V2"); if (saved !== null) return JSON.parse(saved); const oldCustom = JSON.parse(localStorage.getItem("CUSTOM_CATS") || "[]"); const merged = [...EXPENSE_CATEGORIES]; oldCustom.forEach(c => { if (!merged.includes(c)) merged.push(c); }); return merged; } catch { return [...EXPENSE_CATEGORIES]; } });
-  const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {} return true; };
-  const removeCustomCat = (name) => { const updated = customCats.filter(c => c !== name); setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {}; };
-  const renameCustomCat = (oldName, newName) => { const n = newName.trim(); if (!n || n === oldName || customCats.includes(n)) return false; const updated = customCats.map(c => c === oldName ? n : c); setCustomCats(updated); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(updated)); } catch {} return true; };
+  const _syncCatsToFB = (cats) => { try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(cats)); } catch {} saveAgencySettings({ customCats: cats }).catch(() => {}); };
+  const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); _syncCatsToFB(updated); return true; };
+  const removeCustomCat = (name) => { const updated = customCats.filter(c => c !== name); setCustomCats(updated); _syncCatsToFB(updated); };
+  const renameCustomCat = (oldName, newName) => { const n = newName.trim(); if (!n || n === oldName || customCats.includes(n)) return false; const updated = customCats.map(c => c === oldName ? n : c); setCustomCats(updated); _syncCatsToFB(updated); return true; };
 
   const val = useMemo(() => ({
     year, setYear, month, setMonth, view, setView, dateRange, setDateRange, page, setPage,
@@ -1410,9 +1434,10 @@ function DashPage() {
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const [lmVals, setLmVals] = useState(() => { try { return JSON.parse(localStorage.getItem("LM_DB") || "{}"); } catch { return {}; } });
-  const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} };
+  const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} saveAgencySettings({ lmVals: updated }).catch(() => {}); };
   const [bizType, setBizType] = useState(() => localStorage.getItem("AGENCY_BIZ_TYPE") || "עוסק");
   const [manualNI, setManualNI] = useState(() => +localStorage.getItem("AGENCY_MANUAL_NI") || 0);
+  const _dashOpenMonth = useState(null);
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
@@ -1577,26 +1602,68 @@ function DashPage() {
         </LineChart>
       </ResponsiveContainer>
     </Card>
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
-      {mbd.filter((_, i) => i <= month).map(d => {
-        const isCurrent = d.idx === month;
-        const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
-        const currentDaily = d.inc / daysPassed;
-        const hit = currentDaily >= (d.tgt1 / d.days);
-        return <Card key={d.idx} style={{ minWidth: 100, textAlign: "center", borderColor: hit ? `${C.grn}44` : `${C.red}44`, padding: "8px 10px", background: isCurrent ? `${C.pri}11` : C.card }}>
-          <div style={{ fontSize: 10, color: C.dim, marginBottom: 2 }}>{d.ms}{isCurrent ? " (נוכחי)" : ""}</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: hit ? C.grn : C.red }}>{fmtC(currentDaily)} <span style={{ fontSize: 10, fontWeight: 400, color: C.mut }}>/יום</span></div>
-          <div style={{ fontSize: 10, color: C.mut, marginTop: 4 }}>יעד 1: {fmtC(d.tgt1)}</div>
-        </Card>;
-      })}
-    </div>
+    {(() => {
+      const [openMonth, setOpenMonth] = _dashOpenMonth;
+      return <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
+        {mbd.filter((_, i) => i <= month).map(d => {
+          const isCurrent = d.idx === month;
+          const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
+          const currentDaily = d.inc / daysPassed;
+          const hit = currentDaily >= (d.tgt1 / d.days);
+          const isOpen = openMonth === d.idx;
+          return <Card key={d.idx} onClick={() => setOpenMonth(isOpen ? null : d.idx)} style={{
+            minWidth: isOpen ? 260 : 120, textAlign: "center", cursor: "pointer",
+            borderColor: hit ? `${C.grn}44` : `${C.red}44`, padding: "8px 10px",
+            background: isOpen ? `${C.pri}15` : isCurrent ? `${C.pri}08` : C.card,
+            border: isOpen ? `2px solid ${C.pri}` : undefined, transition: "all .15s"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: isOpen ? 10 : 0 }}>
+              <span style={{ fontSize: isOpen ? 14 : 10, fontWeight: isOpen ? 700 : 400, color: isOpen ? C.pri : C.dim }}>{d.ms}{isCurrent ? " (נוכחי)" : ""} {isOpen ? "▼" : "▶"}</span>
+              <span style={{ fontSize: isOpen ? 13 : 14, fontWeight: 700, color: hit ? C.grn : C.red }}>{fmtC(currentDaily)} <span style={{ fontSize: 10, fontWeight: 400, color: C.mut }}>/יום</span></span>
+            </div>
+            {isOpen && <>
+              <div style={{ padding: "10px", background: `${C.bg}55`, borderRadius: 8, marginBottom: 10, textAlign: "right" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                  <span style={{ color: C.dim }}>הכנסות בפועל:</span>
+                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(d.inc)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                  <span style={{ color: C.dim }}>יעד יומי (ברזל):</span>
+                  <span style={{ color: hit ? C.grn : C.ylw, fontWeight: 600 }}>{fmtC(d.tgt1 / d.days)}/יום</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                  <span style={{ color: C.dim }}>{isCurrent ? "צפי לסוף חודש:" : "ממוצע יומי × ימים:"}</span>
+                  <span style={{ color: isCurrent ? C.pri : C.dim, fontWeight: 600 }}>{fmtC(currentDaily * d.days)}</span>
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 11, color: C.dim, marginBottom: 6, textAlign: "center" }}>יעדים שנקבעו לחודש זה:</div>
+                {[
+                  { label: "יעד ברזל (+5%)", val: d.tgt1 },
+                  { label: "יעד זהב (+10%)", val: d.tgt2 },
+                  { label: "יעד יהלום (+15%)", val: d.tgt3 },
+                ].map(({ label, val }) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, marginBottom: 4 }}>
+                    <span style={{ color: C.txt }}>{label}</span>
+                    <span>
+                      <span style={{ color: d.inc >= val ? C.grn : C.dim, fontWeight: 600 }}>{fmtC(val)}</span>
+                      <span style={{ color: C.dim, fontSize: 10, marginRight: 5 }}>({fmtC(val / d.days)}/יום)</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>}
+          </Card>;
+        })}
+      </div>;
+    })()}
     <FB><ViewFilter /></FB>
     {view === "monthly" ? <div>
       {/* Business type toggle + ל.מ */}
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 0, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.bdr}` }}>
-          <button onClick={() => { setBizType("עוסק"); localStorage.setItem("AGENCY_BIZ_TYPE", "עוסק"); }} style={{ padding: "7px 16px", background: bizType === "עוסק" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "עוסק" ? 700 : 400 }}>עוסק מורשה</button>
-          <button onClick={() => { setBizType("חברה"); localStorage.setItem("AGENCY_BIZ_TYPE", "חברה"); }} style={{ padding: "7px 16px", background: bizType === "חברה" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "חברה" ? 700 : 400 }}>חברה</button>
+          <button onClick={() => { setBizType("עוסק"); localStorage.setItem("AGENCY_BIZ_TYPE", "עוסק"); saveAgencySettings({ bizType: "עוסק" }).catch(() => {}); }} style={{ padding: "7px 16px", background: bizType === "עוסק" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "עוסק" ? 700 : 400 }}>עוסק מורשה</button>
+          <button onClick={() => { setBizType("חברה"); localStorage.setItem("AGENCY_BIZ_TYPE", "חברה"); saveAgencySettings({ bizType: "חברה" }).catch(() => {}); }} style={{ padding: "7px 16px", background: bizType === "חברה" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "חברה" ? 700 : 400 }}>חברה</button>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <label style={{ color: C.dim, fontSize: 12 }}>ל.מ (ניכויים) ₪</label>
@@ -1604,7 +1671,7 @@ function DashPage() {
         </div>
         {employees.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <label style={{ color: C.dim, fontSize: 12 }}>ב.ל נוסף (שכירים) ₪</label>
-          <input type="number" value={manualNI || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setManualNI(v); localStorage.setItem("AGENCY_MANUAL_NI", v); }} style={{ width: 100, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
+          <input type="number" value={manualNI || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setManualNI(v); localStorage.setItem("AGENCY_MANUAL_NI", v); saveAgencySettings({ manualNI: v }).catch(() => {}); }} style={{ width: 100, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
         </div>}
       </div>
 
@@ -1803,6 +1870,7 @@ function TierCubes({ income }) {
     const next = { ...thresholds, [key]: v };
     setThresholds(next);
     localStorage.setItem("AGENCY_TIER_THRESHOLDS", JSON.stringify(next));
+    saveAgencySettings({ tierThresholds: next }).catch(() => {});
   };
 
   const chatterTotals = useMemo(() => {
@@ -2007,6 +2075,7 @@ function IncomeTypesModal({ onClose }) {
         setCustomTypes(prev => {
           const updated = prev.map(t => t === oldName ? newName : t);
           localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
+          saveAgencySettings({ customIncomeTypes: updated }).catch(() => {});
           return updated;
         });
       }
@@ -2032,6 +2101,7 @@ function IncomeTypesModal({ onClose }) {
       setCustomTypes(prev => {
         const updated = prev.filter(t => t !== type);
         localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
+        saveAgencySettings({ customIncomeTypes: updated }).catch(() => {});
         return updated;
       });
     } catch (e) { alert("שגיאה: " + e.message); }
@@ -2047,6 +2117,7 @@ function IncomeTypesModal({ onClose }) {
     setCustomTypes(prev => {
       const updated = [...prev, name];
       localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
+      saveAgencySettings({ customIncomeTypes: updated }).catch(() => {});
       return updated;
     });
     setNewType(""); setNewComm("");
@@ -3224,10 +3295,23 @@ function TgtPage() {
               {e.prevInc > 0 && <> | חודש קודם: <strong>{fmtC(e.prevInc)}</strong></>}
               {custom && <span style={{ color: C.ylw, marginRight: 4 }}> ✎ יעד ידני</span>}
             </div>
+            <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+              {[{ label: "+5%", val: t1, hit: hit1 }, { label: "+10%", val: t2, hit: hit2 }, { label: "+15%", val: t3, hit: hit3 }].map(t => (
+                <div key={t.label} style={{
+                  flex: 1, textAlign: "center", padding: "3px 2px", borderRadius: 6, fontSize: 10,
+                  background: e.daily >= (t.val / e.days) ? `${C.grn}22` : `${C.bg}`,
+                  color: e.daily >= (t.val / e.days) ? C.grn : C.dim,
+                  border: `1px solid ${e.daily >= (t.val / e.days) ? `${C.grn}44` : C.bdr}`
+                }}>
+                  <div style={{ fontWeight: 700 }}>{t.label}</div>
+                  <div style={{ fontSize: 9 }}>{fmtC(t.val / e.days)}/יום</div>
+                </div>
+              ))}
+            </div>
             <div style={{ display: "flex", gap: 4 }}>
               {[{ label: "+5%", val: t1, hit: hit1 }, { label: "+10%", val: t2, hit: hit2 }, { label: "+15%", val: t3, hit: hit3 }].map(t => (
                 <div key={t.label} style={{
-                  flex: 1, textAlign: "center", padding: "4px 2px", borderRadius: 6, fontSize: 10,
+                  flex: 1, textAlign: "center", padding: "3px 2px", borderRadius: 6, fontSize: 10,
                   background: t.hit ? `${C.grn}22` : `${C.bg}`,
                   color: t.hit ? C.grn : C.dim,
                   border: `1px solid ${t.hit ? `${C.grn}44` : C.bdr}`
