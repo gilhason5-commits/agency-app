@@ -780,18 +780,8 @@ const Calc = {
     const direct = clRows.filter(r => r.paymentTarget === "client" || (!r.paymentTarget && r.paidToClient)).reduce((s, r) => s + r.amountILS, 0);
     // Agency takes agencyPct% of total income
     const agencyShare = tot * (agencyPct / 100);
-    // Chatter salary for this client's transactions
-    let chatterSalaryForClient = 0;
-    clRows.forEach(r => {
-      const cfg = chatterSettings[r.chatterName] || {};
-      const rowYmi = ymFromDate(r.date);
-      const pcts = getMonthlyPcts(cfg, rowYmi);
-      const oPct = (pcts.officePct ?? 17) / 100;
-      const fPct = (pcts.fieldPct ?? 15) / 100;
-      chatterSalaryForClient += r.amountILS * (r.shiftLocation === "משרד" ? oPct : fPct);
-    });
-    // Client entitlement = total income - agency share - chatter salary
-    const ent = tot - agencyShare - chatterSalaryForClient;
+    // Client entitlement = total income - agency share (chatter salary is a separate agency expense)
+    const ent = tot - agencyShare;
 
     // settlements logic:
     // AgencyToClient decreases the agency's debt to the client (or increases client debt to agency)
@@ -806,7 +796,7 @@ const Calc = {
     // actualDue is the pure mathematical debt before settlements: (entitlement - what they already got directly)
     // then subtract the net amount the agency has manually settled
     const actualDue = ent - direct - netSettled;
-    return { totalIncome: tot, direct, through: tot - direct, pct: agencyPct, ent, bal: ent - direct, netSettled, actualDue, agencyShare, chatterSalaryForClient };
+    return { totalIncome: tot, direct, through: tot - direct, pct: agencyPct, ent, bal: ent - direct, netSettled, actualDue, agencyShare };
   },
   offset(exps) {
     const d = exps.filter(e => e.paidBy === "דור").reduce((s, e) => s + e.amount, 0);
@@ -1467,7 +1457,7 @@ function DashPage() {
   const empNIMonthly = employees.reduce((s, e) => s + e.nationalInsurance, 0);
   const empMonthly = empGrossMonthly + empNIMonthly;
   const burnRate = fixedMonthly + empMonthly;
-  const agencyIncome = mp.inc - totalClientSalary - totalChatterSalary;
+  const agencyIncome = mp.inc - totalClientSalary;
   const lmCurr = view === "monthly" ? (lmVals[year]?.[month] || 0) : 0;
   const vatBase = agencyIncome - lmCurr;
   const vat = vatBase > 0 ? vatBase * 0.18 : 0;
@@ -1688,9 +1678,9 @@ function DashPage() {
       {/* Row 1: Sales breakdown → agency income */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <Stat icon="💰" title={`מכירות — ${MONTHS_HE[month]}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iM.length} עסקאות`} />
-        <Stat icon="👑" title="שכר לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
+        <Stat icon="👑" title="זכאות לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
         <Stat icon="💬" title="שכר צ'אטרים" value={fmtC(totalChatterSalary)} color={C.ylw} />
-        <Stat icon="📥" title="צפי הכנסה שלי" value={fmtC(agencyIncome)} color={agencyIncome >= 0 ? C.grn : C.red} sub="אחרי שכר לקוחות וצ'אטרים" />
+        <Stat icon="📥" title="צפי הכנסה שלי" value={fmtC(agencyIncome)} color={agencyIncome >= 0 ? C.grn : C.red} sub="אחרי זכאות לקוחות" />
       </div>
 
       {/* Row 2: Expenses → gross profit */}
@@ -1730,7 +1720,7 @@ function DashPage() {
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <Stat icon="💰" title={`צפי מכירות — ${year}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iY.length} עסקאות`} />
         <Stat icon="💳" title="הוצאות" value={fmtC(mp.exp)} color={C.red} />
-        <Stat icon="👑" title="צפי שכר לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
+        <Stat icon="👑" title="צפי זכאות לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
         <Stat icon="💬" title="צפי שכר צ'אטים" value={fmtC(totalChatterSalary)} color={C.ylw} />
         <Stat icon="📈" title="צפי רווח לפני מס" value={fmtC(netProfit)} color={netProfit >= 0 ? C.grn : C.red} />
       </div>
@@ -2570,7 +2560,7 @@ function ExpPage() {
                   <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(chTotal)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
-                  <span>👩 שכר לקוחות</span>
+                  <span>👩 זכאות לקוחות</span>
                   <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(clTotal)}</span>
                 </div>
               </div>
@@ -2626,7 +2616,7 @@ function ExpPage() {
         </Card>
       </div>
       <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>👥 שכר צ'אטרים</h3><DT columns={[{ label: "צ'אטר", key: "name" }, { label: "סוג שכר", render: r => SALARY_TYPE_LABELS[r.salaryType] || "מכירות" }, { label: "משרד", render: r => `${fmtC(r.oSal)} (${r.officePct ?? 17}%)` }, { label: "חוץ", render: r => `${fmtC(r.rSal)} (${r.fieldPct ?? 15}%)` }, { label: "שעתי", render: r => r.salaryType !== "sales" ? fmtC(r.hourlySalary) : "—" }, { label: "סה״כ", render: r => r.hasVat ? <div><div style={{ fontSize: 11, color: C.dim }}>שכר: {fmtC(r.total)}</div><div style={{ fontSize: 11, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div><strong style={{ color: C.pri }}>{fmtC(r.totalWithVat)}</strong></div> : <strong style={{ color: C.pri }}>{fmtC(r.total)}</strong> }]} rows={chSal} footer={["סה״כ", "", "", "", "", fmtC(chSal.reduce((s, c) => s + c.totalWithVat, 0))]} /></div>
-      <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>👩 שכר לקוחות</h3><DT columns={[{ label: "לקוחה", key: "name" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "%", render: r => `${r.pct}%` }, { label: "סה״כ שכר", render: r => fmtC(r.ent) }, { label: "נכנס אליה", render: r => fmtC(r.direct) }, { label: "התחשבנות", render: r => { const col = r.finalDue < 1 ? C.mut : (r.actualDueSign > 0 ? C.grn : C.red); const txt = r.finalDue < 1 ? "מאוזן" : (r.actualDueSign > 0 ? "אנחנו צריכים לשלם לה" : "היא צריכה להעביר לנו"); return <div style={{ color: col, fontWeight: 700 }}>{r.hasVat && r.finalDue >= 1 ? <><div style={{ fontSize: 11, color: C.dim }}>שכר: {fmtC(Math.abs(r.actualDueSign))}</div><div style={{ fontSize: 11, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div><div>{fmtC(r.finalDue)}</div></> : <div>{fmtC(r.finalDue)}</div>}<div style={{ fontSize: 9 }}>{txt}{r.hasVat && r.finalDue >= 1 ? " (כולל מע״מ)" : ""}</div></div>; } }]} rows={clSal} footer={["סה״כ", "", "", fmtC(clSal.reduce((s, c) => s + c.ent, 0)), "", ""]} /></div>
+      <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>👩 זכאות לקוחות</h3><DT columns={[{ label: "לקוחה", key: "name" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "% סוכנות", render: r => `${r.pct}%` }, { label: "זכאות", render: r => fmtC(r.ent) }, { label: "נכנס אליה", render: r => fmtC(r.direct) }, { label: "התחשבנות", render: r => { const col = r.finalDue < 1 ? C.mut : (r.actualDueSign > 0 ? C.grn : C.red); const txt = r.finalDue < 1 ? "מאוזן" : (r.actualDueSign > 0 ? "אנחנו צריכים לשלם לה" : "היא צריכה להעביר לנו"); return <div style={{ color: col, fontWeight: 700 }}>{r.hasVat && r.finalDue >= 1 ? <><div style={{ fontSize: 11, color: C.dim }}>זכאות: {fmtC(Math.abs(r.actualDueSign))}</div><div style={{ fontSize: 11, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div><div>{fmtC(r.finalDue)}</div></> : <div>{fmtC(r.finalDue)}</div>}<div style={{ fontSize: 9 }}>{txt}{r.hasVat && r.finalDue >= 1 ? " (כולל מע״מ)" : ""}</div></div>; } }]} rows={clSal} footer={["סה״כ", "", "", fmtC(clSal.reduce((s, c) => s + c.ent, 0)), "", ""]} /></div>
     </>}
   </div>;
 }
@@ -5273,9 +5263,18 @@ function DebtsPage() {
     </div>
 
     {debtsView === "monthly" ? <>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon={totalDue > 0 ? "🔴" : totalDue < 0 ? "🟢" : "⚪"} title={`סה״כ פער דורש קיזוז — ${MONTHS_HE[month]}`} value={Math.abs(totalDue) < 1 ? "מאוזן" : fmtC(Math.abs(totalDue))} color={totalDue > 0 ? C.red : totalDue < 0 ? C.grn : C.mut} sub={totalDue > 0 ? "הסוכנות חייבת ללקוחות" : totalDue < 0 ? "לקוחות חייבות לסוכנות" : ""} />
-      </div>
+      {(() => {
+        const weOweClients = debtRows.filter(r => r.actualDue > 0).reduce((s, r) => s + r.finalDue, 0);
+        const clientsOweUs = debtRows.filter(r => r.actualDue < 0).reduce((s, r) => s + r.finalDue, 0);
+        const weOweChatters = chatterDebtRows.filter(r => r.balance > 0).reduce((s, r) => s + r.finalBalance, 0);
+        const chattersOweUs = chatterDebtRows.filter(r => r.balance < 0).reduce((s, r) => s + r.finalBalance, 0);
+        return <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+          <Stat icon="🔴" title="אני חייב ללקוחות" value={weOweClients < 1 ? "₪0" : fmtC(weOweClients)} color={C.red} />
+          <Stat icon="🟢" title="לקוחות חייבות לי" value={clientsOweUs < 1 ? "₪0" : fmtC(clientsOweUs)} color={C.grn} />
+          <Stat icon="🔴" title="אני חייב לצ'אטרים" value={weOweChatters < 1 ? "₪0" : fmtC(weOweChatters)} color={C.red} />
+          <Stat icon="🟢" title="צ'אטרים חייבים לי" value={chattersOweUs < 1 ? "₪0" : fmtC(chattersOweUs)} color={C.grn} />
+        </div>;
+      })()}
 
       <Card style={{ padding: "0" }}>
         <DT
@@ -5285,7 +5284,7 @@ function DebtsPage() {
             { label: 'דרך סוכנות', render: r => <span style={{ color: C.dim }}>{fmtC(r.throughAgency)}</span> },
             { label: 'שולם ללקוחה ישירות', render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
             { label: '% סוכנות', render: r => <span style={{ color: C.dim }}>{r.pct}%</span> },
-            { label: 'שכר מגיע ללקוחה', render: r => <span style={{ color: C.pri }}>{fmtC(r.entitlement)}</span> },
+            { label: 'זכאות לקוחה', render: r => <span style={{ color: C.pri }}>{fmtC(r.entitlement)}</span> },
             { label: 'קוזז החודש', render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
             {
               label: 'חוב מסכם לתשלום',
@@ -5295,7 +5294,7 @@ function DebtsPage() {
                 const txt = r.finalDue < 1 ? 'מאוזן' : (r.actualDue > 0 ? 'אנחנו צריכים לשלם לה' : 'היא צריכה להעביר לנו');
                 return <div style={{ background: bg, color: col, padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 13 }}>
                   {r.hasVat && r.finalDue >= 1 ? <>
-                    <div style={{ fontSize: 10, color: C.dim }}>שכר: {fmtC(Math.abs(r.actualDue))}</div>
+                    <div style={{ fontSize: 10, color: C.dim }}>זכאות: {fmtC(Math.abs(r.actualDue))}</div>
                     <div style={{ fontSize: 10, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div>
                     <div style={{ fontSize: 16 }}>{fmtC(r.finalDue)}</div>
                   </> : <div style={{ fontSize: 16 }}>{fmtC(r.finalDue)}</div>}
@@ -5317,16 +5316,6 @@ function DebtsPage() {
 
       {/* Chatters reconciliation table */}
       <h3 style={{ color: C.txt, fontSize: 17, fontWeight: 700, marginTop: 32, marginBottom: 12 }}>👥 התחשבנות צ'אטרים — {MONTHS_HE[month]}</h3>
-      {(() => {
-        const weOwe = chatterDebtRows.filter(r => r.balance > 0).reduce((s, r) => s + r.finalBalance, 0);
-        const theyOwe = chatterDebtRows.filter(r => r.balance < 0).reduce((s, r) => s + r.finalBalance, 0);
-        const net = weOwe - theyOwe;
-        const label = net > 0 ? "הסוכנות חייבת לצ'אטרים" : net < 0 ? "צ'אטרים חייבים לסוכנות" : "מאוזן";
-        const col = net > 0 ? C.red : net < 0 ? C.grn : C.mut;
-        return <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-          <Stat icon={net > 0 ? "🔴" : net < 0 ? "🟢" : "⚪"} title={label} value={fmtC(Math.abs(net))} color={col} />
-        </div>;
-      })()}
       <Card style={{ padding: 0, marginBottom: 32 }}>
         <DT columns={[
           { label: "צ'אטר", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
@@ -5358,7 +5347,7 @@ function DebtsPage() {
     </> : <>
       {/* ── YEARLY VIEW ── */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon="📊" title={`סה״כ שכר ללקוחות — ${year}`} value={fmtC(annualTotalEntitlement)} color={C.pri} sub="סה״כ מגיע לכולן" />
+        <Stat icon="📊" title={`סה״כ זכאות לקוחות — ${year}`} value={fmtC(annualTotalEntitlement)} color={C.pri} sub="סה״כ מגיע לכולן" />
         <Stat icon="✅" title={`סה״כ קוזז — ${year}`} value={fmtC(annualTotalSettled)} color={C.ylw} sub="שולם/קוזז בפועל" />
         <Stat icon="⚠️" title={`נשאר לקיזוז — ${year}`} value={fmtC(Math.abs(annualTotalDue))} color={annualTotalDue > 0 ? C.grn : C.red} sub={annualTotalDue > 0 ? "הסוכנות חייבת" : "לקוחות חייבות"} />
       </div>
