@@ -1747,6 +1747,32 @@ function DashPage() {
       </div>;
     })()}
 
+    {(() => {
+      const hourMap = {};
+      for (let h = 0; h < 24; h++) hourMap[h] = 0;
+      const activeI = view === "monthly" ? iM : iY;
+      activeI.forEach(r => {
+        let hStr = r.hour;
+        if (!hStr) return;
+        if (typeof hStr === "string" && hStr.includes("1899-") && hStr.includes("T")) hStr = hStr.split("T")[1].substring(0, 5);
+        const hNum = parseInt(hStr, 10);
+        if (isNaN(hNum) || hNum < 0 || hNum > 23) return;
+        hourMap[hNum] += r.amountILS;
+      });
+      const hours = Object.entries(hourMap).map(([h, total]) => ({ hour: +h, total })).filter(h => h.total > 0).sort((a, b) => b.total - a.total);
+      const top3 = hours.slice(0, 3);
+      const bot3 = hours.length > 3 ? hours.slice(-3).reverse() : [];
+      const fmtH = h => `${String(h).padStart(2, "0")}:00`;
+      const medals = ["🥇", "🥈", "🥉"];
+      return top3.length > 0 ? <div style={{ marginTop: 16 }}>
+        <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>⏰ שעות פעילות</h3>
+        <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr" : "1fr 1fr", gap: 12 }}>
+          <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.grn, marginBottom: 8 }}>🔥 שעות הכי רווחיות</div>{top3.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 2 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{medals[i]} {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(h.total)}</span></div>)}</Card>
+          {bot3.length > 0 && <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.red, marginBottom: 8 }}>📉 שעות הכי חלשות</div>{bot3.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 2 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{i + 1}. {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.red, fontWeight: 700 }}>{fmtC(h.total)}</span></div>)}</Card>}
+        </div>
+      </div> : null;
+    })()}
+
     {/* Tier Cubes */}
     <TierCubes income={view === "monthly" ? iM : iY} />
   </div>;
