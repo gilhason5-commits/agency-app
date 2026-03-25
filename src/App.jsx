@@ -3125,7 +3125,7 @@ function ClientsOverviewPage({ onSelectClient }) {
           const abs = Math.abs(r.balance);
           const vatAmt = abs * 0.18;
           const final = abs * (r.hasVat ? 1.18 : 1);
-          const col = abs < 1 ? C.mut : (r.balance >= 0 ? C.red : C.grn);
+          const col = abs < 1 ? C.mut : (r.balance >= 0 ? C.grn : C.red);
           const txt = abs < 1 ? "מאוזן" : (r.balance >= 0 ? "אנחנו צריכים לשלם לה" : "היא צריכה להעביר לנו");
           if (r.hasVat && abs >= 1) return <div style={{ color: col, fontWeight: 700 }}>
             <div style={{ fontSize: 10, color: C.dim }}>זכאות: {fmtC(abs)}</div>
