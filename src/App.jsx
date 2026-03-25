@@ -2041,6 +2041,8 @@ function EditIncomeModal({ record, onClose }) {
   const [amount, setAmount] = useState(isUSD ? String(record.amountUSD || "") : String(record.rawILS || record.amountILS || ""));
   const [incomeType, setIncomeType] = useState(record.incomeType || "");
   const [modelName, setModelName] = useState(record.modelName || "");
+  const initDate = record.date instanceof Date ? record.date.toISOString().slice(0, 10) : (typeof record.date === "string" && record.date ? record.date.slice(0, 10) : "");
+  const [txDate, setTxDate] = useState(initDate);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -2054,9 +2056,11 @@ function EditIncomeModal({ record, onClose }) {
       const inputILS = currency === "ILS" ? +amount || 0 : 0;
       const inputUSD = currency === "USD" ? +amount || 0 : 0;
       const commFields = computeCommissionFields(record.platform, incomeType, inputILS, inputUSD, rate);
+      const newDate = txDate ? new Date(txDate + "T12:00:00") : record.date;
       const updates = {
         incomeType,
         modelName,
+        date: newDate,
         rawILS: inputILS,
         originalRawILS: inputILS,
         originalRawUSD: inputUSD,
@@ -2082,6 +2086,11 @@ function EditIncomeModal({ record, onClose }) {
       <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>
         {record.chatterName} • {record.modelName} • {record.platform} • {record.date instanceof Date ? record.date.toLocaleDateString("he-IL") : ""}
       </div>
+    </div>
+
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>תאריך</label>
+      <input type="date" value={txDate} onChange={e => setTxDate(e.target.value)} style={{ ...inputStyle, direction: "ltr" }} />
     </div>
 
     <div style={{ marginBottom: 14 }}>
