@@ -1461,8 +1461,9 @@ function DashPage() {
   const lmCurr = view === "monthly" ? (lmVals[year]?.[month] || 0) : 0;
   const vatBase = agencyIncome - lmCurr;
   const vat = vatBase > 0 ? vatBase * 0.18 : 0;
-  const grossProfit = agencyIncome - mp.exp - fixedMonthly - empMonthly;
   const nonDeductible = activeE.filter(e => !e.taxRecognized).reduce((s, e) => s + (e.amount || 0), 0);
+  const recognizedExp = mp.exp - nonDeductible;
+  const grossProfit = agencyIncome - recognizedExp - totalChatterSalary;
   const niTotal = empNIMonthly + manualNI;
   const taxableIncome = (agencyIncome - vat) - mp.exp - fixedMonthly - niTotal + nonDeductible - lmCurr;
   const incomeTax = taxableIncome > 0
