@@ -1431,8 +1431,8 @@ function DashPage() {
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
-  const moneyThroughAgency = activeI.filter(r => !r.paidToClient).reduce((s, r) => s + r.amountILS, 0);
-  const moneyThroughAgencyCount = activeI.filter(r => !r.paidToClient).length;
+  const moneyThroughAgency = activeI.filter(r => !r.cancelled && (!r.paymentTarget || r.paymentTarget === "agency")).reduce((s, r) => s + r.amountILS, 0);
+  const moneyThroughAgencyCount = activeI.filter(r => !r.cancelled && (!r.paymentTarget || r.paymentTarget === "agency")).length;
   const ymi = ym(year, month);
   const totalChatterSalary = useMemo(() => {
     const names = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
