@@ -2980,6 +2980,9 @@ function ChattersOverviewPage({ onSelectChatter }) {
 
   const totalSales = chatterStats.reduce((s, c) => s + c.total, 0);
   const totalSalary = chatterStats.reduce((s, c) => s + c.salary, 0);
+  const pendingRows = incD.filter(r => r.chatterName && !isVerified(r.verified));
+  const pendingTotal = pendingRows.reduce((s, r) => s + r.amountILS, 0);
+  const pendingCount = pendingRows.length;
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👥 סקירת כל הצ'אטרים</h2>
@@ -2988,6 +2991,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
       <Stat icon="👥" title="מספר צ'אטרים" value={chatterStats.length} />
       <Stat icon="💰" title="סה״כ מכירות" value={fmtC(totalSales)} color={C.grn} />
       {!isSM && <Stat icon="💵" title="סה״כ משכורות" value={fmtC(totalSalary)} color={C.ylw} />}
+      {pendingCount > 0 && <Stat icon="⏳" title="ממתינות" value={fmtC(pendingTotal)} color={C.ylw} sub={`${pendingCount} עסקאות`} />}
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
       <Card>
