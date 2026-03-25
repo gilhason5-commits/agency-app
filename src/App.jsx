@@ -1604,21 +1604,22 @@ function DashPage() {
     </Card>
     {(() => {
       const [openMonth, setOpenMonth] = _dashOpenMonth;
+      const isYearly = view === "yearly";
       return <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
         {mbd.filter((_, i) => i <= month).map(d => {
           const isCurrent = d.idx === month;
           const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
           const currentDaily = d.inc / daysPassed;
           const hit = currentDaily >= (d.tgt1 / d.days);
-          const isOpen = openMonth === d.idx;
-          return <Card key={d.idx} onClick={() => setOpenMonth(isOpen ? null : d.idx)} style={{
-            minWidth: isOpen ? 260 : 120, textAlign: "center", cursor: "pointer",
+          const isOpen = isYearly ? true : (openMonth === null ? isCurrent : openMonth === d.idx);
+          return <Card key={d.idx} onClick={() => !isYearly && setOpenMonth(isOpen && !isCurrent ? null : (isOpen ? null : d.idx))} style={{
+            minWidth: isOpen ? 260 : 120, textAlign: "center", cursor: isYearly ? "default" : "pointer",
             borderColor: hit ? `${C.grn}44` : `${C.red}44`, padding: "8px 10px",
             background: isOpen ? `${C.pri}15` : isCurrent ? `${C.pri}08` : C.card,
             border: isOpen ? `2px solid ${C.pri}` : undefined, transition: "all .15s"
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: isOpen ? 10 : 0 }}>
-              <span style={{ fontSize: isOpen ? 14 : 10, fontWeight: isOpen ? 700 : 400, color: isOpen ? C.pri : C.dim }}>{d.ms}{isCurrent ? " (נוכחי)" : ""} {isOpen ? "▼" : "▶"}</span>
+              <span style={{ fontSize: isOpen ? 14 : 10, fontWeight: isOpen ? 700 : 400, color: isOpen ? C.pri : C.dim }}>{d.ms}{isCurrent ? " (נוכחי)" : ""} {!isYearly && (isOpen ? "▼" : "▶")}</span>
               <span style={{ fontSize: isOpen ? 13 : 14, fontWeight: 700, color: hit ? C.grn : C.red }}>{fmtC(currentDaily)} <span style={{ fontSize: 10, fontWeight: 400, color: C.mut }}>/יום</span></span>
             </div>
             {isOpen && <>
@@ -1626,10 +1627,6 @@ function DashPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
                   <span style={{ color: C.dim }}>הכנסות בפועל:</span>
                   <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(d.inc)}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-                  <span style={{ color: C.dim }}>יעד יומי (ברזל):</span>
-                  <span style={{ color: hit ? C.grn : C.ylw, fontWeight: 600 }}>{fmtC(d.tgt1 / d.days)}/יום</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
                   <span style={{ color: C.dim }}>{isCurrent ? "צפי לסוף חודש:" : "ממוצע יומי × ימים:"}</span>
