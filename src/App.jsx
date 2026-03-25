@@ -299,6 +299,15 @@ const ExRate = {
       const { rate, day } = JSON.parse(cached);
       if (day === today) { this._rate = rate; return rate; }
     }
+    // Try Firebase first (shared rate set by first device today)
+    try {
+      const ag = await fetchAgencySettings();
+      if (ag.usdRate?.day === today && ag.usdRate?.rate > 2) {
+        this._rate = ag.usdRate.rate;
+        localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate: ag.usdRate.rate, day: today }));
+        return ag.usdRate.rate;
+      }
+    } catch {}
     // Try Bank of Israel official representative rate first
     const sources = [
       async () => {
@@ -318,6 +327,8 @@ const ExRate = {
         if (rate && rate > 2 && rate < 6) {
           this._rate = rate;
           localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate, day: today }));
+          // Save to Firebase so all devices use the same rate today
+          saveAgencySettings({ usdRate: { rate, day: today } }).catch(() => {});
           return rate;
         }
       } catch {}
