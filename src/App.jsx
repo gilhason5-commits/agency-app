@@ -3365,10 +3365,6 @@ function TgtPage() {
               <span style={{ color: C.dim }}>הכנסות בפועל:</span>
               <span style={{ color: C.txt, fontWeight: 600 }}>{isFuture ? "—" : fmtC(d.inc)}</span>
             </div>
-            {!isFuture && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-              <span style={{ color: C.dim }}>יעד יומי (ברזל):</span>
-              <span style={{ color: currentDaily >= (d.tgt1 / d.days) ? C.grn : C.ylw, fontWeight: 600 }}>{fmtC(d.tgt1 / d.days)}/יום</span>
-            </div>}
             {!isFuture && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
               <span style={{ color: C.dim }}>{isCurrent ? "צפי לסוף חודש:" : "ממוצע יומי × ימים:"}</span>
               <span style={{ color: isCurrent ? C.pri : C.dim, fontWeight: 600 }}>{fmtC(currentDaily * d.days)}</span>
