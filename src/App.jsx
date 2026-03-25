@@ -1433,6 +1433,8 @@ function DashPage() {
   const mp = Calc.profit(activeI, activeE);
   const moneyThroughAgency = activeI.filter(r => !r.cancelled && (!r.paymentTarget || r.paymentTarget === "agency")).reduce((s, r) => s + r.amountILS, 0);
   const moneyThroughAgencyCount = activeI.filter(r => !r.cancelled && (!r.paymentTarget || r.paymentTarget === "agency")).length;
+  const moneyThroughChatter = activeI.filter(r => !r.cancelled && r.paymentTarget === "chatter").reduce((s, r) => s + r.amountILS, 0);
+  const moneyThroughChatterCount = activeI.filter(r => !r.cancelled && r.paymentTarget === "chatter").length;
   const ymi = ym(year, month);
   const totalChatterSalary = useMemo(() => {
     const names = [...new Set(activeI.map(r => r.chatterName).filter(Boolean))];
@@ -1692,6 +1694,7 @@ function DashPage() {
         <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
         {nonDeductible > 0 && <Stat icon="🚫" title="הוצאות לא מוכרות" value={fmtC(nonDeductible)} color={C.red} sub="מוסיף לבסיס החייב במס" />}
         <Stat icon="🔄" title="כסף שעבר דרכנו" value={fmtC(moneyThroughAgency)} color={C.pri} sub={`${moneyThroughAgencyCount} עסקאות עברו דרכנו`} />
+        <Stat icon="👥" title="כסף עבר דרך צ'אטרים" value={fmtC(moneyThroughChatter)} color={C.org} sub={`${moneyThroughChatterCount} עסקאות שולמו לצ'אטר`} />
         <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
       </div>
 
@@ -1735,6 +1738,7 @@ function DashPage() {
         <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
         {nonDeductible > 0 && <Stat icon="🚫" title="הוצאות לא מוכרות" value={fmtC(nonDeductible)} color={C.red} sub="מוסיף לבסיס החייב במס" />}
         <Stat icon="🔄" title="כסף שעבר דרכנו" value={fmtC(moneyThroughAgency)} color={C.pri} sub={`${moneyThroughAgencyCount} עסקאות עברו דרכנו`} />
+        <Stat icon="👥" title="כסף עבר דרך צ'אטרים" value={fmtC(moneyThroughChatter)} color={C.org} sub={`${moneyThroughChatterCount} עסקאות שולמו לצ'אטר`} />
         <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
       </div>
 
@@ -2046,6 +2050,7 @@ function IncPage() {
       <Stat icon="🏦" title='סה״כ ₪ (שקל)' value={fmtC(ilsOnlyTotal)} color={C.grn} sub="עסקאות שנכנסו בשקל" />
       <Stat icon="💵" title='סה״כ $' value={fmtUSD(totalUSD)} color={C.pri} sub={`≈ ${fmtC(grandTotal - ilsOnlyTotal)} (מומר לשקל)`} />
       <Stat icon="🏢" title="עבר דרך הסוכנות" value={fmtC(agencyTotal)} color={C.ylw} sub="תשלומים שיועדו לסוכנות" />
+      {(() => { const pRows = data.filter(r => !isVerified(r.verified)); return pRows.length > 0 ? <Stat icon="⏳" title="ממתינות" value={fmtC(pRows.reduce((s, r) => s + r.amountILS, 0))} color={C.ylw} sub={`${pRows.length} עסקאות`} /> : null; })()}
     </div>
     <Card style={{ marginBottom: 16 }}>
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
@@ -2976,6 +2981,9 @@ function ChattersOverviewPage({ onSelectChatter }) {
 
   const totalSales = chatterStats.reduce((s, c) => s + c.total, 0);
   const totalSalary = chatterStats.reduce((s, c) => s + c.salary, 0);
+  const pendingRows = incD.filter(r => r.chatterName && !isVerified(r.verified));
+  const pendingTotal = pendingRows.reduce((s, r) => s + r.amountILS, 0);
+  const pendingCount = pendingRows.length;
 
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, marginBottom: 20 }}>👥 סקירת כל הצ'אטרים</h2>
@@ -2984,6 +2992,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
       <Stat icon="👥" title="מספר צ'אטרים" value={chatterStats.length} />
       <Stat icon="💰" title="סה״כ מכירות" value={fmtC(totalSales)} color={C.grn} />
       {!isSM && <Stat icon="💵" title="סה״כ משכורות" value={fmtC(totalSalary)} color={C.ylw} />}
+      {pendingCount > 0 && <Stat icon="⏳" title="ממתינות" value={fmtC(pendingTotal)} color={C.ylw} sub={`${pendingCount} עסקאות`} />}
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
       <Card>
