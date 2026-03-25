@@ -1413,6 +1413,7 @@ function DashPage() {
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} };
   const [bizType, setBizType] = useState(() => localStorage.getItem("AGENCY_BIZ_TYPE") || "עוסק");
   const [manualNI, setManualNI] = useState(() => +localStorage.getItem("AGENCY_MANUAL_NI") || 0);
+  const _dashOpenMonth = useState(null);
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
@@ -1577,24 +1578,61 @@ function DashPage() {
         </LineChart>
       </ResponsiveContainer>
     </Card>
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
-      {mbd.filter((_, i) => i <= month).map(d => {
-        const isCurrent = d.idx === month;
-        const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
-        const currentDaily = d.inc / daysPassed;
-        const dailyTarget = d.tgt1 / d.days;
-        const hit = currentDaily >= dailyTarget;
-        const projection = isCurrent ? currentDaily * d.days : d.inc;
-        return <Card key={d.idx} style={{ minWidth: 120, textAlign: "center", borderColor: hit ? `${C.grn}44` : `${C.red}44`, padding: "8px 10px", background: isCurrent ? `${C.pri}11` : C.card }}>
-          <div style={{ fontSize: 10, color: C.dim, marginBottom: 2 }}>{d.ms}{isCurrent ? " (נוכחי)" : ""}</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: hit ? C.grn : C.red }}>{fmtC(currentDaily)} <span style={{ fontSize: 10, fontWeight: 400, color: C.mut }}>/יום</span></div>
-          <div style={{ fontSize: 10, color: C.ylw, marginTop: 3 }}>יעד יומי: {fmtC(dailyTarget)}</div>
-          <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>סה״כ: {fmtC(d.inc)}</div>
-          <div style={{ fontSize: 10, color: C.mut, marginTop: 1 }}>יעד חודשי: {fmtC(d.tgt1)}</div>
-          {isCurrent && <div style={{ fontSize: 10, color: C.pri, marginTop: 2 }}>צפי: {fmtC(projection)}</div>}
-        </Card>;
-      })}
-    </div>
+    {(() => {
+      const [openMonth, setOpenMonth] = _dashOpenMonth;
+      return <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
+        {mbd.filter((_, i) => i <= month).map(d => {
+          const isCurrent = d.idx === month;
+          const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
+          const currentDaily = d.inc / daysPassed;
+          const hit = currentDaily >= (d.tgt1 / d.days);
+          const isOpen = openMonth === d.idx;
+          return <Card key={d.idx} onClick={() => setOpenMonth(isOpen ? null : d.idx)} style={{
+            minWidth: isOpen ? 260 : 120, textAlign: "center", cursor: "pointer",
+            borderColor: hit ? `${C.grn}44` : `${C.red}44`, padding: "8px 10px",
+            background: isOpen ? `${C.pri}15` : isCurrent ? `${C.pri}08` : C.card,
+            border: isOpen ? `2px solid ${C.pri}` : undefined, transition: "all .15s"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: isOpen ? 10 : 0 }}>
+              <span style={{ fontSize: isOpen ? 14 : 10, fontWeight: isOpen ? 700 : 400, color: isOpen ? C.pri : C.dim }}>{d.ms}{isCurrent ? " (נוכחי)" : ""} {isOpen ? "▼" : "▶"}</span>
+              <span style={{ fontSize: isOpen ? 13 : 14, fontWeight: 700, color: hit ? C.grn : C.red }}>{fmtC(currentDaily)} <span style={{ fontSize: 10, fontWeight: 400, color: C.mut }}>/יום</span></span>
+            </div>
+            {isOpen && <>
+              <div style={{ padding: "10px", background: `${C.bg}55`, borderRadius: 8, marginBottom: 10, textAlign: "right" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                  <span style={{ color: C.dim }}>הכנסות בפועל:</span>
+                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(d.inc)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                  <span style={{ color: C.dim }}>יעד יומי (ברזל):</span>
+                  <span style={{ color: hit ? C.grn : C.ylw, fontWeight: 600 }}>{fmtC(d.tgt1 / d.days)}/יום</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                  <span style={{ color: C.dim }}>{isCurrent ? "צפי לסוף חודש:" : "ממוצע יומי × ימים:"}</span>
+                  <span style={{ color: isCurrent ? C.pri : C.dim, fontWeight: 600 }}>{fmtC(currentDaily * d.days)}</span>
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 11, color: C.dim, marginBottom: 6, textAlign: "center" }}>יעדים שנקבעו לחודש זה:</div>
+                {[
+                  { label: "יעד ברזל (+5%)", val: d.tgt1 },
+                  { label: "יעד זהב (+10%)", val: d.tgt2 },
+                  { label: "יעד יהלום (+15%)", val: d.tgt3 },
+                ].map(({ label, val }) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, marginBottom: 4 }}>
+                    <span style={{ color: C.txt }}>{label}</span>
+                    <span>
+                      <span style={{ color: d.inc >= val ? C.grn : C.dim, fontWeight: 600 }}>{fmtC(val)}</span>
+                      <span style={{ color: C.dim, fontSize: 10, marginRight: 5 }}>({fmtC(val / d.days)}/יום)</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>}
+          </Card>;
+        })}
+      </div>;
+    })()}
     <FB><ViewFilter /></FB>
     {view === "monthly" ? <div>
       {/* Business type toggle + ל.מ */}
