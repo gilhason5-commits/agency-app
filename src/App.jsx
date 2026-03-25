@@ -1556,7 +1556,7 @@ function DashPage() {
       const clEnt = clNames.reduce((sum, n) => sum + Calc.clientBal(mi, n, getRate(n, ymiM), [], chatterSettings).ent, 0);
       const chSalMo = chNames.reduce((sum, name) => sum + Calc.chatterSalary(mi.filter(r => r.chatterName === name), chatterSettings[name] || {}, ymiM).total, 0);
       const agencyInc = inc - clEnt;
-      return { month: m, ms: MONTHS_SHORT[i], idx: i, inc, exp, gap, agencyInc, clEnt, chSalMo, tgt1: t.t1, tgt2: t.t2, tgt3: t.t3, dailyAvg: t.daily, days: daysInMonth };
+      return { month: m, ms: MONTHS_SHORT[i], idx: i, inc, exp, gap, agencyInc, clEnt, chSalMo, tgt1: t.t1, tgt2: t.t2, tgt3: t.t3, dailyAvg: t.daily, days: daysInMonth, txCount: mi.length };
     });
   }, [iY, eY, year, liveRate, settlements, chatterSettings, clientSettings]);
 
@@ -1599,6 +1599,19 @@ function DashPage() {
           <Tooltip content={({ active, payload, label }) => { if (!active || !payload?.length) return null; const d = payload[0]?.payload; const hit = d.inc >= d.tgt1; return <div style={{ background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, padding: "8px 12px", fontSize: 12 }}><div style={{ color: C.dim, marginBottom: 4 }}>{label}</div><div style={{ color: C.grn }}>הכנסות: <strong>{fmtC(d.inc)}</strong></div><div style={{ color: C.ylw }}>יעד: <strong>{fmtC(d.tgt1)}</strong></div>{d.diff !== 0 && <div style={{ color: d.diff > 0 ? C.grn : C.red, marginTop: 2 }}>{d.diff > 0 ? "▲" : "▼"} {fmtC(Math.abs(d.diff))} ({d.diffPct}%)</div>}<div style={{ color: hit ? C.grn : C.red, marginTop: 2 }}>{hit ? "✓ עמד ביעד" : `✗ חסר ${fmtC(d.tgt1 - d.inc)}`}</div></div>; }} />
           <Line type="monotone" dataKey="tgt1" stroke={C.ylw} strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3, fill: C.ylw }} name="יעד" />
           <Line type="monotone" dataKey="inc" stroke={C.grn} strokeWidth={3} dot={{ r: 4, fill: C.grn }} name="הכנסות" />
+        </LineChart>
+      </ResponsiveContainer>
+    </Card>
+    <Card style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+        <span style={{ color: C.dim, fontSize: 13 }}>📈 כמות עסקאות — חודשי</span>
+        <span style={{ fontSize: 12 }}><span style={{ color: C.pri }}>●</span> עסקאות</span>
+      </div>
+      <ResponsiveContainer width="100%" height={180}>
+        <LineChart data={mbd}>
+          <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} />
+          <Tooltip content={({ active, payload, label }) => { if (!active || !payload?.length) return null; const d = payload[0]?.payload; return <div style={{ background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, padding: "8px 12px", fontSize: 12 }}><div style={{ color: C.dim, marginBottom: 4 }}>{label}</div><div style={{ color: C.pri }}>עסקאות: <strong>{d.txCount}</strong></div><div style={{ color: C.grn }}>הכנסות: <strong>{fmtC(d.inc)}</strong></div>{d.txCount > 0 && <div style={{ color: C.dim, marginTop: 2 }}>ממוצע לעסקה: {fmtC(d.inc / d.txCount)}</div>}</div>; }} />
+          <Line type="monotone" dataKey="txCount" stroke={C.pri} strokeWidth={3} dot={{ r: 4, fill: C.pri }} name="עסקאות" />
         </LineChart>
       </ResponsiveContainer>
     </Card>
