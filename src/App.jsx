@@ -1560,6 +1560,30 @@ function DashPage() {
         </ComposedChart>
       </ResponsiveContainer>
     </Card>
+    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
+      <Card style={{ flex: 1, minWidth: 300 }}>
+        <div style={{ color: C.dim, fontSize: 13, marginBottom: 8 }}>📊 הכנסות חודשיות</div>
+        <ResponsiveContainer width="100%" height={220}>
+          <ComposedChart data={mbd.map((d, i) => { const prev = i > 0 ? mbd[i - 1].inc : 0; const diff = d.inc - prev; return { ...d, diff, diffPct: prev > 0 ? ((diff / prev) * 100).toFixed(1) : 0 }; })}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} />
+            <Tooltip content={({ active, payload, label }) => { if (!active || !payload?.length) return null; const d = payload[0]?.payload; return <div style={{ background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, padding: "8px 12px", fontSize: 12 }}><div style={{ color: C.dim, marginBottom: 4 }}>{label}</div><div style={{ color: C.grn }}>הכנסות: <strong>{fmtC(d.inc)}</strong></div>{d.diff !== 0 && <div style={{ color: d.diff > 0 ? C.grn : C.red, marginTop: 2 }}>{d.diff > 0 ? "▲" : "▼"} {fmtC(Math.abs(d.diff))} ({d.diffPct}%)</div>}</div>; }} />
+            <Bar dataKey="inc" radius={[4, 4, 0, 0]} name="הכנסות">{mbd.map((d, i) => { const prev = i > 0 ? mbd[i - 1].inc : 0; return <Cell key={i} fill={d.inc >= prev ? C.grn : C.red} />; })}</Bar>
+          </ComposedChart>
+        </ResponsiveContainer>
+        <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 4 }}>{mbd.filter((_, i) => i > 0 && i <= month).map((d, i) => { const prev = mbd[d.idx - 1].inc; const diff = d.inc - prev; const pct = prev > 0 ? ((diff / prev) * 100).toFixed(0) : 0; return diff !== 0 ? <span key={d.idx} style={{ fontSize: 10, color: diff > 0 ? C.grn : C.red }}>{d.ms} {diff > 0 ? "▲" : "▼"}{pct}%</span> : null; })}</div>
+      </Card>
+      <Card style={{ flex: 1, minWidth: 300 }}>
+        <div style={{ color: C.dim, fontSize: 13, marginBottom: 8 }}>🎯 יעדים חודשיים</div>
+        <ResponsiveContainer width="100%" height={220}>
+          <ComposedChart data={mbd}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} />
+            <Tooltip content={({ active, payload, label }) => { if (!active || !payload?.length) return null; const d = payload[0]?.payload; const hit = d.inc >= d.tgt1; return <div style={{ background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, padding: "8px 12px", fontSize: 12 }}><div style={{ color: C.dim, marginBottom: 4 }}>{label}</div><div style={{ color: C.grn }}>הכנסות: <strong>{fmtC(d.inc)}</strong></div><div style={{ color: C.ylw }}>יעד: <strong>{fmtC(d.tgt1)}</strong></div><div style={{ color: hit ? C.grn : C.red, marginTop: 2 }}>{hit ? "✓ עמד ביעד" : `✗ חסר ${fmtC(d.tgt1 - d.inc)}`}</div></div>; }} />
+            <Bar dataKey="tgt1" fill={`${C.ylw}55`} radius={[4, 4, 0, 0]} name="יעד" />
+            <Bar dataKey="inc" radius={[4, 4, 0, 0]} name="הכנסות">{mbd.map((d, i) => <Cell key={i} fill={d.inc >= d.tgt1 ? C.grn : C.red} />)}</Bar>
+          </ComposedChart>
+        </ResponsiveContainer>
+      </Card>
+    </div>
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
       {mbd.filter((_, i) => i <= month).map(d => {
         const isCurrent = d.idx === month;
