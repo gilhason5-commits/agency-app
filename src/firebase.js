@@ -513,6 +513,20 @@ export async function saveClientSettings(clientName, settings) {
 }
 
 // ═══════════════════════════════════════════════════════
+// COMMISSION SETTINGS API (synced across devices)
+// ═══════════════════════════════════════════════════════
+export async function fetchCommissionSettings() {
+    try {
+        const snap = await getDoc(doc(db, "config", "commissions"));
+        return snap.exists() ? snap.data().types || {} : {};
+    } catch { return {}; }
+}
+
+export async function saveCommissionSettings(commissions) {
+    await setDoc(doc(db, "config", "commissions"), { types: commissions }, { merge: true });
+}
+
+// ═══════════════════════════════════════════════════════
 // FIXED EXPENSES API
 // ═══════════════════════════════════════════════════════
 export async function fetchFixedExpenses() {

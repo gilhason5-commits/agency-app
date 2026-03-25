@@ -12,7 +12,8 @@ import {
   fetchAllClientSettings, saveClientSettings,
   fetchFixedExpenses, addFixedExpense, updateFixedExpense, removeFixedExpense,
   fetchEmployees, addEmployee, removeEmployee,
-  forceLogoutAll, getForceLogoutAt
+  forceLogoutAll, getForceLogoutAt,
+  fetchCommissionSettings, saveCommissionSettings
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -60,8 +61,8 @@ const TelegramSvc = {
 
 // Income type commission rates (hardcoded, always applied)
 const INCOME_TYPE_COMMISSIONS = { "אונלי": 20 };
-// Income type commission rates (editable via settings)
-const _incomeTypeCommissions = (() => {
+// Income type commission rates (editable via settings, synced from Firebase)
+let _incomeTypeCommissions = (() => {
   try { return JSON.parse(localStorage.getItem("INCOME_TYPE_COMMISSIONS_DB") || '{"ווישלי":8,"קארדקום":13}'); }
   catch { return { "ווישלי": 8, "קארדקום": 13 }; }
 })();
@@ -69,6 +70,19 @@ function saveIncomeTypeCommission(typeName, pct) {
   if (pct > 0) _incomeTypeCommissions[typeName] = pct;
   else delete _incomeTypeCommissions[typeName];
   try { localStorage.setItem("INCOME_TYPE_COMMISSIONS_DB", JSON.stringify(_incomeTypeCommissions)); } catch {}
+  // Sync to Firebase for cross-device consistency
+  saveCommissionSettings({ ..._incomeTypeCommissions }).catch(() => {});
+}
+function _syncCommissionsFromFirebase(fbData) {
+  if (fbData && Object.keys(fbData).length > 0) {
+    Object.assign(_incomeTypeCommissions, fbData);
+    // Remove keys that exist locally but not in Firebase
+    Object.keys(_incomeTypeCommissions).forEach(k => {
+      if (!(k in fbData)) delete _incomeTypeCommissions[k];
+    });
+    Object.keys(fbData).forEach(k => { _incomeTypeCommissions[k] = fbData[k]; });
+    try { localStorage.setItem("INCOME_TYPE_COMMISSIONS_DB", JSON.stringify(_incomeTypeCommissions)); } catch {}
+  }
 }
 
 // Resolve commission % for a given platform + incomeType
@@ -887,6 +901,7 @@ function Prov({ children }) {
       try { const ct = await fetchChatterTargets(); setChatterTargets(ct); } catch (e) { console.error("Error fetching chatterTargets:", e); }
       try { const cs = await fetchAllChatterSettings(); setChatterSettings(cs); } catch (e) { console.error("Error fetching chatterSettings:", e); }
       try { const cls = await fetchAllClientSettings(); setClientSettings(cls); } catch (e) { console.error("Error fetching clientSettings:", e); }
+      try { const fbComm = await fetchCommissionSettings(); _syncCommissionsFromFirebase(fbComm); setRv(v => v + 1); } catch (e) { console.error("Error fetching commissions:", e); }
       try { const u = await UserSvc.fetchAll(); setSheetUsers(u); } catch (e) { console.error("Error fetching users:", e); }
       setConnected(true);
       setTimeout(() => setLoadStep(""), 3000);
@@ -2964,9 +2979,10 @@ function ClientsOverviewPage({ onSelectClient }) {
       const avgPct = view === "yearly"
         ? (() => { const rates = MONTHS_SHORT.map((_, i) => getRate(name, ym(year, i))).filter(r => r > 0); return rates.length ? rates.reduce((s, r) => s + r, 0) / rates.length : pct; })()
         : pct;
-      return { name, total, pct, avgPct, entitlement: bal.ent, agencyShare: bal.agencyShare, direct: bal.direct, through: bal.through, balance: bal.actualDue, txCount: rows.length };
+      const hasVat = (clientSettings[name] || {}).vatClient ?? false;
+      return { name, total, pct, avgPct, entitlement: bal.ent, agencyShare: bal.agencyShare, direct: bal.direct, through: bal.through, balance: bal.actualDue, txCount: rows.length, hasVat };
     }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
-  }, [incD, clients, ymi, rv, view, year]);
+  }, [incD, clients, ymi, rv, view, year, clientSettings]);
 
   const monthlyByClient = useMemo(() => {
     if (view !== "yearly") return [];
@@ -3041,13 +3057,14 @@ function ClientsOverviewPage({ onSelectClient }) {
         { label: "לקוחה", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontWeight: 700, fontSize: 13, padding: 0 }}>{r.name}</button> },
         { label: "הכנסות", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.total)}</span> },
         { label: "% סוכנות", render: r => view === "yearly" ? <span style={{ color: C.dim }}>{r.avgPct.toFixed(1)}%</span> : <InlinePctInput value={r.pct} onSave={v => updRate(r.name, ymi, v)} /> },
+        { label: "מע״מ", render: r => <button onClick={() => saveClientSetting(r.name, { vatClient: !r.hasVat })} style={{ background: r.hasVat ? `${C.ylw}22` : C.card, border: `1px solid ${r.hasVat ? C.ylw : C.bdr}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer", color: r.hasVat ? C.ylw : C.mut, fontSize: 11, fontWeight: 600 }}>{r.hasVat ? "🧾 כן" : "לא"}</button> },
         { label: "זכאות סוכנות", render: r => <span style={{ color: C.pri, fontWeight: 600 }}>{fmtC(r.agencyShare)}</span> },
         { label: "זכאות לקוחה", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.entitlement)}</span> },
         { label: "שולם ישירות ללקוחה", render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
         { label: "שולם ישירות אלינו", render: r => <span style={{ color: C.dim }}>{fmtC(r.through)}</span> },
         { label: "יתרה", render: r => <div><span style={{ color: r.balance >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(Math.abs(r.balance))}</span><div style={{ fontSize: 10, color: r.balance >= 0 ? C.grn : C.red }}>{r.balance >= 0 ? "חייבים ללקוחה" : "לקוחה חייבת"}</div></div> },
         { label: "", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>פרטים ←</button> }
-      ]} rows={clientStats} footer={["סה״כ", fmtC(totalIncome), "", fmtC(totalAgencyShare), fmtC(totalEntitlement), "", fmtC(totalThrough), "", ""]} />
+      ]} rows={clientStats} footer={["סה״כ", fmtC(totalIncome), "", "", fmtC(totalAgencyShare), fmtC(totalEntitlement), "", fmtC(totalThrough), "", ""]} />
     </Card>
   </div>;
 }
