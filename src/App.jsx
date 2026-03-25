@@ -12,7 +12,8 @@ import {
   fetchAllClientSettings, saveClientSettings,
   fetchFixedExpenses, addFixedExpense, updateFixedExpense, removeFixedExpense,
   fetchEmployees, addEmployee, removeEmployee,
-  forceLogoutAll, getForceLogoutAt
+  forceLogoutAll, getForceLogoutAt,
+  fetchCommissionSettings, saveCommissionSettings
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -60,8 +61,8 @@ const TelegramSvc = {
 
 // Income type commission rates (hardcoded, always applied)
 const INCOME_TYPE_COMMISSIONS = { "אונלי": 20 };
-// Income type commission rates (editable via settings)
-const _incomeTypeCommissions = (() => {
+// Income type commission rates (editable via settings, synced from Firebase)
+let _incomeTypeCommissions = (() => {
   try { return JSON.parse(localStorage.getItem("INCOME_TYPE_COMMISSIONS_DB") || '{"ווישלי":8,"קארדקום":13}'); }
   catch { return { "ווישלי": 8, "קארדקום": 13 }; }
 })();
@@ -69,6 +70,19 @@ function saveIncomeTypeCommission(typeName, pct) {
   if (pct > 0) _incomeTypeCommissions[typeName] = pct;
   else delete _incomeTypeCommissions[typeName];
   try { localStorage.setItem("INCOME_TYPE_COMMISSIONS_DB", JSON.stringify(_incomeTypeCommissions)); } catch {}
+  // Sync to Firebase for cross-device consistency
+  saveCommissionSettings({ ..._incomeTypeCommissions }).catch(() => {});
+}
+function _syncCommissionsFromFirebase(fbData) {
+  if (fbData && Object.keys(fbData).length > 0) {
+    Object.assign(_incomeTypeCommissions, fbData);
+    // Remove keys that exist locally but not in Firebase
+    Object.keys(_incomeTypeCommissions).forEach(k => {
+      if (!(k in fbData)) delete _incomeTypeCommissions[k];
+    });
+    Object.keys(fbData).forEach(k => { _incomeTypeCommissions[k] = fbData[k]; });
+    try { localStorage.setItem("INCOME_TYPE_COMMISSIONS_DB", JSON.stringify(_incomeTypeCommissions)); } catch {}
+  }
 }
 
 // Resolve commission % for a given platform + incomeType
@@ -887,6 +901,7 @@ function Prov({ children }) {
       try { const ct = await fetchChatterTargets(); setChatterTargets(ct); } catch (e) { console.error("Error fetching chatterTargets:", e); }
       try { const cs = await fetchAllChatterSettings(); setChatterSettings(cs); } catch (e) { console.error("Error fetching chatterSettings:", e); }
       try { const cls = await fetchAllClientSettings(); setClientSettings(cls); } catch (e) { console.error("Error fetching clientSettings:", e); }
+      try { const fbComm = await fetchCommissionSettings(); _syncCommissionsFromFirebase(fbComm); setRv(v => v + 1); } catch (e) { console.error("Error fetching commissions:", e); }
       try { const u = await UserSvc.fetchAll(); setSheetUsers(u); } catch (e) { console.error("Error fetching users:", e); }
       setConnected(true);
       setTimeout(() => setLoadStep(""), 3000);
@@ -1520,6 +1535,26 @@ function DashPage() {
     });
   }, [iY, eY, year, liveRate, settlements, chatterSettings, clientSettings]);
 
+  const COMM_COLORS = ["#e74c3c", "#e67e22", "#f1c40f", "#2ecc71", "#1abc9c", "#3498db", "#9b59b6", "#e84393", "#fd79a8", "#00cec9"];
+  const commData = useMemo(() => {
+    const allTypes = new Set();
+    const months = MONTHS_HE.map((m, i) => {
+      const mi = iY.filter(r => r.date.getMonth() === i);
+      const byType = {};
+      mi.forEach(r => {
+        const pct = r.commissionPct || resolveCommissionPct(r.platform, r.incomeType);
+        if (!pct) return;
+        const pre = r.preCommissionILS || r.amountILS;
+        const comm = pre - (pre * (1 - pct / 100));
+        const key = r.incomeType || r.platform || "אחר";
+        allTypes.add(key);
+        byType[key] = (byType[key] || 0) + comm;
+      });
+      return { ms: MONTHS_SHORT[i], ...byType };
+    });
+    return { months, types: [...allTypes] };
+  }, [iY]);
+
   const cumData = useMemo(() => { let ci = 0, ct = 0; return mbd.map(d => { ci += d.inc; ct += d.tgt1; return { ...d, cumInc: ci, cumTgt: ct }; }); }, [mbd]);
   const yearTotInc = cumData[11]?.cumInc || 0, yearTotTgt = cumData[11]?.cumTgt || 0;
 
@@ -1538,6 +1573,23 @@ function DashPage() {
           <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} />
           <Tooltip content={<TT />} /><Area type="monotone" dataKey="cumTgt" fill={`${C.ylw}15`} stroke={C.ylw} strokeDasharray="5 5" name="יעד מצטבר" /><Line type="monotone" dataKey="cumInc" stroke={C.grn} strokeWidth={3} dot={{ r: 4, fill: C.grn }} name="הכנסות מצטבר" />
         </ComposedChart>
+      </ResponsiveContainer>
+    </Card>
+    <Card style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+        <span style={{ color: C.dim, fontSize: 13 }}>📊 הכנסות מול יעדים — חודשי</span>
+        <div style={{ display: "flex", gap: 16 }}>
+          <span style={{ fontSize: 12 }}><span style={{ color: C.grn }}>●</span> הכנסות</span>
+          <span style={{ fontSize: 12 }}><span style={{ color: C.ylw }}>●</span> יעד</span>
+        </div>
+      </div>
+      <ResponsiveContainer width="100%" height={220}>
+        <LineChart data={mbd.map((d, i) => { const prev = i > 0 ? mbd[i - 1].inc : 0; const diff = d.inc - prev; return { ...d, diff, diffPct: prev > 0 ? ((diff / prev) * 100).toFixed(1) : 0 }; })}>
+          <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} />
+          <Tooltip content={({ active, payload, label }) => { if (!active || !payload?.length) return null; const d = payload[0]?.payload; const hit = d.inc >= d.tgt1; return <div style={{ background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, padding: "8px 12px", fontSize: 12 }}><div style={{ color: C.dim, marginBottom: 4 }}>{label}</div><div style={{ color: C.grn }}>הכנסות: <strong>{fmtC(d.inc)}</strong></div><div style={{ color: C.ylw }}>יעד: <strong>{fmtC(d.tgt1)}</strong></div>{d.diff !== 0 && <div style={{ color: d.diff > 0 ? C.grn : C.red, marginTop: 2 }}>{d.diff > 0 ? "▲" : "▼"} {fmtC(Math.abs(d.diff))} ({d.diffPct}%)</div>}<div style={{ color: hit ? C.grn : C.red, marginTop: 2 }}>{hit ? "✓ עמד ביעד" : `✗ חסר ${fmtC(d.tgt1 - d.inc)}`}</div></div>; }} />
+          <Line type="monotone" dataKey="tgt1" stroke={C.ylw} strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3, fill: C.ylw }} name="יעד" />
+          <Line type="monotone" dataKey="inc" stroke={C.grn} strokeWidth={3} dot={{ r: 4, fill: C.grn }} name="הכנסות" />
+        </LineChart>
       </ResponsiveContainer>
     </Card>
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
@@ -1621,6 +1673,11 @@ function DashPage() {
         <Stat icon="📈" title="צפי רווח לפני מס" value={fmtC(netProfit)} color={netProfit >= 0 ? C.grn : C.red} />
       </div>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={240}><BarChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="inc" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Bar dataKey="exp" fill={C.red} radius={[4, 4, 0, 0]} name="הוצאות" /></BarChart></ResponsiveContainer></Card>
+      {commData.types.length > 0 && <Card style={{ marginBottom: 16 }}>
+        <div style={{ color: C.dim, fontSize: 13, marginBottom: 8 }}>💸 עמלות סליקה לפי סוג הכנסה</div>
+        <ResponsiveContainer width="100%" height={220}><BarChart data={commData.months}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} />{commData.types.map((t, i) => <Bar key={t} dataKey={t} stackId="comm" fill={COMM_COLORS[i % COMM_COLORS.length]} name={t} radius={i === commData.types.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />)}</BarChart></ResponsiveContainer>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 6 }}>{commData.types.map((t, i) => <span key={t} style={{ fontSize: 11, color: C.dim }}><span style={{ color: COMM_COLORS[i % COMM_COLORS.length] }}>●</span> {t}</span>)}</div>
+      </Card>}
       <DT columns={[
         { label: "חודש", key: "month" },
         { label: "הכנסות סוכנות", render: r => <span style={{ color: C.grn }}>{fmtC(r.agencyInc)}</span> },
@@ -1703,6 +1760,32 @@ function DashPage() {
           {rankCard("📉 לקוחות נמוכות", bot3Cl, false)}
         </div>
       </div>;
+    })()}
+
+    {(() => {
+      const hourMap = {};
+      for (let h = 0; h < 24; h++) hourMap[h] = 0;
+      const activeI = view === "monthly" ? iM : iY;
+      activeI.forEach(r => {
+        let hStr = r.hour;
+        if (!hStr) return;
+        if (typeof hStr === "string" && hStr.includes("1899-") && hStr.includes("T")) hStr = hStr.split("T")[1].substring(0, 5);
+        const hNum = parseInt(hStr, 10);
+        if (isNaN(hNum) || hNum < 0 || hNum > 23) return;
+        hourMap[hNum] += r.amountILS;
+      });
+      const hours = Object.entries(hourMap).map(([h, total]) => ({ hour: +h, total })).filter(h => h.total > 0).sort((a, b) => b.total - a.total);
+      const top3 = hours.slice(0, 3);
+      const bot3 = hours.length > 3 ? hours.slice(-3).reverse() : [];
+      const fmtH = h => `${String(h).padStart(2, "0")}:00`;
+      const medals = ["🥇", "🥈", "🥉"];
+      return top3.length > 0 ? <div style={{ marginTop: 16 }}>
+        <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>⏰ שעות פעילות</h3>
+        <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr" : "1fr 1fr", gap: 12 }}>
+          <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.grn, marginBottom: 8 }}>🔥 שעות הכי רווחיות</div>{top3.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 2 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{medals[i]} {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(h.total)}</span></div>)}</Card>
+          {bot3.length > 0 && <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.red, marginBottom: 8 }}>📉 שעות הכי חלשות</div>{bot3.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 2 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{i + 1}. {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.red, fontWeight: 700 }}>{fmtC(h.total)}</span></div>)}</Card>}
+        </div>
+      </div> : null;
     })()}
 
     {/* Tier Cubes */}
@@ -2041,6 +2124,8 @@ function EditIncomeModal({ record, onClose }) {
   const [amount, setAmount] = useState(isUSD ? String(record.amountUSD || "") : String(record.rawILS || record.amountILS || ""));
   const [incomeType, setIncomeType] = useState(record.incomeType || "");
   const [modelName, setModelName] = useState(record.modelName || "");
+  const initDate = record.date instanceof Date ? record.date.toISOString().slice(0, 10) : (typeof record.date === "string" && record.date ? record.date.slice(0, 10) : "");
+  const [txDate, setTxDate] = useState(initDate);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -2054,9 +2139,11 @@ function EditIncomeModal({ record, onClose }) {
       const inputILS = currency === "ILS" ? +amount || 0 : 0;
       const inputUSD = currency === "USD" ? +amount || 0 : 0;
       const commFields = computeCommissionFields(record.platform, incomeType, inputILS, inputUSD, rate);
+      const newDate = txDate ? new Date(txDate + "T12:00:00") : record.date;
       const updates = {
         incomeType,
         modelName,
+        date: newDate,
         rawILS: inputILS,
         originalRawILS: inputILS,
         originalRawUSD: inputUSD,
@@ -2082,6 +2169,11 @@ function EditIncomeModal({ record, onClose }) {
       <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>
         {record.chatterName} • {record.modelName} • {record.platform} • {record.date instanceof Date ? record.date.toLocaleDateString("he-IL") : ""}
       </div>
+    </div>
+
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>תאריך</label>
+      <input type="date" value={txDate} onChange={e => setTxDate(e.target.value)} style={{ ...inputStyle, direction: "ltr" }} />
     </div>
 
     <div style={{ marginBottom: 14 }}>
@@ -2887,9 +2979,10 @@ function ClientsOverviewPage({ onSelectClient }) {
       const avgPct = view === "yearly"
         ? (() => { const rates = MONTHS_SHORT.map((_, i) => getRate(name, ym(year, i))).filter(r => r > 0); return rates.length ? rates.reduce((s, r) => s + r, 0) / rates.length : pct; })()
         : pct;
-      return { name, total, pct, avgPct, entitlement: bal.ent, agencyShare: bal.agencyShare, direct: bal.direct, through: bal.through, balance: bal.actualDue, txCount: rows.length };
+      const hasVat = (clientSettings[name] || {}).vatClient ?? false;
+      return { name, total, pct, avgPct, entitlement: bal.ent, agencyShare: bal.agencyShare, direct: bal.direct, through: bal.through, balance: bal.actualDue, txCount: rows.length, hasVat };
     }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
-  }, [incD, clients, ymi, rv, view, year]);
+  }, [incD, clients, ymi, rv, view, year, clientSettings]);
 
   const monthlyByClient = useMemo(() => {
     if (view !== "yearly") return [];
@@ -2964,13 +3057,14 @@ function ClientsOverviewPage({ onSelectClient }) {
         { label: "לקוחה", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontWeight: 700, fontSize: 13, padding: 0 }}>{r.name}</button> },
         { label: "הכנסות", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.total)}</span> },
         { label: "% סוכנות", render: r => view === "yearly" ? <span style={{ color: C.dim }}>{r.avgPct.toFixed(1)}%</span> : <InlinePctInput value={r.pct} onSave={v => updRate(r.name, ymi, v)} /> },
+        { label: "מע״מ", render: r => <button onClick={() => saveClientSetting(r.name, { vatClient: !r.hasVat })} style={{ background: r.hasVat ? `${C.ylw}22` : C.card, border: `1px solid ${r.hasVat ? C.ylw : C.bdr}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer", color: r.hasVat ? C.ylw : C.mut, fontSize: 11, fontWeight: 600 }}>{r.hasVat ? "🧾 כן" : "לא"}</button> },
         { label: "זכאות סוכנות", render: r => <span style={{ color: C.pri, fontWeight: 600 }}>{fmtC(r.agencyShare)}</span> },
         { label: "זכאות לקוחה", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.entitlement)}</span> },
         { label: "שולם ישירות ללקוחה", render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
         { label: "שולם ישירות אלינו", render: r => <span style={{ color: C.dim }}>{fmtC(r.through)}</span> },
         { label: "יתרה", render: r => <div><span style={{ color: r.balance >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(Math.abs(r.balance))}</span><div style={{ fontSize: 10, color: r.balance >= 0 ? C.grn : C.red }}>{r.balance >= 0 ? "חייבים ללקוחה" : "לקוחה חייבת"}</div></div> },
         { label: "", render: r => <button onClick={() => onSelectClient(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>פרטים ←</button> }
-      ]} rows={clientStats} footer={["סה״כ", fmtC(totalIncome), "", fmtC(totalAgencyShare), fmtC(totalEntitlement), "", fmtC(totalThrough), "", ""]} />
+      ]} rows={clientStats} footer={["סה״כ", fmtC(totalIncome), "", "", fmtC(totalAgencyShare), fmtC(totalEntitlement), "", fmtC(totalThrough), "", ""]} />
     </Card>
   </div>;
 }
