@@ -1561,21 +1561,6 @@ function DashPage() {
   return <div style={{ direction: "rtl" }}>
     <h2 style={{ color: C.txt, fontSize: w < 768 ? 18 : 22, fontWeight: 700, marginBottom: 20 }}>📊 דאשבורד ניהול סוכנות</h2>
     <Card style={{ marginBottom: 20 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-        <span style={{ color: C.dim, fontSize: 13 }}>🎯 התקדמות שנתית {year}</span>
-        <div style={{ display: "flex", gap: 16 }}>
-          <span style={{ fontSize: 12 }}><span style={{ color: C.grn }}>●</span> הכנסות: <strong style={{ color: C.grn }}>{fmtC(yearTotInc)}</strong></span>
-          <span style={{ fontSize: 12 }}><span style={{ color: C.ylw }}>●</span> יעד: <strong style={{ color: C.ylw }}>{fmtC(yearTotTgt)}</strong></span>
-        </div>
-      </div>
-      <ResponsiveContainer width="100%" height={220}>
-        <ComposedChart data={cumData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} />
-          <Tooltip content={<TT />} /><Area type="monotone" dataKey="cumTgt" fill={`${C.ylw}15`} stroke={C.ylw} strokeDasharray="5 5" name="יעד מצטבר" /><Line type="monotone" dataKey="cumInc" stroke={C.grn} strokeWidth={3} dot={{ r: 4, fill: C.grn }} name="הכנסות מצטבר" />
-        </ComposedChart>
-      </ResponsiveContainer>
-    </Card>
-    <Card style={{ marginBottom: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
         <span style={{ color: C.dim, fontSize: 13 }}>📊 הכנסות מול יעדים — חודשי</span>
         <div style={{ display: "flex", gap: 16 }}>
@@ -1672,12 +1657,24 @@ function DashPage() {
         <Stat icon="💬" title="צפי שכר צ'אטים" value={fmtC(totalChatterSalary)} color={C.ylw} />
         <Stat icon="📈" title="צפי רווח לפני מס" value={fmtC(netProfit)} color={netProfit >= 0 ? C.grn : C.red} />
       </div>
-      <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={240}><BarChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="inc" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Bar dataKey="exp" fill={C.red} radius={[4, 4, 0, 0]} name="הוצאות" /></BarChart></ResponsiveContainer></Card>
-      {commData.types.length > 0 && <Card style={{ marginBottom: 16 }}>
-        <div style={{ color: C.dim, fontSize: 13, marginBottom: 8 }}>💸 עמלות סליקה לפי סוג הכנסה</div>
-        <ResponsiveContainer width="100%" height={220}><BarChart data={commData.months}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} />{commData.types.map((t, i) => <Bar key={t} dataKey={t} stackId="comm" fill={COMM_COLORS[i % COMM_COLORS.length]} name={t} radius={i === commData.types.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />)}</BarChart></ResponsiveContainer>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 6 }}>{commData.types.map((t, i) => <span key={t} style={{ fontSize: 11, color: C.dim }}><span style={{ color: COMM_COLORS[i % COMM_COLORS.length] }}>●</span> {t}</span>)}</div>
-      </Card>}
+      {(() => {
+        const mergedData = mbd.map((d, i) => {
+          const commMonth = commData.months[i] || {};
+          const totalComm = commData.types.reduce((s, t) => s + (commMonth[t] || 0), 0);
+          return { ...d, ...commMonth, totalComm };
+        });
+        return <Card style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+            <span style={{ color: C.dim, fontSize: 13 }}>📊 הכנסות, הוצאות ועמלות</span>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, color: C.dim }}><span style={{ color: C.grn }}>●</span> הכנסות</span>
+              <span style={{ fontSize: 11, color: C.dim }}><span style={{ color: C.red }}>●</span> הוצאות</span>
+              {commData.types.map((t, i) => <span key={t} style={{ fontSize: 11, color: C.dim }}><span style={{ color: COMM_COLORS[i % COMM_COLORS.length] }}>●</span> {t}</span>)}
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={260}><BarChart data={mergedData}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="inc" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Bar dataKey="exp" fill={C.red} radius={[4, 4, 0, 0]} name="הוצאות" />{commData.types.map((t, i) => <Bar key={t} dataKey={t} stackId="comm" fill={COMM_COLORS[i % COMM_COLORS.length]} name={t} radius={i === commData.types.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />)}</BarChart></ResponsiveContainer>
+        </Card>;
+      })()}
       <DT columns={[
         { label: "חודש", key: "month" },
         { label: "הכנסות סוכנות", render: r => <span style={{ color: C.grn }}>{fmtC(r.agencyInc)}</span> },
