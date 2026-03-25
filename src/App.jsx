@@ -1461,8 +1461,9 @@ function DashPage() {
   const lmCurr = view === "monthly" ? (lmVals[year]?.[month] || 0) : 0;
   const vatBase = agencyIncome - lmCurr;
   const vat = vatBase > 0 ? vatBase * 0.18 : 0;
-  const grossProfit = agencyIncome - mp.exp - fixedMonthly - empMonthly;
   const nonDeductible = activeE.filter(e => !e.taxRecognized).reduce((s, e) => s + (e.amount || 0), 0);
+  const recognizedExp = mp.exp - nonDeductible;
+  const grossProfit = agencyIncome - recognizedExp - totalChatterSalary;
   const niTotal = empNIMonthly + manualNI;
   const taxableIncome = (agencyIncome - vat) - mp.exp - fixedMonthly - niTotal + nonDeductible - lmCurr;
   const incomeTax = taxableIncome > 0
@@ -1709,8 +1710,8 @@ function DashPage() {
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <Stat icon="💚" title="רווח נטו" value={fmtC(netProfitFull)} color={netProfitFull >= 0 ? C.grn : C.red} sub="אחרי כל הניכויים" />
         <Stat icon="🏦" title="כסף לבנק" value={fmtC(cashToBank)} color={cashToBank >= 0 ? C.grn : C.red} sub="רווח נטו פחות ל.מ" />
-        <Stat icon="🔴" title="אני חייב להעביר" value={fmtC(paymentGaps.totalWeOwe)} color={C.red} sub={paymentGaps.weOweClientsVat + paymentGaps.weOweChattersVat > 0 ? `כולל מע״מ ${fmtC(paymentGaps.weOweClientsVat + paymentGaps.weOweChattersVat)}` : ""} />
-        <Stat icon="🟢" title="חייבים לי" value={fmtC(paymentGaps.totalTheyOwe)} color={C.grn} sub={paymentGaps.clientsOweUsVat + paymentGaps.chattersOweUsVat > 0 ? `כולל מע״מ ${fmtC(paymentGaps.clientsOweUsVat + paymentGaps.chattersOweUsVat)}` : ""} />
+        <Stat icon="🔴" title="אני חייב להעביר" value={fmtC(paymentGaps.totalWeOwe)} color={C.red} sub={<>{`לפני מע״מ: ${fmtC(paymentGaps.weOweClients + paymentGaps.weOweChatters)}`}{paymentGaps.weOweClientsVat + paymentGaps.weOweChattersVat > 0 && <><br/>{`מע״מ: ${fmtC(paymentGaps.weOweClientsVat + paymentGaps.weOweChattersVat)}`}</>}</>} />
+        <Stat icon="🟢" title="חייבים לי" value={fmtC(paymentGaps.totalTheyOwe)} color={C.grn} sub={<>{`לפני מע״מ: ${fmtC(paymentGaps.clientsOweUs + paymentGaps.chattersOweUs)}`}{paymentGaps.clientsOweUsVat + paymentGaps.chattersOweUsVat > 0 && <><br/>{`מע״מ: ${fmtC(paymentGaps.clientsOweUsVat + paymentGaps.chattersOweUsVat)}`}</>}</>} />
       </div>
 
       {/* Burn rate */}
@@ -1752,8 +1753,8 @@ function DashPage() {
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <Stat icon="💚" title="רווח נטו" value={fmtC(netProfitFull)} color={netProfitFull >= 0 ? C.grn : C.red} sub="אחרי כל הניכויים" />
         <Stat icon="🏦" title="כסף לבנק" value={fmtC(cashToBank)} color={cashToBank >= 0 ? C.grn : C.red} sub="רווח נטו פחות ל.מ" />
-        <Stat icon="🔴" title="אני חייב להעביר" value={fmtC(paymentGaps.totalWeOwe)} color={C.red} sub={paymentGaps.weOweClientsVat + paymentGaps.weOweChattersVat > 0 ? `כולל מע״מ ${fmtC(paymentGaps.weOweClientsVat + paymentGaps.weOweChattersVat)}` : ""} />
-        <Stat icon="🟢" title="חייבים לי" value={fmtC(paymentGaps.totalTheyOwe)} color={C.grn} sub={paymentGaps.clientsOweUsVat + paymentGaps.chattersOweUsVat > 0 ? `כולל מע״מ ${fmtC(paymentGaps.clientsOweUsVat + paymentGaps.chattersOweUsVat)}` : ""} />
+        <Stat icon="🔴" title="אני חייב להעביר" value={fmtC(paymentGaps.totalWeOwe)} color={C.red} sub={<>{`לפני מע״מ: ${fmtC(paymentGaps.weOweClients + paymentGaps.weOweChatters)}`}{paymentGaps.weOweClientsVat + paymentGaps.weOweChattersVat > 0 && <><br/>{`מע״מ: ${fmtC(paymentGaps.weOweClientsVat + paymentGaps.weOweChattersVat)}`}</>}</>} />
+        <Stat icon="🟢" title="חייבים לי" value={fmtC(paymentGaps.totalTheyOwe)} color={C.grn} sub={<>{`לפני מע״מ: ${fmtC(paymentGaps.clientsOweUs + paymentGaps.chattersOweUs)}`}{paymentGaps.clientsOweUsVat + paymentGaps.chattersOweUsVat > 0 && <><br/>{`מע״מ: ${fmtC(paymentGaps.clientsOweUsVat + paymentGaps.chattersOweUsVat)}`}</>}</>} />
       </div>
 
       {/* Burn rate */}
