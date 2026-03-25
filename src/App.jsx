@@ -1520,6 +1520,26 @@ function DashPage() {
     });
   }, [iY, eY, year, liveRate, settlements, chatterSettings, clientSettings]);
 
+  const COMM_COLORS = ["#e74c3c", "#e67e22", "#f1c40f", "#2ecc71", "#1abc9c", "#3498db", "#9b59b6", "#e84393", "#fd79a8", "#00cec9"];
+  const commData = useMemo(() => {
+    const allTypes = new Set();
+    const months = MONTHS_HE.map((m, i) => {
+      const mi = iY.filter(r => r.date.getMonth() === i);
+      const byType = {};
+      mi.forEach(r => {
+        const pct = r.commissionPct || resolveCommissionPct(r.platform, r.incomeType);
+        if (!pct) return;
+        const pre = r.preCommissionILS || r.amountILS;
+        const comm = pre - (pre * (1 - pct / 100));
+        const key = r.incomeType || r.platform || "אחר";
+        allTypes.add(key);
+        byType[key] = (byType[key] || 0) + comm;
+      });
+      return { ms: MONTHS_SHORT[i], ...byType };
+    });
+    return { months, types: [...allTypes] };
+  }, [iY]);
+
   const cumData = useMemo(() => { let ci = 0, ct = 0; return mbd.map(d => { ci += d.inc; ct += d.tgt1; return { ...d, cumInc: ci, cumTgt: ct }; }); }, [mbd]);
   const yearTotInc = cumData[11]?.cumInc || 0, yearTotTgt = cumData[11]?.cumTgt || 0;
 
@@ -1621,6 +1641,11 @@ function DashPage() {
         <Stat icon="📈" title="צפי רווח לפני מס" value={fmtC(netProfit)} color={netProfit >= 0 ? C.grn : C.red} />
       </div>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={240}><BarChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="inc" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Bar dataKey="exp" fill={C.red} radius={[4, 4, 0, 0]} name="הוצאות" /></BarChart></ResponsiveContainer></Card>
+      {commData.types.length > 0 && <Card style={{ marginBottom: 16 }}>
+        <div style={{ color: C.dim, fontSize: 13, marginBottom: 8 }}>💸 עמלות סליקה לפי סוג הכנסה</div>
+        <ResponsiveContainer width="100%" height={220}><BarChart data={commData.months}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} />{commData.types.map((t, i) => <Bar key={t} dataKey={t} stackId="comm" fill={COMM_COLORS[i % COMM_COLORS.length]} name={t} radius={i === commData.types.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />)}</BarChart></ResponsiveContainer>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 6 }}>{commData.types.map((t, i) => <span key={t} style={{ fontSize: 11, color: C.dim }}><span style={{ color: COMM_COLORS[i % COMM_COLORS.length] }}>●</span> {t}</span>)}</div>
+      </Card>}
       <DT columns={[
         { label: "חודש", key: "month" },
         { label: "הכנסות סוכנות", render: r => <span style={{ color: C.grn }}>{fmtC(r.agencyInc)}</span> },
