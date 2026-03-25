@@ -1600,7 +1600,7 @@ function DashPage() {
       const [openMonth, setOpenMonth] = _dashOpenMonth;
       const isYearly = view === "yearly";
       return <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
-        {mbd.filter((_, i) => i <= month).map(d => {
+        {mbd.filter((_, i) => isYearly ? i <= month : i === month).map(d => {
           const isCurrent = d.idx === month;
           const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
           const currentDaily = d.inc / daysPassed;
