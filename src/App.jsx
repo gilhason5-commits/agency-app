@@ -5293,8 +5293,8 @@ function DebtsPage() {
             {
               label: 'חוב מסכם לתשלום',
               render: r => {
-                const bg = r.finalDue < 1 ? 'transparent' : (r.actualDue > 0 ? `${C.grn}15` : `${C.red}15`);
-                const col = r.finalDue < 1 ? C.mut : (r.actualDue > 0 ? C.grn : C.red);
+                const bg = r.finalDue < 1 ? 'transparent' : (r.actualDue > 0 ? `${C.red}15` : `${C.grn}15`);
+                const col = r.finalDue < 1 ? C.mut : (r.actualDue > 0 ? C.red : C.grn);
                 const txt = r.finalDue < 1 ? 'מאוזן' : (r.actualDue > 0 ? 'אנחנו צריכים לשלם לה' : 'היא צריכה להעביר לנו');
                 return <div style={{ background: bg, color: col, padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 13 }}>
                   {r.hasVat && r.finalDue >= 1 ? <>
