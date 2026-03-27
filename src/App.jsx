@@ -4210,6 +4210,36 @@ function ChatterPortal({ hideHeader } = {}) {
     shiftLocation: "משרד", notes: "", incomeType: "", customIncomeType: "", buyerName: ""
   });
 
+  const [editTx, setEditTx] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const openEdit = (r) => {
+    const isUSD = (r.amountUSD || 0) > 0;
+    setEditForm({
+      currency: isUSD ? "USD" : "ILS",
+      amount: isUSD ? String(r.amountUSD || "") : String(r.rawILS || r.amountILS || ""),
+      incomeType: r.incomeType || "",
+      platform: r.platform || "",
+      modelName: r.modelName || "",
+      txDate: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : ""
+    });
+    setEditTx(r);
+  };
+  const saveEdit = async () => {
+    setSaving(true); setErr("");
+    try {
+      const rate = +form.usdRate || 3.14;
+      const inputILS = editForm.currency === "ILS" ? +editForm.amount || 0 : 0;
+      const inputUSD = editForm.currency === "USD" ? +editForm.amount || 0 : 0;
+      const commFields = computeCommissionFields(editForm.platform, editForm.incomeType, inputILS, inputUSD, rate);
+      const newDate = editForm.txDate ? new Date(editForm.txDate + "T12:00:00") : editTx.date;
+      const updates = { incomeType: editForm.incomeType, platform: editForm.platform, modelName: editForm.modelName, date: newDate, rawILS: inputILS, originalRawILS: inputILS, originalRawUSD: inputUSD, usdRate: rate, ...commFields };
+      if (editTx._fromPending) { await updatePending(editTx.id, updates); } else { await updateIncome(editTx.id, updates); }
+      setIncome(prev => prev.map(x => x.id === editTx.id ? { ...x, ...updates } : x));
+      setEditTx(null);
+    } catch (e) { setErr("שגיאה: " + e.message); }
+    setSaving(false);
+  };
+
   // Auto-load data if not connected
   useEffect(() => { if (!connected) load(); }, [connected, load]);
 
@@ -4560,8 +4590,9 @@ function ChatterPortal({ hideHeader } = {}) {
             { label: "עמ׳ ₪", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" },
             { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
             { label: "סכום ₪", render: r => <span style={{ color: C.ylw }}>{fmtC(r.amountILS)}</span> },
-            { label: "סטטוס", render: () => <span style={{ color: C.ylw }}>⏳ ממתין</span> }
-          ]} rows={pending} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(pending.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalPending), "", ""]} />
+            { label: "סטטוס", render: () => <span style={{ color: C.ylw }}>⏳ ממתין</span> },
+            { label: "", render: r => <button onClick={() => openEdit(r)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>✏️</button> }
+          ]} rows={pending} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(pending.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalPending), "", "", ""]} />
         </div>
       </>}
 
@@ -4583,6 +4614,58 @@ function ChatterPortal({ hideHeader } = {}) {
         ]} rows={approved} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved), "", ""]} />
       }
 
+      {editTx && <Modal open={true} onClose={() => setEditTx(null)} title="✏️ עריכת עסקה" width={420}>
+        <div style={{ direction: "rtl" }}>
+          <div style={{ color: C.dim, fontSize: 12, marginBottom: 12 }}>{editTx.chatterName} • {editTx.modelName} • {editTx.platform}</div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>תאריך</label>
+            <input type="date" value={editForm.txDate} onChange={e => setEditForm(f => ({ ...f, txDate: e.target.value }))} style={{ ...inputStyle, direction: "ltr" }} />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>לקוחה</label>
+            <select value={editForm.modelName} onChange={e => setEditForm(f => ({ ...f, modelName: e.target.value }))} style={inputStyle}>
+              <option value="">בחר...</option>
+              {clientNames.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>פלטפורמה</label>
+            <select value={editForm.platform} onChange={e => setEditForm(f => ({ ...f, platform: e.target.value }))} style={inputStyle}>
+              <option value="">בחר...</option>
+              {[...new Set(["טלגרם", "אונלי", ...income.map(r => r.platform).filter(Boolean)])].sort().map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>סוג הכנסה</label>
+            <select value={editForm.incomeType} onChange={e => setEditForm(f => ({ ...f, incomeType: e.target.value }))} style={inputStyle}>
+              <option value="">בחר...</option>
+              {incomeTypes.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>סכום ומטבע</label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              {[{ key: "ILS", label: "₪ שקל" }, { key: "USD", label: "$ דולר" }].map(({ key, label }) => (
+                <button key={key} onClick={() => setEditForm(f => ({ ...f, currency: key }))} style={{ flex: 1, padding: "10px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer", background: editForm.currency === key ? C.pri : C.card, color: editForm.currency === key ? "#fff" : C.dim, border: `2px solid ${editForm.currency === key ? C.pri : C.bdr}`, transition: "all .15s" }}>{label}</button>
+              ))}
+            </div>
+            <input type="number" value={editForm.amount} onChange={e => setEditForm(f => ({ ...f, amount: e.target.value }))} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
+          </div>
+          {(() => {
+            const commPct = resolveCommissionPct(editForm.platform, editForm.incomeType);
+            if (!commPct) return null;
+            const rate = +form.usdRate || 3.14;
+            const raw = editForm.currency === "ILS" ? +editForm.amount : +editForm.amount * rate;
+            return <div style={{ background: `${C.ylw}15`, border: `1px solid ${C.ylw}44`, borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12 }}>
+              <span style={{ color: C.dim }}>עמלת פלטפורמה: </span>
+              <span style={{ color: C.ylw, fontWeight: 700 }}>{commPct}%</span>
+              {editForm.amount && <span style={{ color: C.dim }}> — לאחר עמלה: <strong style={{ color: C.grn }}>{fmtC(raw * (1 - commPct / 100))}</strong></span>}
+            </div>;
+          })()}
+          {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+          <Btn onClick={saveEdit} variant="success" size="lg" style={{ width: "100%" }} disabled={saving}>{saving ? "⏳ שומר..." : "💾 שמור שינויים"}</Btn>
+        </div>
+      </Modal>}
     </div>
   </div>;
 }
