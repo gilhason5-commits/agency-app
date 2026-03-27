@@ -4866,63 +4866,14 @@ function ClientPortal() {
         <Stat icon="📊" title="סה״כ עסקאות" value={txCount} color={C.pri} />
       </div>
 
-      {/* Monthly Targets */}
-      {targets && targets.prevInc > 0 && <Card style={{ marginBottom: 16 }}>
-        <h3 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 12 }}>🎯 יעדים — {MONTHS_HE[month]}</h3>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim, marginBottom: 8 }}>
-          <span>ממוצע יומי: <strong style={{ color: C.txt }}>{fmtC(targets.dailyAvg)}</strong></span>
-          <span>חודש קודם: <strong style={{ color: C.txt }}>{fmtC(targets.prevInc)}</strong></span>
-        </div>
-        {[{ label: "יעד ברזל (+5%)", val: targets.t1, color: "#cd7f32" },
-        { label: "יעד כסף (+10%)", val: targets.t2, color: "#c0c0c0" },
-        { label: "יעד זהב (+15%)", val: targets.t3, color: "#ffd700" }
-        ].map(t => {
-          const pct = Math.min(100, targets.curInc / t.val * 100);
-          const hit = targets.curInc >= t.val;
-          return <div key={t.label} style={{ marginBottom: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-              <span style={{ color: C.txt }}>{t.label}</span>
-              <span style={{ color: hit ? C.grn : C.dim }}>{fmtC(t.val)} {hit ? "🎉" : ""}</span>
-            </div>
-            <div style={{ background: C.bg, borderRadius: 8, height: 8, overflow: "hidden" }}>
-              <div style={{ width: `${pct}%`, height: "100%", background: hit ? C.grn : t.color, borderRadius: 8, transition: "width .5s" }} />
-            </div>
-          </div>;
-        })}
-      </Card>}
-
-      {data.length > 0 && <Card style={{ marginBottom: 16 }}>
-        <ResponsiveContainer width="100%" height={180}>
-          <PieChart>
-            <Pie data={[{ name: "סוכנות", value: bal.through || 1 }, { name: "ישירות", value: bal.direct || 1 }]} cx="50%" cy="50%" innerRadius={40} outerRadius={70} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} fontSize={11}>
-              <Cell fill={C.pri} /><Cell fill={C.org} />
-            </Pie>
-            <Tooltip formatter={v => fmtC(v)} />
-          </PieChart>
-        </ResponsiveContainer>
-      </Card>}
-
-      {/* Payment Balance Card */}
       {data.length > 0 && (() => {
-        const due = bal.actualDue;
-        const clientOwes = due < 0;
-        const agencyOwes = due > 0;
-        const vatAmt = Math.abs(due) * 0.18;
-        const totalWithVat = Math.abs(due) * 1.18;
-        const borderColor = clientOwes ? C.red : agencyOwes ? C.grn : C.bdr;
-        return <Card style={{ marginBottom: 16, border: `1px solid ${borderColor}` }}>
-          <h3 style={{ color: C.txt, fontSize: 14, fontWeight: 700, marginBottom: 14 }}>💳 תשלום</h3>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: vatClient && Math.abs(due) >= 1 ? 14 : 0 }}>
-            <Stat icon={clientOwes ? "🔴" : agencyOwes ? "🟢" : "⚪"}
-              title={clientOwes ? "הלקוחה חייבת לסוכנות" : agencyOwes ? "הסוכנות חייבת ללקוחה" : "מאוזן"}
-              value={Math.abs(due) < 1 ? "מאוזן" : fmtC(Math.abs(due))}
-              color={clientOwes ? C.red : agencyOwes ? C.grn : C.mut}
-              />
-            {vatClient && Math.abs(due) >= 1 && <>
-              <Stat icon="🧾" title="מע״מ 18%" value={fmtC(vatAmt)} color={C.ylw} />
-              <Stat icon={clientOwes ? "🔴" : "🟢"} title={`סה״כ ${clientOwes ? "לתשלום" : "להחזר"} (כולל מע״מ)`} value={fmtC(totalWithVat)} color={clientOwes ? C.red : C.grn} />
-            </>}
-          </div>
+        const byType = {};
+        data.forEach(r => { if (r.incomeType) byType[r.incomeType] = (byType[r.incomeType] || 0) + r.amountILS; });
+        const typeData = Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
+        if (!typeData.length) return null;
+        return <Card style={{ marginBottom: 16 }}>
+          <div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>לפי סוג הכנסה</div>
+          <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(120, typeData.length * 32)}><BarChart data={typeData} layout="vertical" margin={{ top: 4, right: 120, bottom: 4, left: 10 }}><XAxis type="number" reversed tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={110} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.priL} radius={[4, 0, 0, 4]} name="הכנסות"><LabelList dataKey="value" position="insideLeft" formatter={v => `₪${v>=1000?(v/1000).toFixed(0)+'k':v}`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} /></Bar></BarChart></ResponsiveContainer></div>
         </Card>;
       })()}
 
@@ -4931,9 +4882,10 @@ function ClientPortal() {
         <DT textSm columns={[
           { label: "תאריך", render: renderDateHour },
           { label: "פלטפורמה", key: "platform" },
+          { label: "סוג הכנסה", key: "incomeType" },
           { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
           { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> },
-        ]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", fmtUSD(data.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome)]} />
+        ]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", fmtUSD(data.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome)]} />
       </Card>
     </div>
   </div>;
