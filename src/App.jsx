@@ -4887,7 +4887,6 @@ function ClientPortal() {
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} />
-        <Stat icon="📊" title="סה״כ עסקאות" value={txCount} color={C.pri} />
       </div>
 
       {data.length > 0 && (() => {
@@ -4896,9 +4895,6 @@ function ClientPortal() {
         const total = Object.values(byPlatform).reduce((s, v) => s + v, 0);
         const platformEntries = Object.entries(byPlatform).sort((a, b) => b[1] - a[1]);
         const PLAT_COLORS = ["#3b82f6", "#f97316", "#22c55e", "#a855f7", "#eab308", "#ef4444"];
-        const byType = {};
-        data.forEach(r => { if (r.incomeType) byType[r.incomeType] = (byType[r.incomeType] || 0) + r.amountILS; });
-        const typeData = Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
         return <Card style={{ marginBottom: 16 }}>
           {platformEntries.length > 0 && total > 0 && <>
             <div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>פלטפורמות</div>
@@ -4910,15 +4906,11 @@ function ClientPortal() {
                 </div>;
               })}
             </div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: typeData.length ? 16 : 0 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               {platformEntries.map(([name, val], i) => (
                 <span key={name} style={{ fontSize: 11, color: C.dim }}><span style={{ color: PLAT_COLORS[i % PLAT_COLORS.length], fontSize: 14 }}>●</span> {name}: {fmtC(val)} ({(val/total*100).toFixed(0)}%)</span>
               ))}
             </div>
-          </>}
-          {typeData.length > 0 && <>
-            <div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>לפי סוג הכנסה</div>
-            <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(120, typeData.length * 32)}><BarChart data={typeData} layout="vertical" margin={{ top: 4, right: 120, bottom: 4, left: 10 }}><XAxis type="number" reversed tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={110} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.priL} radius={[4, 0, 0, 4]} name="הכנסות"><LabelList dataKey="value" position="insideLeft" formatter={v => `₪${v>=1000?(v/1000).toFixed(0)+'k':v}`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} /></Bar></BarChart></ResponsiveContainer></div>
           </>}
         </Card>;
       })()}
