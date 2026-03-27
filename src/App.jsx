@@ -14,7 +14,9 @@ import {
   fetchEmployees, addEmployee, removeEmployee,
   forceLogoutAll, getForceLogoutAt,
   fetchCommissionSettings, saveCommissionSettings,
-  fetchAgencySettings, saveAgencySettings
+  fetchAgencySettings, saveAgencySettings,
+  fetchShiftSlots, saveShiftSlot, removeShiftSlot,
+  fetchShifts, addShift, updateShift, removeShift
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -53,6 +55,12 @@ const TelegramSvc = {
   notifyIncomeAdded(row) {
     const amount = row.amountILS ? `₪${Number(row.amountILS).toLocaleString("he-IL")}` : "";
     return this.send(`💰 <b>הכנסה נוספה ידנית</b>\nצ'אטר: ${row.chatterName || "—"}\nלקוחה: ${row.modelName || "—"}\nסכום: ${amount}\nפלטפורמה: ${row.platform || "—"}`);
+  },
+  notifyShiftRequested(shift) {
+    return this.send(`📅 <b>${shift.chatterName} ביקש/ה משמרת ${shift.slotLabel} בתאריך ${shift.date}</b>`);
+  },
+  notifyShiftApproved(shift) {
+    return this.send(`✅ <b>אושרה משמרת ${shift.slotLabel} ל-${shift.chatterName} בתאריך ${shift.date}</b>`);
   },
   notifyExpenseAdded(exp) {
     const amount = exp.amount ? `₪${Number(exp.amount).toLocaleString("he-IL")}` : "";
@@ -940,6 +948,8 @@ function Prov({ children }) {
     loadRatesFromFirebase().then(() => setRv(v => v + 1));
     fetchFixedExpenses().then(setFixedExps).catch(() => {});
     fetchEmployees().then(setEmployees).catch(() => {});
+    fetchShiftSlots().then(setShiftSlots).catch(() => {});
+    fetchShifts().then(setShifts).catch(() => {});
   }, []);
 
   const loadDemo = useCallback(() => {
@@ -1049,6 +1059,9 @@ function Prov({ children }) {
     setEmployees(prev => prev.filter(e => e.id !== id));
   }, []);
 
+  const [shiftSlots, setShiftSlots] = useState([]);
+  const [shifts, setShifts] = useState([]);
+
   const [customCats, setCustomCats] = useState(() => { try { const saved = localStorage.getItem("ALL_CATS_V2"); if (saved !== null) return JSON.parse(saved); const oldCustom = JSON.parse(localStorage.getItem("CUSTOM_CATS") || "[]"); const merged = [...EXPENSE_CATEGORIES]; oldCustom.forEach(c => { if (!merged.includes(c)) merged.push(c); }); return merged; } catch { return [...EXPENSE_CATEGORIES]; } });
   const _syncCatsToFB = (cats) => { try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(cats)); } catch {} saveAgencySettings({ customCats: cats }).catch(() => {}); };
   const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); _syncCatsToFB(updated); return true; };
@@ -1078,6 +1091,29 @@ function Prov({ children }) {
       setClientSettings(prev => ({ ...prev, [name]: { ...(prev[name] || {}), ...settings } }));
       await saveClientSettings(name, settings);
     },
+    shiftSlots, shifts,
+    addShiftSlot: async (slot) => {
+      const saved = await saveShiftSlot(slot);
+      setShiftSlots(prev => [...prev.filter(s => s.id !== saved.id), saved]);
+      return saved;
+    },
+    removeShiftSlotCtx: async (id) => {
+      await removeShiftSlot(id);
+      setShiftSlots(prev => prev.filter(s => s.id !== id));
+    },
+    addShiftCtx: async (data) => {
+      const saved = await addShift(data);
+      setShifts(prev => [...prev, saved]);
+      return saved;
+    },
+    updateShiftCtx: async (id, updates) => {
+      await updateShift(id, updates);
+      setShifts(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+    },
+    removeShiftCtx: async (id) => {
+      await removeShift(id);
+      setShifts(prev => prev.filter(s => s.id !== id));
+    },
     addSettlement: async (s) => {
       if (demo) {
         const d = { id: `S-${Date.now()}`, ...s, timestamp: Date.now() };
@@ -1088,7 +1124,7 @@ function Prov({ children }) {
       setSettlements(prev => [...prev, saved]);
       return saved;
     }
-  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate, customCats, fixedExps, employees]);
+  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate, customCats, fixedExps, employees, shiftSlots, shifts]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
@@ -1230,6 +1266,8 @@ const NAV = [
   { key: "debts", label: "דוח התחשבנות", icon: "🤝" },
   { key: "expenses", label: "הוצאות", icon: "💳" },
   { key: "chatters", label: "צ'אטרים", icon: "👥" },
+  { key: "shifts", label: "משמרות", icon: "📅" },
+  { key: "buyers", label: "קונים", icon: "🛒" },
   { key: "clients", label: "לקוחות", icon: "👩" },
   { key: "targets", label: "יעדים", icon: "🎯" },
   { key: "record", label: "תיעוד הוצאות", icon: "📱" },
@@ -2232,10 +2270,16 @@ function EditIncomeModal({ record, onClose }) {
     return [...new Set([...defaults, ...fromData])].filter(t => !/[a-zA-Z]/.test(t)).sort();
   }, [income]);
 
+  const platforms = useMemo(() => {
+    const fromData = income.map(r => r.platform).filter(Boolean);
+    return [...new Set(["אונלי", "טלגרם", "ביט", "פייבוקס", "וולט", ...fromData])].sort();
+  }, [income]);
+
   const isUSD = (record.amountUSD || 0) > 0;
   const [currency, setCurrency] = useState(isUSD ? "USD" : "ILS");
   const [amount, setAmount] = useState(isUSD ? String(record.amountUSD || "") : String(record.rawILS || record.amountILS || ""));
   const [incomeType, setIncomeType] = useState(record.incomeType || "");
+  const [platform, setPlatform] = useState(record.platform || "");
   const [modelName, setModelName] = useState(record.modelName || "");
   const initDate = record.date instanceof Date ? record.date.toISOString().slice(0, 10) : (typeof record.date === "string" && record.date ? record.date.slice(0, 10) : "");
   const [txDate, setTxDate] = useState(initDate);
@@ -2251,10 +2295,11 @@ function EditIncomeModal({ record, onClose }) {
       const rate = liveRate || 3.14;
       const inputILS = currency === "ILS" ? +amount || 0 : 0;
       const inputUSD = currency === "USD" ? +amount || 0 : 0;
-      const commFields = computeCommissionFields(record.platform, incomeType, inputILS, inputUSD, rate);
+      const commFields = computeCommissionFields(platform, incomeType, inputILS, inputUSD, rate);
       const newDate = txDate ? new Date(txDate + "T12:00:00") : record.date;
       const updates = {
         incomeType,
+        platform,
         modelName,
         date: newDate,
         rawILS: inputILS,
@@ -2290,6 +2335,14 @@ function EditIncomeModal({ record, onClose }) {
     </div>
 
     <div style={{ marginBottom: 14 }}>
+      <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>פלטפורמה</label>
+      <select value={platform} onChange={e => setPlatform(e.target.value)} style={inputStyle}>
+        <option value="">בחר...</option>
+        {platforms.map(p => <option key={p} value={p}>{p}</option>)}
+      </select>
+    </div>
+
+    <div style={{ marginBottom: 14 }}>
       <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>לקוחה</label>
       <select value={modelName} onChange={e => setModelName(e.target.value)} style={inputStyle}>
         <option value="">בחר...</option>
@@ -2320,6 +2373,15 @@ function EditIncomeModal({ record, onClose }) {
       <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
     </div>
 
+    {(() => {
+      const commPct = resolveCommissionPct(platform, incomeType);
+      if (!commPct) return null;
+      return <div style={{ background: `${C.ylw}15`, border: `1px solid ${C.ylw}44`, borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12 }}>
+        <span style={{ color: C.dim }}>עמלת פלטפורמה: </span>
+        <span style={{ color: C.ylw, fontWeight: 700 }}>{commPct}%</span>
+        {amount && <span style={{ color: C.dim }}> — לאחר עמלה: <strong style={{ color: C.grn }}>{fmtC((currency === "ILS" ? +amount : +amount * (liveRate || 3.14)) * (1 - commPct / 100))}</strong></span>}
+      </div>;
+    })()}
     {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{err}</div>}
     <Btn onClick={save} variant="success" size="lg" style={{ width: "100%" }} disabled={saving}>
       {saving ? "⏳ שומר..." : "💾 שמור שינויים"}
@@ -2367,8 +2429,8 @@ function RecordIncomeAdmin({ onClose }) {
   }, [income]);
 
   const save = async () => {
-    if (!form.chatterName || !form.modelName || !form.amount) {
-      setErr("נא למלא צ'אטר, לקוחה וסכום");
+    if (!form.chatterName || !form.modelName || !form.amount || !form.buyerName?.trim()) {
+      setErr("נא למלא צ'אטר, לקוחה, סכום ושם קונה");
       return;
     }
     setSaving(true);
@@ -2491,8 +2553,8 @@ function RecordIncomeAdmin({ onClose }) {
         </div>
       </div>
       <div>
-        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שם קונה</label>
-        <input value={form.buyerName} onChange={e => upd("buyerName", e.target.value)} placeholder="אופציונלי" style={inputStyle} />
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שם קונה *</label>
+        <input value={form.buyerName} onChange={e => upd("buyerName", e.target.value)} placeholder="שם הקונה" style={inputStyle} />
       </div>
       <div>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>הערות</label>
@@ -4172,7 +4234,7 @@ ${overridesText || "אין"}
 // CHATTER PORTAL
 // ═══════════════════════════════════════════════════════
 function ChatterPortal({ hideHeader } = {}) {
-  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets, sheetUsers, chatterSettings } = useApp();
+  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets, sheetUsers, chatterSettings, shiftSlots, shifts, addShiftCtx } = useApp();
   const { iM, iY } = useFD();
   const w = useWin();
   const chatterName = user?.name || "";
@@ -4185,6 +4247,54 @@ function ChatterPortal({ hideHeader } = {}) {
     hour: new Date().toTimeString().substring(0, 5),
     shiftLocation: "משרד", notes: "", incomeType: "", customIncomeType: "", buyerName: ""
   });
+
+  // Shift request state
+  const [shiftReqDate, setShiftReqDate] = useState(new Date().toISOString().slice(0, 10));
+  const [shiftReqSlot, setShiftReqSlot] = useState("");
+  const [shiftSaving, setShiftSaving] = useState(false);
+  const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
+  const myShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "approved").sort((a, b) => a.date > b.date ? 1 : -1), [shifts, chatterName]);
+  const myPendingShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "pending"), [shifts, chatterName]);
+  const requestShift = async () => {
+    if (!shiftReqSlot || !shiftReqDate) return;
+    setShiftSaving(true);
+    const slot = sortedSlots.find(s => s.id === shiftReqSlot);
+    if (!slot) { setShiftSaving(false); return; }
+    const data = { date: shiftReqDate, slotId: slot.id, slotLabel: slot.label, slotStart: slot.start, slotEnd: slot.end, chatterName, status: "pending", source: "request" };
+    const saved = await addShiftCtx(data);
+    TelegramSvc.notifyShiftRequested(saved);
+    setShiftSaving(false); setShiftReqSlot("");
+  };
+
+  const [editTx, setEditTx] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const openEdit = (r) => {
+    const isUSD = (r.amountUSD || 0) > 0;
+    setEditForm({
+      currency: isUSD ? "USD" : "ILS",
+      amount: isUSD ? String(r.amountUSD || "") : String(r.rawILS || r.amountILS || ""),
+      incomeType: r.incomeType || "",
+      platform: r.platform || "",
+      modelName: r.modelName || "",
+      txDate: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : ""
+    });
+    setEditTx(r);
+  };
+  const saveEdit = async () => {
+    setSaving(true); setErr("");
+    try {
+      const rate = +form.usdRate || 3.14;
+      const inputILS = editForm.currency === "ILS" ? +editForm.amount || 0 : 0;
+      const inputUSD = editForm.currency === "USD" ? +editForm.amount || 0 : 0;
+      const commFields = computeCommissionFields(editForm.platform, editForm.incomeType, inputILS, inputUSD, rate);
+      const newDate = editForm.txDate ? new Date(editForm.txDate + "T12:00:00") : editTx.date;
+      const updates = { incomeType: editForm.incomeType, platform: editForm.platform, modelName: editForm.modelName, date: newDate, rawILS: inputILS, originalRawILS: inputILS, originalRawUSD: inputUSD, usdRate: rate, ...commFields };
+      if (editTx._fromPending) { await updatePending(editTx.id, updates); } else { await updateIncome(editTx.id, updates); }
+      setIncome(prev => prev.map(x => x.id === editTx.id ? { ...x, ...updates } : x));
+      setEditTx(null);
+    } catch (e) { setErr("שגיאה: " + e.message); }
+    setSaving(false);
+  };
 
   // Auto-load data if not connected
   useEffect(() => { if (!connected) load(); }, [connected, load]);
@@ -4267,7 +4377,7 @@ function ChatterPortal({ hideHeader } = {}) {
   }, [income]);
 
   const save = async () => {
-    if (!form.modelName || (!form.amountILS && !form.amountUSD)) { setErr("נא למלא לקוחה וסכום"); return; }
+    if (!form.modelName || (!form.amountILS && !form.amountUSD) || !form.buyerName?.trim()) { setErr("נא למלא לקוחה, סכום ושם קונה"); return; }
     setSaving(true); setErr("");
 
     const rate = +form.usdRate || 3.14;
@@ -4497,8 +4607,8 @@ function ChatterPortal({ hideHeader } = {}) {
             </div>
           </div>
           <div>
-            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שם קונה</label>
-            <input value={form.buyerName} onChange={e => upd("buyerName", e.target.value)} placeholder="אופציונלי" style={inputStyle} />
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שם קונה *</label>
+            <input value={form.buyerName} onChange={e => upd("buyerName", e.target.value)} placeholder="שם הקונה" style={inputStyle} />
           </div>
           <div>
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>הערות</label>
@@ -4509,6 +4619,34 @@ function ChatterPortal({ hideHeader } = {}) {
         <Btn onClick={save} variant="success" size="lg" style={{ width: "100%", marginTop: 14 }} disabled={saving}>
           {saving ? "⏳ שומר..." : "💾 שמור הכנסה"}
         </Btn>
+      </Card>
+
+      {/* My Shifts */}
+      <Card style={{ marginBottom: 16 }}>
+        <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📅 המשמרות שלי</h3>
+        {myShifts.length === 0 && myPendingShifts.length === 0 && <div style={{ color: C.mut, fontSize: 13 }}>אין משמרות קרובות</div>}
+        {myPendingShifts.length > 0 && <div style={{ marginBottom: 10 }}>
+          {myPendingShifts.map(s => <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
+            <span style={{ color: C.ylw, fontSize: 13 }}>⏳</span>
+            <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel}</span>
+            <span style={{ color: C.ylw, fontSize: 11 }}>ממתין לאישור</span>
+          </div>)}
+        </div>}
+        {myShifts.filter(s => s.date >= new Date().toISOString().slice(0, 10)).slice(0, 10).map(s => <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
+          <span style={{ color: C.grn, fontSize: 13 }}>✅</span>
+          <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel} ({s.slotStart}-{s.slotEnd})</span>
+        </div>)}
+
+        {/* Request shift form */}
+        {sortedSlots.length > 0 && <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <span style={{ color: C.dim, fontSize: 12 }}>בקש משמרת:</span>
+          <input type="date" value={shiftReqDate} onChange={e => setShiftReqDate(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }} />
+          <select value={shiftReqSlot} onChange={e => setShiftReqSlot(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }}>
+            <option value="">בחר משמרת...</option>
+            {sortedSlots.map(s => <option key={s.id} value={s.id}>{s.label} ({s.start}-{s.end})</option>)}
+          </select>
+          <Btn size="sm" variant="success" onClick={requestShift} disabled={shiftSaving || !shiftReqSlot}>{shiftSaving ? "⏳" : "שלח בקשה"}</Btn>
+        </div>}
       </Card>
 
       {/* Per-client breakdown */}
@@ -4536,8 +4674,9 @@ function ChatterPortal({ hideHeader } = {}) {
             { label: "עמ׳ ₪", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" },
             { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
             { label: "סכום ₪", render: r => <span style={{ color: C.ylw }}>{fmtC(r.amountILS)}</span> },
-            { label: "סטטוס", render: () => <span style={{ color: C.ylw }}>⏳ ממתין</span> }
-          ]} rows={pending} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(pending.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalPending), "", ""]} />
+            { label: "סטטוס", render: () => <span style={{ color: C.ylw }}>⏳ ממתין</span> },
+            { label: "", render: r => <button onClick={() => openEdit(r)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>✏️</button> }
+          ]} rows={pending} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(pending.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalPending), "", "", ""]} />
         </div>
       </>}
 
@@ -4559,6 +4698,58 @@ function ChatterPortal({ hideHeader } = {}) {
         ]} rows={approved} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved), "", ""]} />
       }
 
+      {editTx && <Modal open={true} onClose={() => setEditTx(null)} title="✏️ עריכת עסקה" width={420}>
+        <div style={{ direction: "rtl" }}>
+          <div style={{ color: C.dim, fontSize: 12, marginBottom: 12 }}>{editTx.chatterName} • {editTx.modelName} • {editTx.platform}</div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>תאריך</label>
+            <input type="date" value={editForm.txDate} onChange={e => setEditForm(f => ({ ...f, txDate: e.target.value }))} style={{ ...inputStyle, direction: "ltr" }} />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>לקוחה</label>
+            <select value={editForm.modelName} onChange={e => setEditForm(f => ({ ...f, modelName: e.target.value }))} style={inputStyle}>
+              <option value="">בחר...</option>
+              {clientNames.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>פלטפורמה</label>
+            <select value={editForm.platform} onChange={e => setEditForm(f => ({ ...f, platform: e.target.value }))} style={inputStyle}>
+              <option value="">בחר...</option>
+              {[...new Set(["טלגרם", "אונלי", ...income.map(r => r.platform).filter(Boolean)])].sort().map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>סוג הכנסה</label>
+            <select value={editForm.incomeType} onChange={e => setEditForm(f => ({ ...f, incomeType: e.target.value }))} style={inputStyle}>
+              <option value="">בחר...</option>
+              {incomeTypes.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>סכום ומטבע</label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              {[{ key: "ILS", label: "₪ שקל" }, { key: "USD", label: "$ דולר" }].map(({ key, label }) => (
+                <button key={key} onClick={() => setEditForm(f => ({ ...f, currency: key }))} style={{ flex: 1, padding: "10px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer", background: editForm.currency === key ? C.pri : C.card, color: editForm.currency === key ? "#fff" : C.dim, border: `2px solid ${editForm.currency === key ? C.pri : C.bdr}`, transition: "all .15s" }}>{label}</button>
+              ))}
+            </div>
+            <input type="number" value={editForm.amount} onChange={e => setEditForm(f => ({ ...f, amount: e.target.value }))} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
+          </div>
+          {(() => {
+            const commPct = resolveCommissionPct(editForm.platform, editForm.incomeType);
+            if (!commPct) return null;
+            const rate = +form.usdRate || 3.14;
+            const raw = editForm.currency === "ILS" ? +editForm.amount : +editForm.amount * rate;
+            return <div style={{ background: `${C.ylw}15`, border: `1px solid ${C.ylw}44`, borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12 }}>
+              <span style={{ color: C.dim }}>עמלת פלטפורמה: </span>
+              <span style={{ color: C.ylw, fontWeight: 700 }}>{commPct}%</span>
+              {editForm.amount && <span style={{ color: C.dim }}> — לאחר עמלה: <strong style={{ color: C.grn }}>{fmtC(raw * (1 - commPct / 100))}</strong></span>}
+            </div>;
+          })()}
+          {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+          <Btn onClick={saveEdit} variant="success" size="lg" style={{ width: "100%" }} disabled={saving}>{saving ? "⏳ שומר..." : "💾 שמור שינויים"}</Btn>
+        </div>
+      </Modal>}
     </div>
   </div>;
 }
@@ -4570,6 +4761,7 @@ const SM_NAV = [
   { key: "main", label: "ראשי", icon: "👤" },
   { key: "approvals", label: "אישורים", icon: "✅" },
   { key: "chatters", label: "צ'אטרים", icon: "👥" },
+  { key: "shifts", label: "משמרות", icon: "📅" },
 ];
 
 function ShiftManagerPortal() {
@@ -4580,6 +4772,7 @@ function ShiftManagerPortal() {
   const renderPage = () => {
     if (smPage === "approvals") return <ApprovalsPage />;
     if (smPage === "chatters") return <ChatterHub />;
+    if (smPage === "shifts") return <ShiftsPage />;
     return <ChatterPortal hideHeader />;
   };
 
@@ -4863,7 +5056,6 @@ function ClientPortal() {
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} />
-        <Stat icon="📊" title="סה״כ עסקאות" value={txCount} color={C.pri} />
       </div>
 
       {data.length > 0 && (() => {
@@ -4872,9 +5064,6 @@ function ClientPortal() {
         const total = Object.values(byPlatform).reduce((s, v) => s + v, 0);
         const platformEntries = Object.entries(byPlatform).sort((a, b) => b[1] - a[1]);
         const PLAT_COLORS = ["#3b82f6", "#f97316", "#22c55e", "#a855f7", "#eab308", "#ef4444"];
-        const byType = {};
-        data.forEach(r => { if (r.incomeType) byType[r.incomeType] = (byType[r.incomeType] || 0) + r.amountILS; });
-        const typeData = Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
         return <Card style={{ marginBottom: 16 }}>
           {platformEntries.length > 0 && total > 0 && <>
             <div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>פלטפורמות</div>
@@ -4886,15 +5075,11 @@ function ClientPortal() {
                 </div>;
               })}
             </div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: typeData.length ? 16 : 0 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               {platformEntries.map(([name, val], i) => (
                 <span key={name} style={{ fontSize: 11, color: C.dim }}><span style={{ color: PLAT_COLORS[i % PLAT_COLORS.length], fontSize: 14 }}>●</span> {name}: {fmtC(val)} ({(val/total*100).toFixed(0)}%)</span>
               ))}
             </div>
-          </>}
-          {typeData.length > 0 && <>
-            <div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>לפי סוג הכנסה</div>
-            <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(120, typeData.length * 32)}><BarChart data={typeData} layout="vertical" margin={{ top: 4, right: 120, bottom: 4, left: 10 }}><XAxis type="number" reversed tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={110} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.priL} radius={[4, 0, 0, 4]} name="הכנסות"><LabelList dataKey="value" position="insideLeft" formatter={v => `₪${v>=1000?(v/1000).toFixed(0)+'k':v}`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} /></Bar></BarChart></ResponsiveContainer></div>
           </>}
         </Card>;
       })()}
@@ -5478,9 +5663,418 @@ function DebtsPage() {
 }
 
 // ═══════════════════════════════════════════════════════
+// PAGE: SHIFTS (משמרות)
+// ═══════════════════════════════════════════════════════
+function ShiftsPage() {
+  const { shiftSlots, shifts, addShiftSlot, removeShiftSlotCtx, addShiftCtx, updateShiftCtx, removeShiftCtx, income, sheetUsers } = useApp();
+  const w = useWin();
+  const [weekStart, setWeekStart] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10);
+  });
+  const [slotForm, setSlotForm] = useState({ label: "", start: "", end: "" });
+  const [showSlotMgr, setShowSlotMgr] = useState(false);
+  const [assignSlot, setAssignSlot] = useState(null); // { date, slotId }
+  const [assignChatter, setAssignChatter] = useState("");
+
+  const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
+
+  const weekDays = useMemo(() => {
+    const start = new Date(weekStart);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(start); d.setDate(start.getDate() + i);
+      return d.toISOString().slice(0, 10);
+    });
+  }, [weekStart]);
+
+  const DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+
+  const shiftsByKey = useMemo(() => {
+    const map = {};
+    shifts.forEach(s => { const k = `${s.date}_${s.slotId}`; if (!map[k]) map[k] = []; map[k].push(s); });
+    return map;
+  }, [shifts]);
+
+  const pendingShifts = useMemo(() => shifts.filter(s => s.status === "pending"), [shifts]);
+
+  const chatterNames = useMemo(() => {
+    const fromIncome = income.map(r => r.chatterName).filter(Boolean);
+    const fromUsers = (sheetUsers || []).filter(u => u.role === "chatter").map(u => u.name);
+    return [...new Set([...fromIncome, ...fromUsers])].sort();
+  }, [income, sheetUsers]);
+
+  const navWeek = (dir) => {
+    const d = new Date(weekStart); d.setDate(d.getDate() + dir * 7);
+    setWeekStart(d.toISOString().slice(0, 10));
+  };
+
+  const addSlot = async () => {
+    if (!slotForm.label || !slotForm.start || !slotForm.end) return;
+    await addShiftSlot({ ...slotForm, order: shiftSlots.length });
+    setSlotForm({ label: "", start: "", end: "" });
+  };
+
+  const approve = async (shift) => {
+    await updateShiftCtx(shift.id, { status: "approved", approvedAt: new Date().toISOString(), approvedBy: "admin" });
+    TelegramSvc.notifyShiftApproved(shift);
+  };
+
+  const reject = async (shift) => {
+    await updateShiftCtx(shift.id, { status: "rejected" });
+  };
+
+  const manualAssign = async () => {
+    if (!assignSlot || !assignChatter) return;
+    const slot = sortedSlots.find(s => s.id === assignSlot.slotId);
+    if (!slot) return;
+    const data = {
+      date: assignSlot.date, slotId: slot.id, slotLabel: slot.label,
+      slotStart: slot.start, slotEnd: slot.end,
+      chatterName: assignChatter, status: "approved", source: "manual",
+      approvedBy: "admin", approvedAt: new Date().toISOString()
+    };
+    const saved = await addShiftCtx(data);
+    TelegramSvc.notifyShiftApproved(saved);
+    setAssignSlot(null); setAssignChatter("");
+  };
+
+  const filledCount = shifts.filter(s => s.status === "approved").length;
+  const inputStyle = { padding: "8px 10px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" };
+
+  return <div style={{ direction: "rtl", maxWidth: 1200, margin: "0 auto" }}>
+    <h2 style={{ color: C.txt, fontSize: 22, fontWeight: 700, marginBottom: 16 }}>📅 משמרות</h2>
+
+    {/* Stats */}
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+      <Stat icon="✅" title="משמרות מאושרות" value={filledCount} color={C.grn} />
+      <Stat icon="⏳" title="ממתינות לאישור" value={pendingShifts.length} color={C.warn} />
+      <Stat icon="📋" title="סוגי משמרות" value={sortedSlots.length} color={C.pri} />
+    </div>
+
+    {/* Slot Manager Toggle */}
+    <div style={{ marginBottom: 16 }}>
+      <Btn size="sm" onClick={() => setShowSlotMgr(!showSlotMgr)}>{showSlotMgr ? "סגור ניהול משמרות" : "⚙️ ניהול סוגי משמרות"}</Btn>
+    </div>
+
+    {showSlotMgr && <Card style={{ marginBottom: 20 }}>
+      <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>ניהול סוגי משמרות</h3>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+        <input value={slotForm.label} onChange={e => setSlotForm(f => ({ ...f, label: e.target.value }))} placeholder="שם (בוקר/ערב...)" style={inputStyle} />
+        <input type="time" value={slotForm.start} onChange={e => setSlotForm(f => ({ ...f, start: e.target.value }))} style={inputStyle} />
+        <input type="time" value={slotForm.end} onChange={e => setSlotForm(f => ({ ...f, end: e.target.value }))} style={inputStyle} />
+        <Btn size="sm" variant="success" onClick={addSlot}>+ הוסף</Btn>
+      </div>
+      {sortedSlots.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
+        <span style={{ color: C.txt, fontSize: 14, flex: 1 }}>{s.label} ({s.start} - {s.end})</span>
+        <Btn size="sm" variant="danger" onClick={() => removeShiftSlotCtx(s.id)}>מחק</Btn>
+      </div>)}
+    </Card>}
+
+    {/* Pending Requests */}
+    {pendingShifts.length > 0 && <Card style={{ marginBottom: 20, borderColor: C.warn }}>
+      <h3 style={{ color: C.warn, fontSize: 15, marginBottom: 12 }}>⏳ בקשות ממתינות ({pendingShifts.length})</h3>
+      {pendingShifts.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.bdr}` }}>
+        <span style={{ color: C.txt, fontSize: 14, flex: 1 }}>{s.chatterName} — {s.slotLabel} — {s.date}</span>
+        <Btn size="sm" variant="success" onClick={() => approve(s)}>אשר</Btn>
+        <Btn size="sm" variant="danger" onClick={() => reject(s)}>דחה</Btn>
+      </div>)}
+    </Card>}
+
+    {/* Weekly Calendar */}
+    <Card>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <Btn size="sm" onClick={() => navWeek(-1)}>→ שבוע קודם</Btn>
+        <h3 style={{ color: C.txt, fontSize: 15, margin: 0 }}>שבוע {new Date(weekStart).toLocaleDateString("he-IL")}</h3>
+        <Btn size="sm" onClick={() => navWeek(1)}>שבוע הבא ←</Btn>
+      </div>
+
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr>
+              <th style={{ padding: 8, color: C.dim, textAlign: "right", borderBottom: `2px solid ${C.bdr}`, minWidth: 70 }}>משמרת</th>
+              {weekDays.map((d, i) => <th key={d} style={{ padding: 8, color: C.dim, textAlign: "center", borderBottom: `2px solid ${C.bdr}`, minWidth: 100 }}>
+                {DAY_NAMES[i]}<br /><span style={{ fontSize: 11 }}>{d.slice(5)}</span>
+              </th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {sortedSlots.map(slot => <tr key={slot.id}>
+              <td style={{ padding: 8, color: C.pri, fontWeight: 600, borderBottom: `1px solid ${C.bdr}`, whiteSpace: "nowrap" }}>
+                {slot.label}<br /><span style={{ fontSize: 10, color: C.dim }}>{slot.start}-{slot.end}</span>
+              </td>
+              {weekDays.map(day => {
+                const key = `${day}_${slot.id}`;
+                const cellShifts = shiftsByKey[key] || [];
+                const approved = cellShifts.filter(s => s.status === "approved");
+                return <td key={day} style={{ padding: 6, borderBottom: `1px solid ${C.bdr}`, textAlign: "center", verticalAlign: "top", cursor: "pointer", background: approved.length ? `${C.grn}11` : "transparent" }}
+                  onClick={() => { setAssignSlot({ date: day, slotId: slot.id }); setAssignChatter(""); }}>
+                  {approved.map(s => <div key={s.id} style={{ background: `${C.grn}22`, borderRadius: 6, padding: "3px 6px", marginBottom: 2, fontSize: 12, color: C.txt, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span>{s.chatterName}</span>
+                    <button onClick={e => { e.stopPropagation(); removeShiftCtx(s.id); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 11, padding: "0 2px" }}>✕</button>
+                  </div>)}
+                  {!approved.length && <span style={{ color: C.mut, fontSize: 11 }}>+</span>}
+                </td>;
+              })}
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+
+    {/* Assign Modal */}
+    {assignSlot && <Modal open onClose={() => setAssignSlot(null)} title="שיבוץ משמרת" width={350}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ color: C.dim, fontSize: 13 }}>
+          {sortedSlots.find(s => s.id === assignSlot.slotId)?.label || ""} — {assignSlot.date}
+        </div>
+        <select value={assignChatter} onChange={e => setAssignChatter(e.target.value)} style={{ ...inputStyle, width: "100%" }}>
+          <option value="">בחר צ'אטר...</option>
+          {chatterNames.map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <Btn variant="success" onClick={manualAssign} disabled={!assignChatter}>שבץ</Btn>
+      </div>
+    </Modal>}
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════
+// PAGE: BUYERS (קונים)
+// ═══════════════════════════════════════════════════════
+function BuyersPage() {
+  const { income, year, month, setMonth, setYear } = useApp();
+  const { iY, iM } = useFD();
+  const w = useWin();
+  const [search, setSearch] = useState("");
+  const [modelFilter, setModelFilter] = useState("");
+  const [sortKey, setSortKey] = useState("total");
+  const [sortDir, setSortDir] = useState(-1);
+
+  // All buyers aggregated from entire year's income
+  const allBuyers = useMemo(() => {
+    const map = {};
+    iY.forEach(r => {
+      if (!r.buyerName || r.cancelled) return;
+      const name = r.buyerName.trim();
+      if (!name) return;
+      if (!map[name]) map[name] = { name, total: 0, count: 0, models: new Set(), lastDate: null, firstDate: null };
+      map[name].total += r.amountILS || 0;
+      map[name].count++;
+      if (r.modelName) map[name].models.add(r.modelName);
+      const d = r.date;
+      if (d) {
+        if (!map[name].lastDate || d > map[name].lastDate) map[name].lastDate = d;
+        if (!map[name].firstDate || d < map[name].firstDate) map[name].firstDate = d;
+      }
+    });
+    return Object.values(map).map(b => ({ ...b, models: [...b.models] }));
+  }, [iY]);
+
+  // Current month buyers
+  const currentBuyers = useMemo(() => new Set(iM.filter(r => r.buyerName && !r.cancelled).map(r => r.buyerName.trim()).filter(Boolean)), [iM]);
+
+  // Previous month buyers
+  const prevMonthBuyers = useMemo(() => {
+    const pm = month === 0 ? 11 : month - 1;
+    const py = month === 0 ? year - 1 : year;
+    return new Set(income.filter(r => {
+      if (!r.buyerName || r.cancelled) return false;
+      const d = r.date;
+      return d && d.getFullYear() === py && d.getMonth() === pm;
+    }).map(r => r.buyerName.trim()).filter(Boolean));
+  }, [income, month, year]);
+
+  const newBuyers = useMemo(() => [...currentBuyers].filter(b => !prevMonthBuyers.has(b)), [currentBuyers, prevMonthBuyers]);
+  const retained = useMemo(() => [...currentBuyers].filter(b => prevMonthBuyers.has(b)), [currentBuyers, prevMonthBuyers]);
+  const lost = useMemo(() => [...prevMonthBuyers].filter(b => !currentBuyers.has(b)), [currentBuyers, prevMonthBuyers]);
+  const retentionRate = prevMonthBuyers.size > 0 ? Math.round((retained.length / prevMonthBuyers.size) * 100) : 0;
+
+  // Models list
+  const modelNames = useMemo(() => [...new Set(iY.map(r => r.modelName).filter(Boolean))].sort(), [iY]);
+
+  // Per-model breakdown
+  const perModel = useMemo(() => {
+    const map = {};
+    iY.forEach(r => {
+      if (!r.buyerName || r.cancelled || !r.modelName) return;
+      if (!map[r.modelName]) map[r.modelName] = { model: r.modelName, buyers: new Set(), revenue: 0 };
+      map[r.modelName].buyers.add(r.buyerName.trim());
+      map[r.modelName].revenue += r.amountILS || 0;
+    });
+    // Shared buyers: appear in 2+ models
+    const allModelBuyers = Object.values(map);
+    const buyerModelCount = {};
+    allModelBuyers.forEach(m => m.buyers.forEach(b => { buyerModelCount[b] = (buyerModelCount[b] || 0) + 1; }));
+    return allModelBuyers.map(m => ({
+      model: m.model,
+      uniqueBuyers: m.buyers.size,
+      sharedBuyers: [...m.buyers].filter(b => buyerModelCount[b] > 1).length,
+      revenue: m.revenue
+    }));
+  }, [iY]);
+
+  // Shared buyers detail
+  const sharedBuyersDetail = useMemo(() => {
+    const buyerModels = {};
+    iY.forEach(r => {
+      if (!r.buyerName || r.cancelled) return;
+      const name = r.buyerName.trim();
+      if (!name) return;
+      if (!buyerModels[name]) buyerModels[name] = { name, models: new Set(), total: 0 };
+      if (r.modelName) buyerModels[name].models.add(r.modelName);
+      buyerModels[name].total += r.amountILS || 0;
+    });
+    return Object.values(buyerModels).filter(b => b.models.size > 1).map(b => ({ ...b, models: [...b.models] }));
+  }, [iY]);
+
+  // Monthly trend for chart
+  const monthlyTrend = useMemo(() => {
+    const months = Array.from({ length: 12 }, (_, m) => {
+      const mBuyers = new Set(income.filter(r => r.buyerName && !r.cancelled && r.date && r.date.getFullYear() === year && r.date.getMonth() === m).map(r => r.buyerName.trim()).filter(Boolean));
+      const prevM = m === 0 ? 11 : m - 1;
+      const prevY = m === 0 ? year - 1 : year;
+      const pBuyers = new Set(income.filter(r => r.buyerName && !r.cancelled && r.date && r.date.getFullYear() === prevY && r.date.getMonth() === prevM).map(r => r.buyerName.trim()).filter(Boolean));
+      const newB = [...mBuyers].filter(b => !pBuyers.has(b)).length;
+      const retB = [...mBuyers].filter(b => pBuyers.has(b)).length;
+      const lostB = [...pBuyers].filter(b => !mBuyers.has(b)).length;
+      return { name: MONTHS_HE[m], newBuyers: newB, retained: retB, lost: lostB };
+    });
+    return months;
+  }, [income, year]);
+
+  // Filtered & sorted buyer table
+  const filteredBuyers = useMemo(() => {
+    let list = allBuyers;
+    if (search) list = list.filter(b => b.name.includes(search));
+    if (modelFilter) list = list.filter(b => b.models.includes(modelFilter));
+    list.sort((a, b) => {
+      if (sortKey === "name") return sortDir * a.name.localeCompare(b.name, "he");
+      if (sortKey === "total") return sortDir * (a.total - b.total);
+      if (sortKey === "count") return sortDir * (a.count - b.count);
+      if (sortKey === "lastDate") return sortDir * ((a.lastDate || 0) - (b.lastDate || 0));
+      return 0;
+    });
+    return list;
+  }, [allBuyers, search, modelFilter, sortKey, sortDir]);
+
+  const toggleSort = k => { if (sortKey === k) setSortDir(d => -d); else { setSortKey(k); setSortDir(-1); } };
+  const sortIcon = k => sortKey === k ? (sortDir > 0 ? " ↑" : " ↓") : "";
+  const inputStyle = { padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" };
+
+  return <div style={{ direction: "rtl", maxWidth: 1200, margin: "0 auto" }}>
+    <h2 style={{ color: C.txt, fontSize: 22, fontWeight: 700, marginBottom: 16 }}>🛒 קונים</h2>
+
+    {/* Stats */}
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+      <Stat icon="👤" title="סה״כ קונים (שנתי)" value={allBuyers.length} color={C.pri} />
+      <Stat icon="🆕" title={`חדשים (${MONTHS_HE[month]})`} value={newBuyers.length} color={C.grn} />
+      <Stat icon="🔄" title="חוזרים" value={retained.length} color={C.cyan} />
+      <Stat icon="📉" title="נטשו" value={lost.length} color={C.red} />
+      <Stat icon="📊" title="שימור" value={`${retentionRate}%`} color={retentionRate >= 50 ? C.grn : C.warn} />
+    </div>
+
+    {/* Filters */}
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
+      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="חפש קונה..." style={{ ...inputStyle, minWidth: 180 }} />
+      <select value={modelFilter} onChange={e => setModelFilter(e.target.value)} style={inputStyle}>
+        <option value="">כל הלקוחות</option>
+        {modelNames.map(m => <option key={m} value={m}>{m}</option>)}
+      </select>
+      <select value={month} onChange={e => setMonth(+e.target.value)} style={inputStyle}>
+        {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
+      </select>
+    </div>
+
+    {/* Per-Model Breakdown */}
+    <Card style={{ marginBottom: 20 }}>
+      <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>פירוט לפי לקוחה</h3>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead><tr>
+            <th style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>לקוחה</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>קונים</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>משותפים</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>הכנסות</th>
+          </tr></thead>
+          <tbody>{perModel.map(m => <tr key={m.model}>
+            <td style={{ padding: 8, color: C.txt, borderBottom: `1px solid ${C.bdr}` }}>{m.model}</td>
+            <td style={{ padding: 8, color: C.txt, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{m.uniqueBuyers}</td>
+            <td style={{ padding: 8, color: C.warn, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{m.sharedBuyers}</td>
+            <td style={{ padding: 8, color: C.grn, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(m.revenue)}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+    </Card>
+
+    {/* Shared Buyers */}
+    {sharedBuyersDetail.length > 0 && <Card style={{ marginBottom: 20 }}>
+      <h3 style={{ color: C.warn, fontSize: 15, marginBottom: 12 }}>🔗 קונים משותפים ({sharedBuyersDetail.length})</h3>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead><tr>
+            <th style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>שם</th>
+            <th style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>לקוחות</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>סכום</th>
+          </tr></thead>
+          <tbody>{sharedBuyersDetail.map(b => <tr key={b.name}>
+            <td style={{ padding: 8, color: C.txt, borderBottom: `1px solid ${C.bdr}` }}>{b.name}</td>
+            <td style={{ padding: 8, color: C.dim, borderBottom: `1px solid ${C.bdr}` }}>{b.models.join(", ")}</td>
+            <td style={{ padding: 8, color: C.grn, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(b.total)}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+    </Card>}
+
+    {/* Monthly Trend Chart */}
+    <Card style={{ marginBottom: 20 }}>
+      <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📈 מגמה חודשית</h3>
+      <ResponsiveContainer width="100%" height={250}>
+        <LineChart data={monthlyTrend}>
+          <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
+          <XAxis dataKey="name" stroke={C.dim} fontSize={11} />
+          <YAxis stroke={C.dim} fontSize={11} />
+          <Tooltip contentStyle={{ background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8 }} />
+          <Legend />
+          <Line type="monotone" dataKey="newBuyers" name="חדשים" stroke={C.grn} strokeWidth={2} dot={{ r: 3 }} />
+          <Line type="monotone" dataKey="retained" name="חוזרים" stroke={C.cyan} strokeWidth={2} dot={{ r: 3 }} />
+          <Line type="monotone" dataKey="lost" name="נטשו" stroke={C.red} strokeWidth={2} dot={{ r: 3 }} />
+        </LineChart>
+      </ResponsiveContainer>
+    </Card>
+
+    {/* Buyer Detail Table */}
+    <Card>
+      <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📋 כל הקונים ({filteredBuyers.length})</h3>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead><tr>
+            <th onClick={() => toggleSort("name")} style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>שם{sortIcon("name")}</th>
+            <th onClick={() => toggleSort("total")} style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>סכום{sortIcon("total")}</th>
+            <th onClick={() => toggleSort("count")} style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>עסקאות{sortIcon("count")}</th>
+            <th style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>לקוחות</th>
+            <th onClick={() => toggleSort("lastDate")} style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>רכישה אחרונה{sortIcon("lastDate")}</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>ימים מאז</th>
+          </tr></thead>
+          <tbody>{filteredBuyers.map(b => {
+            const daysSince = b.lastDate ? Math.floor((new Date() - b.lastDate) / 86400000) : "—";
+            return <tr key={b.name}>
+              <td style={{ padding: 8, color: C.txt, borderBottom: `1px solid ${C.bdr}` }}>{b.name}</td>
+              <td style={{ padding: 8, color: C.grn, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(b.total)}</td>
+              <td style={{ padding: 8, color: C.txt, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{b.count}</td>
+              <td style={{ padding: 8, color: C.dim, borderBottom: `1px solid ${C.bdr}` }}>{b.models.join(", ")}</td>
+              <td style={{ padding: 8, color: C.txt, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{b.lastDate ? b.lastDate.toLocaleDateString("he-IL") : "—"}</td>
+              <td style={{ padding: 8, color: daysSince > 30 ? C.red : C.txt, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{daysSince}</td>
+            </tr>;
+          })}</tbody>
+        </table>
+      </div>
+    </Card>
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════
-const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterHub, clients: ClientHub, debts: DebtsPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage, approvals: ApprovalsPage, users: UserManagementPage };
+const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterHub, clients: ClientHub, debts: DebtsPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage, approvals: ApprovalsPage, users: UserManagementPage, shifts: ShiftsPage, buyers: BuyersPage };
 function Content() {
   const { page, setPage, connected, user, load } = useApp();
   const w = useWin();
