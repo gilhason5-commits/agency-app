@@ -577,3 +577,48 @@ export async function addEmployee(record) {
 export async function removeEmployee(id) {
     await deleteDoc(doc(db, "employees", id));
 }
+
+// ═══════════════════════════════════════════════════════
+// SHIFT SLOTS API (configurable time slot definitions)
+// ═══════════════════════════════════════════════════════
+export async function fetchShiftSlots() {
+    const snap = await getDocs(collection(db, "shiftSlots"));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function saveShiftSlot(slot) {
+    if (slot.id) {
+        const { id, ...data } = slot;
+        await setDoc(doc(db, "shiftSlots", id), data, { merge: true });
+        return slot;
+    }
+    const docRef = await addDoc(collection(db, "shiftSlots"), slot);
+    return { id: docRef.id, ...slot };
+}
+
+export async function removeShiftSlot(id) {
+    await deleteDoc(doc(db, "shiftSlots", id));
+}
+
+// ═══════════════════════════════════════════════════════
+// SHIFTS API (daily shift assignments/requests)
+// ═══════════════════════════════════════════════════════
+export async function fetchShifts() {
+    const snap = await getDocs(collection(db, "shifts"));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function addShift(data) {
+    const cleanData = { ...data, requestedAt: new Date().toISOString() };
+    const docRef = await addDoc(collection(db, "shifts"), cleanData);
+    return { id: docRef.id, ...cleanData };
+}
+
+export async function updateShift(id, updates) {
+    await updateDoc(doc(db, "shifts", id), updates);
+    return { id, ...updates };
+}
+
+export async function removeShift(id) {
+    await deleteDoc(doc(db, "shifts", id));
+}
