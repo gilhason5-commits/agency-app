@@ -2232,10 +2232,16 @@ function EditIncomeModal({ record, onClose }) {
     return [...new Set([...defaults, ...fromData])].filter(t => !/[a-zA-Z]/.test(t)).sort();
   }, [income]);
 
+  const platforms = useMemo(() => {
+    const fromData = income.map(r => r.platform).filter(Boolean);
+    return [...new Set(["אונלי", "טלגרם", "ביט", "פייבוקס", "וולט", ...fromData])].sort();
+  }, [income]);
+
   const isUSD = (record.amountUSD || 0) > 0;
   const [currency, setCurrency] = useState(isUSD ? "USD" : "ILS");
   const [amount, setAmount] = useState(isUSD ? String(record.amountUSD || "") : String(record.rawILS || record.amountILS || ""));
   const [incomeType, setIncomeType] = useState(record.incomeType || "");
+  const [platform, setPlatform] = useState(record.platform || "");
   const [modelName, setModelName] = useState(record.modelName || "");
   const initDate = record.date instanceof Date ? record.date.toISOString().slice(0, 10) : (typeof record.date === "string" && record.date ? record.date.slice(0, 10) : "");
   const [txDate, setTxDate] = useState(initDate);
@@ -2251,10 +2257,11 @@ function EditIncomeModal({ record, onClose }) {
       const rate = liveRate || 3.14;
       const inputILS = currency === "ILS" ? +amount || 0 : 0;
       const inputUSD = currency === "USD" ? +amount || 0 : 0;
-      const commFields = computeCommissionFields(record.platform, incomeType, inputILS, inputUSD, rate);
+      const commFields = computeCommissionFields(platform, incomeType, inputILS, inputUSD, rate);
       const newDate = txDate ? new Date(txDate + "T12:00:00") : record.date;
       const updates = {
         incomeType,
+        platform,
         modelName,
         date: newDate,
         rawILS: inputILS,
@@ -2290,6 +2297,14 @@ function EditIncomeModal({ record, onClose }) {
     </div>
 
     <div style={{ marginBottom: 14 }}>
+      <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>פלטפורמה</label>
+      <select value={platform} onChange={e => setPlatform(e.target.value)} style={inputStyle}>
+        <option value="">בחר...</option>
+        {platforms.map(p => <option key={p} value={p}>{p}</option>)}
+      </select>
+    </div>
+
+    <div style={{ marginBottom: 14 }}>
       <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>לקוחה</label>
       <select value={modelName} onChange={e => setModelName(e.target.value)} style={inputStyle}>
         <option value="">בחר...</option>
@@ -2320,6 +2335,15 @@ function EditIncomeModal({ record, onClose }) {
       <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
     </div>
 
+    {(() => {
+      const commPct = resolveCommissionPct(platform, incomeType);
+      if (!commPct) return null;
+      return <div style={{ background: `${C.ylw}15`, border: `1px solid ${C.ylw}44`, borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12 }}>
+        <span style={{ color: C.dim }}>עמלת פלטפורמה: </span>
+        <span style={{ color: C.ylw, fontWeight: 700 }}>{commPct}%</span>
+        {amount && <span style={{ color: C.dim }}> — לאחר עמלה: <strong style={{ color: C.grn }}>{fmtC((currency === "ILS" ? +amount : +amount * (liveRate || 3.14)) * (1 - commPct / 100))}</strong></span>}
+      </div>;
+    })()}
     {err && <div style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{err}</div>}
     <Btn onClick={save} variant="success" size="lg" style={{ width: "100%" }} disabled={saving}>
       {saving ? "⏳ שומר..." : "💾 שמור שינויים"}
