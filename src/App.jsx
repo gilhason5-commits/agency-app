@@ -5985,10 +5985,6 @@ function BuyersPage() {
         {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
       </select>}
       <input value={search} onChange={e => setSearch(e.target.value)} placeholder="חפש קונה..." style={{ ...inputStyle, minWidth: 180 }} />
-      <select value={modelFilter} onChange={e => setModelFilter(e.target.value)} style={inputStyle}>
-        <option value="">כל הלקוחות</option>
-        {modelNames.map(m => <option key={m} value={m}>{m}</option>)}
-      </select>
     </div>
 
     {/* Per-Model Breakdown */}
