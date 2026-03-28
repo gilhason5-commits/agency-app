@@ -5848,11 +5848,15 @@ function BuyersPage() {
   const [modelFilter, setModelFilter] = useState("");
   const [sortKey, setSortKey] = useState("count");
   const [sortDir, setSortDir] = useState(-1);
+  const [buyersView, setBuyersView] = useState("yearly"); // "yearly" | "monthly"
 
-  // All buyers aggregated from entire year's income
+  // Data source based on view
+  const dataSource = buyersView === "monthly" ? iM : iY;
+
+  // All buyers aggregated from data source
   const allBuyers = useMemo(() => {
     const map = {};
-    iY.forEach(r => {
+    dataSource.forEach(r => {
       if (!r.buyerName || r.cancelled) return;
       const name = r.buyerName.trim();
       if (!name) return;
@@ -5867,7 +5871,7 @@ function BuyersPage() {
       }
     });
     return Object.values(map).map(b => ({ ...b, models: [...b.models] }));
-  }, [iY]);
+  }, [dataSource]);
 
   // Current month buyers
   const currentBuyers = useMemo(() => new Set(iM.filter(r => r.buyerName && !r.cancelled).map(r => r.buyerName.trim()).filter(Boolean)), [iM]);
@@ -5889,18 +5893,17 @@ function BuyersPage() {
   const retentionRate = prevMonthBuyers.size > 0 ? Math.round((retained.length / prevMonthBuyers.size) * 100) : 0;
 
   // Models list
-  const modelNames = useMemo(() => [...new Set(iY.map(r => r.modelName).filter(Boolean))].sort(), [iY]);
+  const modelNames = useMemo(() => [...new Set(dataSource.map(r => r.modelName).filter(Boolean))].sort(), [dataSource]);
 
   // Per-model breakdown
   const perModel = useMemo(() => {
     const map = {};
-    iY.forEach(r => {
+    dataSource.forEach(r => {
       if (!r.buyerName || r.cancelled || !r.modelName) return;
       if (!map[r.modelName]) map[r.modelName] = { model: r.modelName, buyers: new Set(), revenue: 0 };
       map[r.modelName].buyers.add(r.buyerName.trim());
       map[r.modelName].revenue += r.amountILS || 0;
     });
-    // Shared buyers: appear in 2+ models
     const allModelBuyers = Object.values(map);
     const buyerModelCount = {};
     allModelBuyers.forEach(m => m.buyers.forEach(b => { buyerModelCount[b] = (buyerModelCount[b] || 0) + 1; }));
@@ -5910,12 +5913,12 @@ function BuyersPage() {
       sharedBuyers: [...m.buyers].filter(b => buyerModelCount[b] > 1).length,
       revenue: m.revenue
     }));
-  }, [iY]);
+  }, [dataSource]);
 
   // Shared buyers detail
   const sharedBuyersDetail = useMemo(() => {
     const buyerModels = {};
-    iY.forEach(r => {
+    dataSource.forEach(r => {
       if (!r.buyerName || r.cancelled) return;
       const name = r.buyerName.trim();
       if (!name) return;
@@ -5924,7 +5927,7 @@ function BuyersPage() {
       buyerModels[name].total += r.amountILS || 0;
     });
     return Object.values(buyerModels).filter(b => b.models.size > 1).map(b => ({ ...b, models: [...b.models] }));
-  }, [iY]);
+  }, [dataSource]);
 
   // Monthly trend for chart
   const monthlyTrend = useMemo(() => {
@@ -5965,7 +5968,7 @@ function BuyersPage() {
 
     {/* Stats */}
     <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
-      <Stat icon="👤" title="סה״כ קונים (שנתי)" value={allBuyers.length} color={C.pri} />
+      <Stat icon="👤" title={`סה״כ קונים ${buyersView === "monthly" ? `(${MONTHS_HE[month]})` : "(שנתי)"}`} value={allBuyers.length} color={C.pri} />
       <Stat icon="🆕" title={`חדשים (${MONTHS_HE[month]})`} value={newBuyers.length} color={C.grn} />
       <Stat icon="🔄" title="חוזרים" value={retained.length} color={C.cyan} />
       <Stat icon="📉" title="נטשו" value={lost.length} color={C.red} />
@@ -5973,15 +5976,15 @@ function BuyersPage() {
     </div>
 
     {/* Filters */}
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
-      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="חפש קונה..." style={{ ...inputStyle, minWidth: 180 }} />
-      <select value={modelFilter} onChange={e => setModelFilter(e.target.value)} style={inputStyle}>
-        <option value="">כל הלקוחות</option>
-        {modelNames.map(m => <option key={m} value={m}>{m}</option>)}
-      </select>
-      <select value={month} onChange={e => setMonth(+e.target.value)} style={inputStyle}>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 20, alignItems: "center" }}>
+      <div style={{ display: "flex", background: C.card, borderRadius: 8, padding: 3, border: `1px solid ${C.bdr}` }}>
+        <button onClick={() => setBuyersView("yearly")} style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 13, fontWeight: buyersView === "yearly" ? 700 : 400, background: buyersView === "yearly" ? C.pri : "transparent", color: buyersView === "yearly" ? "#fff" : C.dim }}>שנתי</button>
+        <button onClick={() => setBuyersView("monthly")} style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 13, fontWeight: buyersView === "monthly" ? 700 : 400, background: buyersView === "monthly" ? C.pri : "transparent", color: buyersView === "monthly" ? "#fff" : C.dim }}>חודשי</button>
+      </div>
+      {buyersView === "monthly" && <select value={month} onChange={e => setMonth(+e.target.value)} style={inputStyle}>
         {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
-      </select>
+      </select>}
+      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="חפש קונה..." style={{ ...inputStyle, minWidth: 180 }} />
     </div>
 
     {/* Per-Model Breakdown */}
@@ -5990,16 +5993,16 @@ function BuyersPage() {
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead><tr>
-            <th style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>לקוחה</th>
-            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>קונים</th>
-            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>משותפים</th>
-            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>הכנסות</th>
+            <th style={{ padding: 8, textAlign: "right", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>לקוחה</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>קונים</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>משותפים</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>הכנסות</th>
           </tr></thead>
           <tbody>{perModel.map(m => <tr key={m.model}>
-            <td style={{ padding: 8, color: C.txt, borderBottom: `1px solid ${C.bdr}` }}>{m.model}</td>
-            <td style={{ padding: 8, color: C.txt, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{m.uniqueBuyers}</td>
-            <td style={{ padding: 8, color: C.warn, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{m.sharedBuyers}</td>
-            <td style={{ padding: 8, color: C.grn, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(m.revenue)}</td>
+            <td style={{ padding: 8, color: C.pri, borderBottom: `1px solid ${C.bdr}` }}>{m.model}</td>
+            <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{m.uniqueBuyers}</td>
+            <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{m.sharedBuyers}</td>
+            <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(m.revenue)}</td>
           </tr>)}</tbody>
         </table>
       </div>
@@ -6011,14 +6014,14 @@ function BuyersPage() {
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead><tr>
-            <th style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>שם</th>
-            <th style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>לקוחות</th>
-            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>סכום</th>
+            <th style={{ padding: 8, textAlign: "right", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>שם</th>
+            <th style={{ padding: 8, textAlign: "right", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>לקוחות</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>סכום</th>
           </tr></thead>
           <tbody>{sharedBuyersDetail.map(b => <tr key={b.name}>
-            <td style={{ padding: 8, color: C.txt, borderBottom: `1px solid ${C.bdr}` }}>{b.name}</td>
-            <td style={{ padding: 8, color: C.dim, borderBottom: `1px solid ${C.bdr}` }}>{b.models.join(", ")}</td>
-            <td style={{ padding: 8, color: C.grn, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(b.total)}</td>
+            <td style={{ padding: 8, color: C.pri, borderBottom: `1px solid ${C.bdr}` }}>{b.name}</td>
+            <td style={{ padding: 8, color: C.pri, borderBottom: `1px solid ${C.bdr}` }}>{b.models.join(", ")}</td>
+            <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(b.total)}</td>
           </tr>)}</tbody>
         </table>
       </div>
@@ -6047,22 +6050,22 @@ function BuyersPage() {
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead><tr>
-            <th onClick={() => toggleSort("name")} style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>שם{sortIcon("name")}</th>
-            <th onClick={() => toggleSort("total")} style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>סכום{sortIcon("total")}</th>
-            <th onClick={() => toggleSort("count")} style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>עסקאות{sortIcon("count")}</th>
-            <th style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>לקוחות</th>
-            <th onClick={() => toggleSort("lastDate")} style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>רכישה אחרונה{sortIcon("lastDate")}</th>
-            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>ימים מאז</th>
+            <th onClick={() => toggleSort("name")} style={{ padding: 8, textAlign: "right", color: C.pri, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>שם{sortIcon("name")}</th>
+            <th onClick={() => toggleSort("total")} style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>סכום{sortIcon("total")}</th>
+            <th onClick={() => toggleSort("count")} style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>עסקאות{sortIcon("count")}</th>
+            <th style={{ padding: 8, textAlign: "right", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>לקוחות</th>
+            <th onClick={() => toggleSort("lastDate")} style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>רכישה אחרונה{sortIcon("lastDate")}</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>ימים מאז</th>
           </tr></thead>
           <tbody>{filteredBuyers.map(b => {
             const daysSince = b.lastDate ? Math.floor((new Date() - b.lastDate) / 86400000) : "—";
             return <tr key={b.name}>
-              <td style={{ padding: 8, color: C.txt, borderBottom: `1px solid ${C.bdr}` }}>{b.name}</td>
-              <td style={{ padding: 8, color: C.grn, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(b.total)}</td>
-              <td style={{ padding: 8, color: C.txt, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{b.count}</td>
-              <td style={{ padding: 8, color: C.dim, borderBottom: `1px solid ${C.bdr}` }}>{b.models.join(", ")}</td>
-              <td style={{ padding: 8, color: C.txt, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{b.lastDate ? b.lastDate.toLocaleDateString("he-IL") : "—"}</td>
-              <td style={{ padding: 8, color: daysSince > 30 ? C.red : C.txt, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{daysSince}</td>
+              <td style={{ padding: 8, color: C.pri, borderBottom: `1px solid ${C.bdr}` }}>{b.name}</td>
+              <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(b.total)}</td>
+              <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{b.count}</td>
+              <td style={{ padding: 8, color: C.pri, borderBottom: `1px solid ${C.bdr}` }}>{b.models.join(", ")}</td>
+              <td style={{ padding: 8, color: C.pri, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{b.lastDate ? b.lastDate.toLocaleDateString("he-IL") : "—"}</td>
+              <td style={{ padding: 8, color: daysSince > 30 ? C.red : "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{daysSince}</td>
             </tr>;
           })}</tbody>
         </table>
