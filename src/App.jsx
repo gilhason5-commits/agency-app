@@ -5997,16 +5997,16 @@ function BuyersPage() {
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead><tr>
-            <th style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>לקוחה</th>
-            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>קונים</th>
-            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>משותפים</th>
-            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>הכנסות</th>
+            <th style={{ padding: 8, textAlign: "right", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>לקוחה</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>קונים</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>משותפים</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>הכנסות</th>
           </tr></thead>
           <tbody>{perModel.map(m => <tr key={m.model}>
-            <td style={{ padding: 8, color: C.txt, borderBottom: `1px solid ${C.bdr}` }}>{m.model}</td>
-            <td style={{ padding: 8, color: C.txt, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{m.uniqueBuyers}</td>
-            <td style={{ padding: 8, color: C.warn, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{m.sharedBuyers}</td>
-            <td style={{ padding: 8, color: C.grn, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(m.revenue)}</td>
+            <td style={{ padding: 8, color: C.pri, borderBottom: `1px solid ${C.bdr}` }}>{m.model}</td>
+            <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{m.uniqueBuyers}</td>
+            <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{m.sharedBuyers}</td>
+            <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(m.revenue)}</td>
           </tr>)}</tbody>
         </table>
       </div>
@@ -6018,14 +6018,14 @@ function BuyersPage() {
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead><tr>
-            <th style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>שם</th>
-            <th style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>לקוחות</th>
-            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>סכום</th>
+            <th style={{ padding: 8, textAlign: "right", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>שם</th>
+            <th style={{ padding: 8, textAlign: "right", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>לקוחות</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>סכום</th>
           </tr></thead>
           <tbody>{sharedBuyersDetail.map(b => <tr key={b.name}>
-            <td style={{ padding: 8, color: C.txt, borderBottom: `1px solid ${C.bdr}` }}>{b.name}</td>
-            <td style={{ padding: 8, color: C.dim, borderBottom: `1px solid ${C.bdr}` }}>{b.models.join(", ")}</td>
-            <td style={{ padding: 8, color: C.grn, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(b.total)}</td>
+            <td style={{ padding: 8, color: C.pri, borderBottom: `1px solid ${C.bdr}` }}>{b.name}</td>
+            <td style={{ padding: 8, color: C.pri, borderBottom: `1px solid ${C.bdr}` }}>{b.models.join(", ")}</td>
+            <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(b.total)}</td>
           </tr>)}</tbody>
         </table>
       </div>
@@ -6054,22 +6054,22 @@ function BuyersPage() {
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead><tr>
-            <th onClick={() => toggleSort("name")} style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>שם{sortIcon("name")}</th>
-            <th onClick={() => toggleSort("total")} style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>סכום{sortIcon("total")}</th>
-            <th onClick={() => toggleSort("count")} style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>עסקאות{sortIcon("count")}</th>
-            <th style={{ padding: 8, textAlign: "right", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>לקוחות</th>
-            <th onClick={() => toggleSort("lastDate")} style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>רכישה אחרונה{sortIcon("lastDate")}</th>
-            <th style={{ padding: 8, textAlign: "center", color: C.dim, borderBottom: `2px solid ${C.bdr}` }}>ימים מאז</th>
+            <th onClick={() => toggleSort("name")} style={{ padding: 8, textAlign: "right", color: C.pri, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>שם{sortIcon("name")}</th>
+            <th onClick={() => toggleSort("total")} style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>סכום{sortIcon("total")}</th>
+            <th onClick={() => toggleSort("count")} style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>עסקאות{sortIcon("count")}</th>
+            <th style={{ padding: 8, textAlign: "right", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>לקוחות</th>
+            <th onClick={() => toggleSort("lastDate")} style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>רכישה אחרונה{sortIcon("lastDate")}</th>
+            <th style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>ימים מאז</th>
           </tr></thead>
           <tbody>{filteredBuyers.map(b => {
             const daysSince = b.lastDate ? Math.floor((new Date() - b.lastDate) / 86400000) : "—";
             return <tr key={b.name}>
-              <td style={{ padding: 8, color: C.txt, borderBottom: `1px solid ${C.bdr}` }}>{b.name}</td>
-              <td style={{ padding: 8, color: C.grn, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(b.total)}</td>
-              <td style={{ padding: 8, color: C.txt, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{b.count}</td>
-              <td style={{ padding: 8, color: C.dim, borderBottom: `1px solid ${C.bdr}` }}>{b.models.join(", ")}</td>
-              <td style={{ padding: 8, color: C.txt, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{b.lastDate ? b.lastDate.toLocaleDateString("he-IL") : "—"}</td>
-              <td style={{ padding: 8, color: daysSince > 30 ? C.red : C.txt, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{daysSince}</td>
+              <td style={{ padding: 8, color: C.pri, borderBottom: `1px solid ${C.bdr}` }}>{b.name}</td>
+              <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(b.total)}</td>
+              <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{b.count}</td>
+              <td style={{ padding: 8, color: C.pri, borderBottom: `1px solid ${C.bdr}` }}>{b.models.join(", ")}</td>
+              <td style={{ padding: 8, color: C.pri, textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{b.lastDate ? b.lastDate.toLocaleDateString("he-IL") : "—"}</td>
+              <td style={{ padding: 8, color: daysSince > 30 ? C.red : "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{daysSince}</td>
             </tr>;
           })}</tbody>
         </table>
