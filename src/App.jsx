@@ -4565,9 +4565,12 @@ function ChatterPortal({ hideHeader } = {}) {
             <span style={{ color: C.ylw, fontSize: 11 }}>ממתין לאישור</span>
           </div>)}
         </div>}
-        {myShifts.filter(s => s.date >= new Date().toISOString().slice(0, 10)).slice(0, 10).map(s => <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
-          <span style={{ color: C.grn, fontSize: 13 }}>✅</span>
-          <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel} ({s.slotStart}-{s.slotEnd})</span>
+        {myShifts.filter(s => s.date >= new Date().toISOString().slice(0, 10)).slice(0, 10).map(s => <div key={s.id} style={{ padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ color: C.grn, fontSize: 13 }}>✅</span>
+            <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel} ({s.slotStart}-{s.slotEnd})</span>
+          </div>
+          {s.clients?.length > 0 && <div style={{ marginRight: 24, marginTop: 2, fontSize: 11, color: C.cyan }}>לקוחות: {s.clients.join(", ")}</div>}
         </div>)}
 
         {/* Request shift form */}
@@ -5608,6 +5611,9 @@ function ShiftsPage() {
   const [showSlotMgr, setShowSlotMgr] = useState(false);
   const [assignSlot, setAssignSlot] = useState(null); // { date, slotId }
   const [assignChatter, setAssignChatter] = useState("");
+  const [assignClients, setAssignClients] = useState([]);
+  const [editShift, setEditShift] = useState(null); // shift being edited for clients
+  const [editClients, setEditClients] = useState([]);
 
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
 
@@ -5632,6 +5638,12 @@ function ShiftsPage() {
   const chatterNames = useMemo(() => {
     const fromIncome = income.map(r => r.chatterName).filter(Boolean);
     const fromUsers = (sheetUsers || []).filter(u => u.role === "chatter").map(u => u.name);
+    return [...new Set([...fromIncome, ...fromUsers])].sort();
+  }, [income, sheetUsers]);
+
+  const clientNames = useMemo(() => {
+    const fromIncome = income.map(r => r.modelName).filter(Boolean);
+    const fromUsers = (sheetUsers || []).filter(u => u.role === "client").map(u => u.name);
     return [...new Set([...fromIncome, ...fromUsers])].sort();
   }, [income, sheetUsers]);
 
@@ -5662,12 +5674,22 @@ function ShiftsPage() {
     const data = {
       date: assignSlot.date, slotId: slot.id, slotLabel: slot.label,
       slotStart: slot.start, slotEnd: slot.end,
-      chatterName: assignChatter, status: "approved", source: "manual",
+      chatterName: assignChatter, clients: assignClients, status: "approved", source: "manual",
       approvedBy: "admin", approvedAt: new Date().toISOString()
     };
     const saved = await addShiftCtx(data);
     TelegramSvc.notifyShiftApproved(saved);
-    setAssignSlot(null); setAssignChatter("");
+    setAssignSlot(null); setAssignChatter(""); setAssignClients([]);
+  };
+
+  const toggleClient = (list, setList, name) => {
+    setList(prev => prev.includes(name) ? prev.filter(c => c !== name) : [...prev, name]);
+  };
+
+  const saveEditClients = async () => {
+    if (!editShift) return;
+    await updateShiftCtx(editShift.id, { clients: editClients });
+    setEditShift(null); setEditClients([]);
   };
 
   const filledCount = shifts.filter(s => s.status === "approved").length;
@@ -5741,9 +5763,15 @@ function ShiftsPage() {
                 const approved = cellShifts.filter(s => s.status === "approved");
                 return <td key={day} style={{ padding: 6, borderBottom: `1px solid ${C.bdr}`, textAlign: "center", verticalAlign: "top", cursor: "pointer", background: approved.length ? `${C.grn}11` : "transparent" }}
                   onClick={() => { setAssignSlot({ date: day, slotId: slot.id }); setAssignChatter(""); }}>
-                  {approved.map(s => <div key={s.id} style={{ background: `${C.grn}22`, borderRadius: 6, padding: "3px 6px", marginBottom: 2, fontSize: 12, color: C.txt, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span>{s.chatterName}</span>
-                    <button onClick={e => { e.stopPropagation(); removeShiftCtx(s.id); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 11, padding: "0 2px" }}>✕</button>
+                  {approved.map(s => <div key={s.id} style={{ background: `${C.grn}22`, borderRadius: 6, padding: "3px 6px", marginBottom: 2, fontSize: 12, color: C.txt }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontWeight: 600 }}>{s.chatterName}</span>
+                      <span style={{ display: "flex", gap: 2 }}>
+                        <button onClick={e => { e.stopPropagation(); setEditShift(s); setEditClients(s.clients || []); }} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 10, padding: "0 2px" }}>✏️</button>
+                        <button onClick={e => { e.stopPropagation(); removeShiftCtx(s.id); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 10, padding: "0 2px" }}>✕</button>
+                      </span>
+                    </div>
+                    {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginTop: 1 }}>{s.clients.join(", ")}</div>}
                   </div>)}
                   {!approved.length && <span style={{ color: C.mut, fontSize: 11 }}>+</span>}
                 </td>;
@@ -5755,7 +5783,7 @@ function ShiftsPage() {
     </Card>
 
     {/* Assign Modal */}
-    {assignSlot && <Modal open onClose={() => setAssignSlot(null)} title="שיבוץ משמרת" width={350}>
+    {assignSlot && <Modal open onClose={() => { setAssignSlot(null); setAssignClients([]); }} title="שיבוץ משמרת" width={400}>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ color: C.dim, fontSize: 13 }}>
           {sortedSlots.find(s => s.id === assignSlot.slotId)?.label || ""} — {assignSlot.date}
@@ -5764,7 +5792,27 @@ function ShiftsPage() {
           <option value="">בחר צ'אטר...</option>
           {chatterNames.map(n => <option key={n} value={n}>{n}</option>)}
         </select>
+        <div>
+          <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>הקצה לקוחות:</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {clientNames.map(c => <button key={c} onClick={() => toggleClient(assignClients, setAssignClients, c)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${assignClients.includes(c) ? C.pri : C.bdr}`, background: assignClients.includes(c) ? `${C.pri}33` : C.bg, color: assignClients.includes(c) ? C.pri : C.dim, cursor: "pointer", fontSize: 12 }}>{c}</button>)}
+          </div>
+        </div>
         <Btn variant="success" onClick={manualAssign} disabled={!assignChatter}>שבץ</Btn>
+      </div>
+    </Modal>}
+
+    {/* Edit Clients Modal */}
+    {editShift && <Modal open onClose={() => setEditShift(null)} title={`עריכת לקוחות — ${editShift.chatterName}`} width={400}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ color: C.dim, fontSize: 13 }}>{editShift.slotLabel} — {editShift.date}</div>
+        <div>
+          <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>לקוחות למשמרת:</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {clientNames.map(c => <button key={c} onClick={() => toggleClient(editClients, setEditClients, c)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${editClients.includes(c) ? C.pri : C.bdr}`, background: editClients.includes(c) ? `${C.pri}33` : C.bg, color: editClients.includes(c) ? C.pri : C.dim, cursor: "pointer", fontSize: 12 }}>{c}</button>)}
+          </div>
+        </div>
+        <Btn variant="success" onClick={saveEditClients}>שמור</Btn>
       </div>
     </Modal>}
   </div>;
