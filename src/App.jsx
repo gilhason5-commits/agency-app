@@ -5759,8 +5759,8 @@ function ShiftsPage() {
       <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>ניהול סוגי משמרות</h3>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
         <input value={slotForm.label} onChange={e => setSlotForm(f => ({ ...f, label: e.target.value }))} placeholder="שם (בוקר/ערב...)" style={inputStyle} />
-        <input type="time" value={slotForm.start} onChange={e => setSlotForm(f => ({ ...f, start: e.target.value }))} style={inputStyle} />
-        <input type="time" value={slotForm.end} onChange={e => setSlotForm(f => ({ ...f, end: e.target.value }))} style={inputStyle} />
+        <input type="time" value={slotForm.start} onChange={e => setSlotForm(f => ({ ...f, start: e.target.value }))} style={{ ...inputStyle, direction: "ltr" }} />
+        <input type="time" value={slotForm.end} onChange={e => setSlotForm(f => ({ ...f, end: e.target.value }))} style={{ ...inputStyle, direction: "ltr" }} />
         <Btn size="sm" variant="success" onClick={addSlot}>+ הוסף</Btn>
       </div>
       {sortedSlots.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
@@ -5846,7 +5846,7 @@ function BuyersPage() {
   const w = useWin();
   const [search, setSearch] = useState("");
   const [modelFilter, setModelFilter] = useState("");
-  const [sortKey, setSortKey] = useState("total");
+  const [sortKey, setSortKey] = useState("count");
   const [sortDir, setSortDir] = useState(-1);
 
   // All buyers aggregated from entire year's income
