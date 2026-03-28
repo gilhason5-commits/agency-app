@@ -16,7 +16,10 @@ import {
   fetchCommissionSettings, saveCommissionSettings,
   fetchAgencySettings, saveAgencySettings,
   fetchShiftSlots, saveShiftSlot, removeShiftSlot,
-  fetchShifts, addShift, updateShift, removeShift
+  fetchShifts, addShift, updateShift, removeShift,
+  fetchModels as fbFetchModels, addModel as fbAddModel, updateModel as fbUpdateModel, removeModel as fbRemoveModel,
+  fetchHistory as fbFetchHistory, addHistory as fbAddHistory,
+  fetchGenParams as fbFetchGenParams, saveGenParams as fbSaveGenParams
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -71,26 +74,16 @@ const TelegramSvc = {
 // Income type commission rates (hardcoded, always applied)
 const INCOME_TYPE_COMMISSIONS = { "אונלי": 20 };
 // Income type commission rates (editable via settings, synced from Firebase)
-let _incomeTypeCommissions = (() => {
-  try { return JSON.parse(localStorage.getItem("INCOME_TYPE_COMMISSIONS_DB") || '{"ווישלי":8,"קארדקום":13}'); }
-  catch { return { "ווישלי": 8, "קארדקום": 13 }; }
-})();
+let _incomeTypeCommissions = { "ווישלי": 8, "קארדקום": 13 };
 function saveIncomeTypeCommission(typeName, pct) {
   if (pct > 0) _incomeTypeCommissions[typeName] = pct;
   else delete _incomeTypeCommissions[typeName];
-  try { localStorage.setItem("INCOME_TYPE_COMMISSIONS_DB", JSON.stringify(_incomeTypeCommissions)); } catch {}
-  // Sync to Firebase for cross-device consistency
   saveCommissionSettings({ ..._incomeTypeCommissions }).catch(() => {});
 }
 function _syncCommissionsFromFirebase(fbData) {
   if (fbData && Object.keys(fbData).length > 0) {
-    Object.assign(_incomeTypeCommissions, fbData);
-    // Remove keys that exist locally but not in Firebase
-    Object.keys(_incomeTypeCommissions).forEach(k => {
-      if (!(k in fbData)) delete _incomeTypeCommissions[k];
-    });
+    Object.keys(_incomeTypeCommissions).forEach(k => delete _incomeTypeCommissions[k]);
     Object.keys(fbData).forEach(k => { _incomeTypeCommissions[k] = fbData[k]; });
-    try { localStorage.setItem("INCOME_TYPE_COMMISSIONS_DB", JSON.stringify(_incomeTypeCommissions)); } catch {}
   }
 }
 
@@ -300,23 +293,16 @@ const API = {
 const ExRate = {
   _rate: null,
   async fetchUsdIls() {
-    // Check localStorage cache (valid for current calendar day)
     const today = new Date().toISOString().slice(0, 10);
-    const cached = localStorage.getItem("USD_ILS_RATE");
-    if (cached) {
-      const { rate, day } = JSON.parse(cached);
-      if (day === today) { this._rate = rate; return rate; }
-    }
-    // Try Firebase first (shared rate set by first device today)
+    // Always check Firebase first — single source of truth
     try {
       const ag = await fetchAgencySettings();
       if (ag.usdRate?.day === today && ag.usdRate?.rate > 2) {
         this._rate = ag.usdRate.rate;
-        localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate: ag.usdRate.rate, day: today }));
         return ag.usdRate.rate;
       }
     } catch {}
-    // Try Bank of Israel official representative rate first
+    // No valid rate in Firebase for today — fetch from external sources
     const sources = [
       async () => {
         const r = await fetch(`https://edge.boi.gov.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/EXR/1.0/RER_USD_ILS?startperiod=${today}&endperiod=${today}&format=sdmx-json`);
@@ -334,62 +320,26 @@ const ExRate = {
         const rate = await src();
         if (rate && rate > 2 && rate < 6) {
           this._rate = rate;
-          localStorage.setItem("USD_ILS_RATE", JSON.stringify({ rate, day: today }));
-          // Save to Firebase so all devices use the same rate today
+          // Save to Firebase — all devices will use this rate today
           saveAgencySettings({ usdRate: { rate, day: today } }).catch(() => {});
           return rate;
         }
       } catch {}
     }
+    // Fallback: use yesterday's Firebase rate if available
+    try {
+      const ag = await fetchAgencySettings();
+      if (ag.usdRate?.rate > 2) { this._rate = ag.usdRate.rate; return ag.usdRate.rate; }
+    } catch {}
     this._rate = this._rate || 3.14;
     return this._rate;
   },
   get() {
-    if (this._rate) return this._rate;
-    try {
-      const cached = JSON.parse(localStorage.getItem("USD_ILS_RATE"));
-      if (cached?.rate) { this._rate = cached.rate; return cached.rate; }
-    } catch {}
-    return 3.14;
+    return this._rate || 3.14;
   }
 };
 
-// ═══════════════════════════════════════════════════════
-// LOCAL DATABASE (localStorage persistence)
-// ═══════════════════════════════════════════════════════
-const LocalDB = {
-  _key: "AGENCY_INCOME_DB",
-  load() {
-    try {
-      const raw = localStorage.getItem(this._key);
-      if (!raw) return [];
-      const data = JSON.parse(raw);
-      // Re-hydrate date strings back to Date objects
-      return data.map(r => ({ ...r, date: r.date ? new Date(r.date) : null }));
-    } catch { return []; }
-  },
-  save(records) {
-    localStorage.setItem(this._key, JSON.stringify(records));
-  },
-  add(record) {
-    const all = this.load();
-    all.push(record);
-    this.save(all);
-    return record;
-  },
-  update(id, updates) {
-    const all = this.load();
-    const idx = all.findIndex(r => r.id === id);
-    if (idx >= 0) { all[idx] = { ...all[idx], ...updates }; this.save(all); }
-    return all[idx] || null;
-  },
-  remove(id) {
-    const all = this.load().filter(r => r.id !== id);
-    this.save(all);
-  },
-  clear() { localStorage.removeItem(this._key); },
-  hasData() { return !!localStorage.getItem(this._key); }
-};
+// LocalDB removed — all data persists in Firebase only
 
 // ═══════════════════════════════════════════════════════
 // DATA MAPPING
@@ -701,38 +651,25 @@ const GroqSvc = {
 };
 const ModelSvc = {
   async fetchAll() {
-    try { const data = localStorage.getItem("MODELS_DB"); return data ? JSON.parse(data) : []; }
-    catch (e) { return []; }
+    try { return await fbFetchModels(); } catch { return []; }
   },
   async add(m) {
-    const d = await this.fetchAll();
-    m.id = `M-${Date.now()}`;
-    d.push(m);
-    localStorage.setItem("MODELS_DB", JSON.stringify(d));
-    return m;
+    return await fbAddModel(m);
   },
   async edit(m) {
-    const d = await this.fetchAll();
-    const nd = d.map(x => x.id === m.id ? m : x);
-    localStorage.setItem("MODELS_DB", JSON.stringify(nd));
+    const { id, ...data } = m;
+    await fbUpdateModel(id, data);
   },
   async remove(m) {
-    const d = await this.fetchAll();
-    const nd = d.filter(x => x.id !== m.id);
-    localStorage.setItem("MODELS_DB", JSON.stringify(nd));
+    await fbRemoveModel(m.id);
   }
 };
 const HistorySvc = {
   async fetchAll() {
-    try { const data = localStorage.getItem("HISTORY_DB"); return data ? JSON.parse(data) : []; }
-    catch (e) { return []; }
+    try { return await fbFetchHistory(); } catch { return []; }
   },
   async add(h) {
-    const d = await this.fetchAll();
-    h.id = `H-${Date.now()}`;
-    d.unshift(h);
-    localStorage.setItem("HISTORY_DB", JSON.stringify(d));
-    return h;
+    return await fbAddHistory(h);
   }
 };
 const DEFAULT_PARAMS = {
@@ -748,16 +685,12 @@ const DEFAULT_PARAMS = {
 const GenParamsSvc = {
   async fetch() {
     try {
-      const data = localStorage.getItem("GEN_PARAMS_DB");
-      if (data) {
-        let parsed = JSON.parse(data);
-        return { ...DEFAULT_PARAMS, ...parsed };
-      }
-      return DEFAULT_PARAMS;
-    } catch (e) { return DEFAULT_PARAMS; }
+      const data = await fbFetchGenParams();
+      return data ? { ...DEFAULT_PARAMS, ...data } : DEFAULT_PARAMS;
+    } catch { return DEFAULT_PARAMS; }
   },
   async save(p) {
-    localStorage.setItem("GEN_PARAMS_DB", JSON.stringify(p));
+    await fbSaveGenParams(p);
     return p;
   }
 };
@@ -835,18 +768,16 @@ const Calc = {
     return { daily, t1: daily * 1.05 * nextDays, t2: daily * 1.10 * nextDays, t3: daily * 1.15 * nextDays };
   }
 };
-const _rates = (() => { try { return JSON.parse(localStorage.getItem("CLIENT_RATES_DB") || "{}"); } catch { return {}; } })();
+const _rates = {};
 function getRate(n, ymi) { return _rates[n]?.[ymi] ?? 0; }
 function setRate(n, ymi, p) {
   if (!_rates[n]) _rates[n] = {};
   _rates[n][ymi] = p;
-  try { localStorage.setItem("CLIENT_RATES_DB", JSON.stringify(_rates)); } catch {}
   saveClientRate(n, ymi, p).catch(() => {});
 }
 async function loadRatesFromFirebase() {
   try {
     const data = await fetchClientRates();
-    // Firebase is source of truth — overwrite local rates
     Object.keys(_rates).forEach(k => delete _rates[k]);
     Object.entries(data).forEach(([name, months]) => {
       _rates[name] = {};
@@ -854,7 +785,6 @@ async function loadRatesFromFirebase() {
         _rates[name][ymi] = pct;
       });
     });
-    try { localStorage.setItem("CLIENT_RATES_DB", JSON.stringify(_rates)); } catch {}
   } catch {}
 }
 
@@ -880,7 +810,7 @@ function Prov({ children }) {
   const [genParams, setGenParams] = useState(DEFAULT_PARAMS);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [connected, setConnected] = useState(() => localStorage.getItem("AGENCY_CONNECTED") === "true");
+  const [connected, setConnected] = useState(false);
   const [demo, setDemo] = useState(false);
   const [rv, setRv] = useState(0);
   const [loadStep, setLoadStep] = useState("");
@@ -916,12 +846,8 @@ function Prov({ children }) {
       try { const fbComm = await fetchCommissionSettings(); _syncCommissionsFromFirebase(fbComm); setRv(v => v + 1); } catch (e) { console.error("Error fetching commissions:", e); }
       try {
         const ag = await fetchAgencySettings();
-        if (ag.customCats?.length) { setCustomCats(ag.customCats); try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(ag.customCats)); } catch {} }
-        if (ag.lmVals) { try { localStorage.setItem("LM_DB", JSON.stringify(ag.lmVals)); } catch {} }
-        if (ag.customIncomeTypes?.length) { try { localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(ag.customIncomeTypes)); } catch {} }
-        if (ag.tierThresholds) { try { localStorage.setItem("AGENCY_TIER_THRESHOLDS", JSON.stringify(ag.tierThresholds)); } catch {} }
-        if (ag.bizType) { try { localStorage.setItem("AGENCY_BIZ_TYPE", ag.bizType); } catch {} }
-        if (ag.manualNI != null) { try { localStorage.setItem("AGENCY_MANUAL_NI", String(ag.manualNI)); } catch {} }
+        setAgSettings(ag);
+        if (ag.customCats?.length) setCustomCats(ag.customCats);
       } catch (e) { console.error("Error fetching agencySettings:", e); }
       try { const u = await UserSvc.fetchAll(); setSheetUsers(u); } catch (e) { console.error("Error fetching users:", e); }
       setConnected(true);
@@ -935,7 +861,7 @@ function Prov({ children }) {
 
   useEffect(() => {
     if (demo) loadDemo();
-    else if (connected || !import.meta.env.VITE_USE_AUTH || localStorage.getItem("AGENCY_USER")) {
+    else if (!import.meta.env.VITE_USE_AUTH || localStorage.getItem("AGENCY_USER")) {
       load();
     }
   }, [demo, load]);
@@ -1061,9 +987,10 @@ function Prov({ children }) {
 
   const [shiftSlots, setShiftSlots] = useState([]);
   const [shifts, setShifts] = useState([]);
+  const [agSettings, setAgSettings] = useState({});
 
-  const [customCats, setCustomCats] = useState(() => { try { const saved = localStorage.getItem("ALL_CATS_V2"); if (saved !== null) return JSON.parse(saved); const oldCustom = JSON.parse(localStorage.getItem("CUSTOM_CATS") || "[]"); const merged = [...EXPENSE_CATEGORIES]; oldCustom.forEach(c => { if (!merged.includes(c)) merged.push(c); }); return merged; } catch { return [...EXPENSE_CATEGORIES]; } });
-  const _syncCatsToFB = (cats) => { try { localStorage.setItem("ALL_CATS_V2", JSON.stringify(cats)); } catch {} saveAgencySettings({ customCats: cats }).catch(() => {}); };
+  const [customCats, setCustomCats] = useState([...EXPENSE_CATEGORIES]);
+  const _syncCatsToFB = (cats) => { saveAgencySettings({ customCats: cats }).catch(() => {}); };
   const addCustomCat = (name) => { const n = name.trim(); if (!n || customCats.includes(n)) return false; const updated = [...customCats, n]; setCustomCats(updated); _syncCatsToFB(updated); return true; };
   const removeCustomCat = (name) => { const updated = customCats.filter(c => c !== name); setCustomCats(updated); _syncCatsToFB(updated); };
   const renameCustomCat = (oldName, newName) => { const n = newName.trim(); if (!n || n === oldName || customCats.includes(n)) return false; const updated = customCats.map(c => c === oldName ? n : c); setCustomCats(updated); _syncCatsToFB(updated); return true; };
@@ -1091,7 +1018,7 @@ function Prov({ children }) {
       setClientSettings(prev => ({ ...prev, [name]: { ...(prev[name] || {}), ...settings } }));
       await saveClientSettings(name, settings);
     },
-    shiftSlots, shifts,
+    shiftSlots, shifts, agSettings,
     addShiftSlot: async (slot) => {
       const saved = await saveShiftSlot(slot);
       setShiftSlots(prev => [...prev.filter(s => s.id !== saved.id), saved]);
@@ -1124,7 +1051,7 @@ function Prov({ children }) {
       setSettlements(prev => [...prev, saved]);
       return saved;
     }
-  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate, customCats, fixedExps, employees, shiftSlots, shifts]);
+  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate, customCats, fixedExps, employees, shiftSlots, shifts, agSettings]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
@@ -1461,10 +1388,16 @@ function DashPage() {
   const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements, fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
-  const [lmVals, setLmVals] = useState(() => { try { return JSON.parse(localStorage.getItem("LM_DB") || "{}"); } catch { return {}; } });
-  const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); try { localStorage.setItem("LM_DB", JSON.stringify(updated)); } catch {} saveAgencySettings({ lmVals: updated }).catch(() => {}); };
-  const [bizType, setBizType] = useState(() => localStorage.getItem("AGENCY_BIZ_TYPE") || "עוסק");
-  const [manualNI, setManualNI] = useState(() => +localStorage.getItem("AGENCY_MANUAL_NI") || 0);
+  const { agSettings } = useApp();
+  const [lmVals, setLmVals] = useState({});
+  const [bizType, setBizType] = useState("עוסק");
+  const [manualNI, setManualNI] = useState(0);
+  useEffect(() => {
+    if (agSettings.lmVals) setLmVals(agSettings.lmVals);
+    if (agSettings.bizType) setBizType(agSettings.bizType);
+    if (agSettings.manualNI != null) setManualNI(agSettings.manualNI);
+  }, [agSettings]);
+  const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); saveAgencySettings({ lmVals: updated }).catch(() => {}); };
   const _dashOpenMonth = useState(null);
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
@@ -1706,8 +1639,8 @@ function DashPage() {
       {/* Business type toggle + ל.מ */}
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 0, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.bdr}` }}>
-          <button onClick={() => { setBizType("עוסק"); localStorage.setItem("AGENCY_BIZ_TYPE", "עוסק"); saveAgencySettings({ bizType: "עוסק" }).catch(() => {}); }} style={{ padding: "7px 16px", background: bizType === "עוסק" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "עוסק" ? 700 : 400 }}>עוסק מורשה</button>
-          <button onClick={() => { setBizType("חברה"); localStorage.setItem("AGENCY_BIZ_TYPE", "חברה"); saveAgencySettings({ bizType: "חברה" }).catch(() => {}); }} style={{ padding: "7px 16px", background: bizType === "חברה" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "חברה" ? 700 : 400 }}>חברה</button>
+          <button onClick={() => { setBizType("עוסק"); saveAgencySettings({ bizType: "עוסק" }).catch(() => {}); }} style={{ padding: "7px 16px", background: bizType === "עוסק" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "עוסק" ? 700 : 400 }}>עוסק מורשה</button>
+          <button onClick={() => { setBizType("חברה"); saveAgencySettings({ bizType: "חברה" }).catch(() => {}); }} style={{ padding: "7px 16px", background: bizType === "חברה" ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: bizType === "חברה" ? 700 : 400 }}>חברה</button>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <label style={{ color: C.dim, fontSize: 12 }}>ל.מ (ניכויים) ₪</label>
@@ -1715,7 +1648,7 @@ function DashPage() {
         </div>
         {employees.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <label style={{ color: C.dim, fontSize: 12 }}>ב.ל נוסף (שכירים) ₪</label>
-          <input type="number" value={manualNI || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setManualNI(v); localStorage.setItem("AGENCY_MANUAL_NI", v); saveAgencySettings({ manualNI: v }).catch(() => {}); }} style={{ width: 100, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
+          <input type="number" value={manualNI || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setManualNI(v); saveAgencySettings({ manualNI: v }).catch(() => {}); }} style={{ width: 100, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
         </div>}
       </div>
 
@@ -1941,17 +1874,16 @@ function DashPage() {
 
 function TierCubes({ income }) {
   const w = useWin();
-  const [thresholds, setThresholds] = useState(() => {
-    const saved = localStorage.getItem("AGENCY_TIER_THRESHOLDS");
-    if (saved) try { return JSON.parse(saved); } catch { /* ignore */ }
-    return { bronze: 15000, silver: 30000 };
-  });
+  const { agSettings } = useApp();
+  const [thresholds, setThresholds] = useState({ bronze: 15000, silver: 30000 });
+  useEffect(() => {
+    if (agSettings.tierThresholds) setThresholds(agSettings.tierThresholds);
+  }, [agSettings]);
 
   const updateThreshold = (key, val) => {
     const v = +val || 0;
     const next = { ...thresholds, [key]: v };
     setThresholds(next);
-    localStorage.setItem("AGENCY_TIER_THRESHOLDS", JSON.stringify(next));
     saveAgencySettings({ tierThresholds: next }).catch(() => {});
   };
 
@@ -2123,9 +2055,11 @@ function IncomeTypesModal({ onClose }) {
   const [newComm, setNewComm] = useState("");
   const [saving, setSaving] = useState(false);
   const [commissions, setCommissions] = useState(() => ({ ..._incomeTypeCommissions }));
-  const [customTypes, setCustomTypes] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("CUSTOM_INCOME_TYPES") || "[]"); } catch { return []; }
-  });
+  const { agSettings } = useApp();
+  const [customTypes, setCustomTypes] = useState([]);
+  useEffect(() => {
+    if (agSettings.customIncomeTypes?.length) setCustomTypes(agSettings.customIncomeTypes);
+  }, [agSettings]);
 
   const dataTypes = [...new Set(income.map(r => r.incomeType).filter(Boolean))].sort();
   const allTypes = [...new Set([...dataTypes, ...customTypes])].sort();
@@ -2157,7 +2091,6 @@ function IncomeTypesModal({ onClose }) {
         setIncome(prev => prev.map(r => r.incomeType === oldName ? { ...r, incomeType: newName } : r));
         setCustomTypes(prev => {
           const updated = prev.map(t => t === oldName ? newName : t);
-          localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
           saveAgencySettings({ customIncomeTypes: updated }).catch(() => {});
           return updated;
         });
@@ -2183,7 +2116,6 @@ function IncomeTypesModal({ onClose }) {
       setCommissions({ ..._incomeTypeCommissions });
       setCustomTypes(prev => {
         const updated = prev.filter(t => t !== type);
-        localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
         saveAgencySettings({ customIncomeTypes: updated }).catch(() => {});
         return updated;
       });
@@ -2199,7 +2131,6 @@ function IncomeTypesModal({ onClose }) {
     if (pct > 0) { saveIncomeTypeCommission(name, pct); setCommissions({ ..._incomeTypeCommissions }); }
     setCustomTypes(prev => {
       const updated = [...prev, name];
-      localStorage.setItem("CUSTOM_INCOME_TYPES", JSON.stringify(updated));
       saveAgencySettings({ customIncomeTypes: updated }).catch(() => {});
       return updated;
     });
@@ -3962,8 +3893,10 @@ function GeneratorPage() {
   const [selModelId, setSelModelId] = useState("");
   const [numP, setNumP] = useState(0);
   const [numV, setNumV] = useState(0);
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("GROK_API_KEY") || GROK_API_KEY_DEFAULT || "");
-  const saveApiKey = (k) => { setApiKey(k); localStorage.setItem("GROK_API_KEY", k); };
+  const { agSettings } = useApp();
+  const [apiKey, setApiKey] = useState(GROK_API_KEY_DEFAULT || "");
+  useEffect(() => { if (agSettings.grokApiKey) setApiKey(agSettings.grokApiKey); }, [agSettings]);
+  const saveApiKey = (k) => { setApiKey(k); saveAgencySettings({ grokApiKey: k }).catch(() => {}); };
 
   const [ov, setOv] = useState({ location: "", outfit: "", hairstyle: "", lighting: "", props: "", angle: "", action: "" });
   const updOv = (k, v) => setOv(prev => ({ ...prev, [k]: v }));
@@ -5984,7 +5917,6 @@ function BuyersPage() {
       {buyersView === "monthly" && <select value={month} onChange={e => setMonth(+e.target.value)} style={inputStyle}>
         {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
       </select>}
-      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="חפש קונה..." style={{ ...inputStyle, minWidth: 180 }} />
     </div>
 
     {/* Per-Model Breakdown */}
@@ -6010,7 +5942,7 @@ function BuyersPage() {
 
     {/* Shared Buyers */}
     {sharedBuyersDetail.length > 0 && <Card style={{ marginBottom: 20 }}>
-      <h3 style={{ color: C.warn, fontSize: 15, marginBottom: 12 }}>🔗 קונים משותפים ({sharedBuyersDetail.length})</h3>
+      <h3 style={{ color: "#fff", fontSize: 15, marginBottom: 12 }}>🔗 קונים משותפים ({sharedBuyersDetail.length})</h3>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead><tr>

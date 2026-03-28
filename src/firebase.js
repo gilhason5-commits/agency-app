@@ -622,3 +622,52 @@ export async function updateShift(id, updates) {
 export async function removeShift(id) {
     await deleteDoc(doc(db, "shifts", id));
 }
+
+// ═══════════════════════════════════════════════════════
+// MODELS API (content generator models)
+// ═══════════════════════════════════════════════════════
+export async function fetchModels() {
+    const snap = await getDocs(collection(db, "models"));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function addModel(model) {
+    const docRef = await addDoc(collection(db, "models"), model);
+    return { id: docRef.id, ...model };
+}
+
+export async function updateModel(id, updates) {
+    await updateDoc(doc(db, "models", id), updates);
+    return { id, ...updates };
+}
+
+export async function removeModel(id) {
+    await deleteDoc(doc(db, "models", id));
+}
+
+// ═══════════════════════════════════════════════════════
+// GENERATION HISTORY API
+// ═══════════════════════════════════════════════════════
+export async function fetchHistory() {
+    const snap = await getDocs(collection(db, "generationHistory"));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function addHistory(record) {
+    const docRef = await addDoc(collection(db, "generationHistory"), record);
+    return { id: docRef.id, ...record };
+}
+
+// ═══════════════════════════════════════════════════════
+// GENERATION PARAMS API
+// ═══════════════════════════════════════════════════════
+export async function fetchGenParams() {
+    try {
+        const snap = await getDoc(doc(db, "config", "genParams"));
+        return snap.exists() ? snap.data() : null;
+    } catch { return null; }
+}
+
+export async function saveGenParams(params) {
+    await setDoc(doc(db, "config", "genParams"), params, { merge: true });
+}
