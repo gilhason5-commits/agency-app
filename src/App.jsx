@@ -2026,7 +2026,7 @@ function IncPage() {
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "הערה", render: r => { if (!r.notes) return ""; const words = r.notes.trim().split(/\s+/); if (words.length <= 3) return <span style={{ fontSize: 11, color: C.dim }}>{r.notes}</span>; return <span onClick={() => setNoteView(r.notes)} style={{ fontSize: 11, color: C.pri, cursor: "pointer", whiteSpace: "nowrap" }} title="לחץ לצפייה בהערה המלאה">{words.slice(0, 3).join(" ")}...</span>; } }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", totalPreCommUSD > 0 ? fmtUSD(totalPreCommUSD) : "", totalPreCommILS > 0 ? fmtC(totalPreCommILS) : "", fmtUSD(totalUSD), fmtC(grandTotal), "", "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "ID קונה", render: r => r.buyerId || "—" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "הערה", render: r => { if (!r.notes) return ""; const words = r.notes.trim().split(/\s+/); if (words.length <= 3) return <span style={{ fontSize: 11, color: C.dim }}>{r.notes}</span>; return <span onClick={() => setNoteView(r.notes)} style={{ fontSize: 11, color: C.pri, cursor: "pointer", whiteSpace: "nowrap" }} title="לחץ לצפייה בהערה המלאה">{words.slice(0, 3).join(" ")}...</span>; } }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", totalPreCommUSD > 0 ? fmtUSD(totalPreCommUSD) : "", totalPreCommILS > 0 ? fmtC(totalPreCommILS) : "", fmtUSD(totalUSD), fmtC(grandTotal), "", "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
 
     {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד מכירה ידנית" width={500}>
       <RecordIncomeAdmin onClose={() => setShowIncForm(false)} />
@@ -2214,6 +2214,8 @@ function EditIncomeModal({ record, onClose }) {
   const [modelName, setModelName] = useState(record.modelName || "");
   const initDate = record.date instanceof Date ? record.date.toISOString().slice(0, 10) : (typeof record.date === "string" && record.date ? record.date.slice(0, 10) : "");
   const [txDate, setTxDate] = useState(initDate);
+  const [buyerId, setBuyerId] = useState(record.buyerId || "");
+  const [buyerName, setBuyerName] = useState(record.buyerName || "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -2237,6 +2239,8 @@ function EditIncomeModal({ record, onClose }) {
         originalRawILS: inputILS,
         originalRawUSD: inputUSD,
         usdRate: rate,
+        buyerId: buyerId.trim(),
+        buyerName: buyerName.trim(),
         ...commFields,
       };
       if (record._fromPending) {
@@ -2304,6 +2308,16 @@ function EditIncomeModal({ record, onClose }) {
       <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
     </div>
 
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>מזהה קונה (ID)</label>
+      <input value={buyerId} onChange={e => setBuyerId(e.target.value)} placeholder="מזהה קונה" style={inputStyle} />
+    </div>
+
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>שם קונה</label>
+      <input value={buyerName} onChange={e => setBuyerName(e.target.value)} placeholder="שם קונה" style={inputStyle} />
+    </div>
+
     {(() => {
       const commPct = resolveCommissionPct(platform, incomeType);
       if (!commPct) return null;
@@ -2344,6 +2358,7 @@ function RecordIncomeAdmin({ onClose }) {
     shiftLocation: "משרד",
     notes: "",
     buyerName: "",
+    buyerId: "",
     date: new Date().toISOString().split("T")[0],
     hour: new Date().toTimeString().slice(0, 5)
   });
@@ -2360,8 +2375,8 @@ function RecordIncomeAdmin({ onClose }) {
   }, [income]);
 
   const save = async () => {
-    if (!form.chatterName || !form.modelName || !form.amount || !form.buyerName?.trim()) {
-      setErr("נא למלא צ'אטר, לקוחה, סכום ושם קונה");
+    if (!form.chatterName || !form.modelName || !form.amount || !form.buyerId?.trim()) {
+      setErr("נא למלא צ'אטר, לקוחה, סכום ומזהה קונה");
       return;
     }
     setSaving(true);
@@ -2392,6 +2407,7 @@ function RecordIncomeAdmin({ onClose }) {
         ...commFields,
         notes: form.notes,
         buyerName: form.buyerName || "",
+        buyerId: form.buyerId.trim(),
         verified: "V", // Already verified if Admin adds it
         paymentTarget: "agency",
         paidToClient: false,
@@ -2484,7 +2500,11 @@ function RecordIncomeAdmin({ onClose }) {
         </div>
       </div>
       <div>
-        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שם קונה *</label>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>מזהה קונה (ID) *</label>
+        <input value={form.buyerId} onChange={e => upd("buyerId", e.target.value)} placeholder="מזהה ייחודי" style={inputStyle} />
+      </div>
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שם קונה</label>
         <input value={form.buyerName} onChange={e => upd("buyerName", e.target.value)} placeholder="שם הקונה" style={inputStyle} />
       </div>
       <div>
@@ -2874,7 +2894,7 @@ function ChatterPage({ forceSel, onBack } = {}) {
           </div>
         </Card>;
       })()}
-      <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }]} rows={rows.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(rows.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(tot)]} />
+      <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "ID קונה", render: r => r.buyerId || "—" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }]} rows={rows.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(rows.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(tot)]} />
 
       {/* Edit settings modal */}
       {!isSM && <Modal open={editSettings} onClose={() => setEditSettings(false)} title={`⚙️ הגדרות שכר — ${sel} — ${MONTHS_HE[month]} ${year}`} width={400}>
@@ -3261,7 +3281,7 @@ function ClientPage({ forceSel, onBack } = {}) {
       </Card>
       <Modal open={editPct} onClose={() => setEditPct(false)} title={`עריכת אחוז סוכנות — ${sel} — ${MONTHS_HE[month]}`} width={340}><input type="number" min="0" max="100" value={pv} onChange={e => setPv(e.target.value)} style={{ width: "100%", padding: "12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 20, outline: "none", boxSizing: "border-box", marginBottom: 14 }} /><div style={{ display: "flex", gap: 8 }}><Btn variant="success" onClick={() => { updRate(sel, ymi, +pv); setEditPct(false); }}>💾 שמור</Btn><Btn variant="ghost" onClick={() => setEditPct(false)}>ביטול</Btn></div></Modal>
       <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>🧾 עסקאות ({MONTHS_HE[month]})</h3>
-        <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }]} rows={incD.filter(r => r.modelName === sel).sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(incD.filter(r => r.modelName === sel).reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome)]} /></div>
+        <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "ID קונה", render: r => r.buyerId || "—" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }]} rows={incD.filter(r => r.modelName === sel).sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(incD.filter(r => r.modelName === sel).reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(bal.totalIncome)]} /></div>
     </> : <>
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><ComposedChart data={ybd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="totalIncome" fill={C.grn} radius={[4, 4, 0, 0]} name="הכנסות" /><Line type="monotone" dataKey="ent" stroke={C.pri} strokeWidth={2} name="זכאות" /><Line type="monotone" dataKey="bal" stroke={C.ylw} strokeWidth={2} strokeDasharray="5 5" name="יתרה" /></ComposedChart></ResponsiveContainer></Card>
       <DT columns={[{ label: "חודש", key: "month" }, { label: "הכנסות", render: r => fmtC(r.totalIncome) }, { label: "% סוכנות", render: r => `${r.pct}%` }, { label: "זכאות סוכנות", render: r => <span style={{ color: C.pri }}>{fmtC(r.agencyShare)}</span> }, { label: "זכאות לקוחה", render: r => <span style={{ color: C.ylw }}>{fmtC(r.ent)}</span> }, { label: "שולם ישירות ללקוחה", render: r => fmtC(r.direct) }, { label: "שולם ישירות אלינו", render: r => fmtC(r.through) }, { label: "יתרה", render: r => <div><span style={{ color: r.actualDue >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(Math.abs(r.actualDue))}</span><div style={{ fontSize: 10, color: r.actualDue >= 0 ? C.grn : C.red }}>{r.actualDue >= 0 ? "חייבים ללקוחה" : "לקוחה חייבת"}</div></div> }]} rows={ybd} footer={["סה״כ", fmtC(ybd.reduce((s, r) => s + r.totalIncome, 0)), "", fmtC(ybd.reduce((s, r) => s + r.agencyShare, 0)), fmtC(ybd.reduce((s, r) => s + r.ent, 0)), fmtC(ybd.reduce((s, r) => s + r.direct, 0)), fmtC(ybd.reduce((s, r) => s + r.through, 0)), ""]} />
@@ -4178,7 +4198,7 @@ function ChatterPortal({ hideHeader } = {}) {
     modelName: "", platform: "", amountILS: "", amountUSD: "", usdRate: "3.14", currency: "ILS",
     date: new Date().toISOString().split("T")[0],
     hour: new Date().toTimeString().substring(0, 5),
-    shiftLocation: "משרד", notes: "", incomeType: "", customIncomeType: "", buyerName: ""
+    shiftLocation: "משרד", notes: "", incomeType: "", customIncomeType: "", buyerName: "", buyerId: ""
   });
 
   // Shift request state
@@ -4209,7 +4229,9 @@ function ChatterPortal({ hideHeader } = {}) {
       incomeType: r.incomeType || "",
       platform: r.platform || "",
       modelName: r.modelName || "",
-      txDate: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : ""
+      txDate: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : "",
+      buyerId: r.buyerId || "",
+      buyerName: r.buyerName || ""
     });
     setEditTx(r);
   };
@@ -4221,7 +4243,7 @@ function ChatterPortal({ hideHeader } = {}) {
       const inputUSD = editForm.currency === "USD" ? +editForm.amount || 0 : 0;
       const commFields = computeCommissionFields(editForm.platform, editForm.incomeType, inputILS, inputUSD, rate);
       const newDate = editForm.txDate ? new Date(editForm.txDate + "T12:00:00") : editTx.date;
-      const updates = { incomeType: editForm.incomeType, platform: editForm.platform, modelName: editForm.modelName, date: newDate, rawILS: inputILS, originalRawILS: inputILS, originalRawUSD: inputUSD, usdRate: rate, ...commFields };
+      const updates = { incomeType: editForm.incomeType, platform: editForm.platform, modelName: editForm.modelName, date: newDate, rawILS: inputILS, originalRawILS: inputILS, originalRawUSD: inputUSD, usdRate: rate, buyerId: (editForm.buyerId || "").trim(), buyerName: (editForm.buyerName || "").trim(), ...commFields };
       if (editTx._fromPending) { await updatePending(editTx.id, updates); } else { await updateIncome(editTx.id, updates); }
       setIncome(prev => prev.map(x => x.id === editTx.id ? { ...x, ...updates } : x));
       setEditTx(null);
@@ -4310,7 +4332,7 @@ function ChatterPortal({ hideHeader } = {}) {
   }, [income]);
 
   const save = async () => {
-    if (!form.modelName || (!form.amountILS && !form.amountUSD) || !form.buyerName?.trim()) { setErr("נא למלא לקוחה, סכום ושם קונה"); return; }
+    if (!form.modelName || (!form.amountILS && !form.amountUSD) || !form.buyerId?.trim()) { setErr("נא למלא לקוחה, סכום ומזהה קונה"); return; }
     setSaving(true); setErr("");
 
     const rate = +form.usdRate || 3.14;
@@ -4331,6 +4353,7 @@ function ChatterPortal({ hideHeader } = {}) {
         platform: form.platform, date: new Date(form.date), hour: form.hour,
         notes: form.notes, verified: "", shiftLocation: form.shiftLocation,
         buyerName: form.buyerName || "",
+        buyerId: form.buyerId.trim(),
         paymentTarget: "agency", paidToClient: false, cancelled: false
       };
       const saved = await addPending(newInc);
@@ -4338,7 +4361,7 @@ function ChatterPortal({ hideHeader } = {}) {
       setIncome(prev => [{ ...saved, _fromPending: true }, ...prev]);
       setSaving(false); setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-      setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "", incomeType: "", customIncomeType: "", currency: "ILS", buyerName: "" }));
+      setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "", incomeType: "", customIncomeType: "", currency: "ILS", buyerName: "", buyerId: "" }));
     } catch (e) { setErr(e.message); setSaving(false); }
   };
 
@@ -4540,7 +4563,11 @@ function ChatterPortal({ hideHeader } = {}) {
             </div>
           </div>
           <div>
-            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שם קונה *</label>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>מזהה קונה (ID) *</label>
+            <input value={form.buyerId} onChange={e => upd("buyerId", e.target.value)} placeholder="מזהה ייחודי" style={inputStyle} />
+          </div>
+          <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שם קונה</label>
             <input value={form.buyerName} onChange={e => upd("buyerName", e.target.value)} placeholder="שם הקונה" style={inputStyle} />
           </div>
           <div>
@@ -4565,9 +4592,12 @@ function ChatterPortal({ hideHeader } = {}) {
             <span style={{ color: C.ylw, fontSize: 11 }}>ממתין לאישור</span>
           </div>)}
         </div>}
-        {myShifts.filter(s => s.date >= new Date().toISOString().slice(0, 10)).slice(0, 10).map(s => <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
-          <span style={{ color: C.grn, fontSize: 13 }}>✅</span>
-          <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel} ({s.slotStart}-{s.slotEnd})</span>
+        {myShifts.filter(s => s.date >= new Date().toISOString().slice(0, 10)).slice(0, 10).map(s => <div key={s.id} style={{ padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ color: C.grn, fontSize: 13 }}>✅</span>
+            <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel} ({s.slotStart}-{s.slotEnd})</span>
+          </div>
+          {s.clients?.length > 0 && <div style={{ marginRight: 24, marginTop: 2, fontSize: 11, color: C.cyan }}>לקוחות: {s.clients.join(", ")}</div>}
         </div>)}
 
         {/* Request shift form */}
@@ -4599,6 +4629,7 @@ function ChatterPortal({ hideHeader } = {}) {
           <DT textSm columns={[
             { label: "תאריך", render: renderDateHour },
             { label: "סוג הכנסה", key: "incomeType" },
+            { label: "ID קונה", render: r => r.buyerId || "—" },
             { label: "שם קונה", render: r => r.buyerName || "—" },
             { label: "דוגמנית", key: "modelName" },
             { label: "פלטפורמה", key: "platform" },
@@ -4619,6 +4650,7 @@ function ChatterPortal({ hideHeader } = {}) {
         <DT textSm columns={[
           { label: "תאריך", render: renderDateHour },
           { label: "סוג הכנסה", key: "incomeType" },
+          { label: "ID קונה", render: r => r.buyerId || "—" },
           { label: "שם קונה", render: r => r.buyerName || "—" },
           { label: "דוגמנית", key: "modelName" },
           { label: "פלטפורמה", key: "platform" },
@@ -4667,6 +4699,14 @@ function ChatterPortal({ hideHeader } = {}) {
               ))}
             </div>
             <input type="number" value={editForm.amount} onChange={e => setEditForm(f => ({ ...f, amount: e.target.value }))} placeholder="0" style={{ ...inputStyle, direction: "ltr" }} />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>מזהה קונה (ID)</label>
+            <input value={editForm.buyerId || ""} onChange={e => setEditForm(f => ({ ...f, buyerId: e.target.value }))} placeholder="מזהה קונה" style={inputStyle} />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>שם קונה</label>
+            <input value={editForm.buyerName || ""} onChange={e => setEditForm(f => ({ ...f, buyerName: e.target.value }))} placeholder="שם קונה" style={inputStyle} />
           </div>
           {(() => {
             const commPct = resolveCommissionPct(editForm.platform, editForm.incomeType);
@@ -4870,6 +4910,7 @@ function ApprovalsPage() {
         { label: "שעה", render: r => r.hour || "—" },
         { label: "צ'אטר", key: "chatterName" },
         { label: "לקוחה", key: "modelName" },
+        { label: "ID קונה", render: r => r.buyerId || "—" },
         { label: "שם קונה", render: r => r.buyerName || "—" },
         { label: "סוג הכנסה", render: r => r.incomeType || "—" },
         { label: "פלטפורמה", key: "platform" },
@@ -5608,6 +5649,9 @@ function ShiftsPage() {
   const [showSlotMgr, setShowSlotMgr] = useState(false);
   const [assignSlot, setAssignSlot] = useState(null); // { date, slotId }
   const [assignChatter, setAssignChatter] = useState("");
+  const [assignClients, setAssignClients] = useState([]);
+  const [editShift, setEditShift] = useState(null); // shift being edited for clients
+  const [editClients, setEditClients] = useState([]);
 
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
 
@@ -5632,6 +5676,12 @@ function ShiftsPage() {
   const chatterNames = useMemo(() => {
     const fromIncome = income.map(r => r.chatterName).filter(Boolean);
     const fromUsers = (sheetUsers || []).filter(u => u.role === "chatter").map(u => u.name);
+    return [...new Set([...fromIncome, ...fromUsers])].sort();
+  }, [income, sheetUsers]);
+
+  const clientNames = useMemo(() => {
+    const fromIncome = income.map(r => r.modelName).filter(Boolean);
+    const fromUsers = (sheetUsers || []).filter(u => u.role === "client").map(u => u.name);
     return [...new Set([...fromIncome, ...fromUsers])].sort();
   }, [income, sheetUsers]);
 
@@ -5662,12 +5712,22 @@ function ShiftsPage() {
     const data = {
       date: assignSlot.date, slotId: slot.id, slotLabel: slot.label,
       slotStart: slot.start, slotEnd: slot.end,
-      chatterName: assignChatter, status: "approved", source: "manual",
+      chatterName: assignChatter, clients: assignClients, status: "approved", source: "manual",
       approvedBy: "admin", approvedAt: new Date().toISOString()
     };
     const saved = await addShiftCtx(data);
     TelegramSvc.notifyShiftApproved(saved);
-    setAssignSlot(null); setAssignChatter("");
+    setAssignSlot(null); setAssignChatter(""); setAssignClients([]);
+  };
+
+  const toggleClient = (list, setList, name) => {
+    setList(prev => prev.includes(name) ? prev.filter(c => c !== name) : [...prev, name]);
+  };
+
+  const saveEditClients = async () => {
+    if (!editShift) return;
+    await updateShiftCtx(editShift.id, { clients: editClients });
+    setEditShift(null); setEditClients([]);
   };
 
   const filledCount = shifts.filter(s => s.status === "approved").length;
@@ -5741,9 +5801,15 @@ function ShiftsPage() {
                 const approved = cellShifts.filter(s => s.status === "approved");
                 return <td key={day} style={{ padding: 6, borderBottom: `1px solid ${C.bdr}`, textAlign: "center", verticalAlign: "top", cursor: "pointer", background: approved.length ? `${C.grn}11` : "transparent" }}
                   onClick={() => { setAssignSlot({ date: day, slotId: slot.id }); setAssignChatter(""); }}>
-                  {approved.map(s => <div key={s.id} style={{ background: `${C.grn}22`, borderRadius: 6, padding: "3px 6px", marginBottom: 2, fontSize: 12, color: C.txt, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span>{s.chatterName}</span>
-                    <button onClick={e => { e.stopPropagation(); removeShiftCtx(s.id); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 11, padding: "0 2px" }}>✕</button>
+                  {approved.map(s => <div key={s.id} style={{ background: `${C.grn}22`, borderRadius: 6, padding: "3px 6px", marginBottom: 2, fontSize: 12, color: C.txt }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontWeight: 600 }}>{s.chatterName}</span>
+                      <span style={{ display: "flex", gap: 2 }}>
+                        <button onClick={e => { e.stopPropagation(); setEditShift(s); setEditClients(s.clients || []); }} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 10, padding: "0 2px" }}>✏️</button>
+                        <button onClick={e => { e.stopPropagation(); removeShiftCtx(s.id); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 10, padding: "0 2px" }}>✕</button>
+                      </span>
+                    </div>
+                    {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginTop: 1 }}>{s.clients.join(", ")}</div>}
                   </div>)}
                   {!approved.length && <span style={{ color: C.mut, fontSize: 11 }}>+</span>}
                 </td>;
@@ -5755,7 +5821,7 @@ function ShiftsPage() {
     </Card>
 
     {/* Assign Modal */}
-    {assignSlot && <Modal open onClose={() => setAssignSlot(null)} title="שיבוץ משמרת" width={350}>
+    {assignSlot && <Modal open onClose={() => { setAssignSlot(null); setAssignClients([]); }} title="שיבוץ משמרת" width={400}>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ color: C.dim, fontSize: 13 }}>
           {sortedSlots.find(s => s.id === assignSlot.slotId)?.label || ""} — {assignSlot.date}
@@ -5764,7 +5830,27 @@ function ShiftsPage() {
           <option value="">בחר צ'אטר...</option>
           {chatterNames.map(n => <option key={n} value={n}>{n}</option>)}
         </select>
+        <div>
+          <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>הקצה לקוחות:</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {clientNames.map(c => <button key={c} onClick={() => toggleClient(assignClients, setAssignClients, c)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${assignClients.includes(c) ? C.pri : C.bdr}`, background: assignClients.includes(c) ? `${C.pri}33` : C.bg, color: assignClients.includes(c) ? C.pri : C.dim, cursor: "pointer", fontSize: 12 }}>{c}</button>)}
+          </div>
+        </div>
         <Btn variant="success" onClick={manualAssign} disabled={!assignChatter}>שבץ</Btn>
+      </div>
+    </Modal>}
+
+    {/* Edit Clients Modal */}
+    {editShift && <Modal open onClose={() => setEditShift(null)} title={`עריכת לקוחות — ${editShift.chatterName}`} width={400}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ color: C.dim, fontSize: 13 }}>{editShift.slotLabel} — {editShift.date}</div>
+        <div>
+          <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>לקוחות למשמרת:</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {clientNames.map(c => <button key={c} onClick={() => toggleClient(editClients, setEditClients, c)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${editClients.includes(c) ? C.pri : C.bdr}`, background: editClients.includes(c) ? `${C.pri}33` : C.bg, color: editClients.includes(c) ? C.pri : C.dim, cursor: "pointer", fontSize: 12 }}>{c}</button>)}
+          </div>
+        </div>
+        <Btn variant="success" onClick={saveEditClients}>שמור</Btn>
       </div>
     </Modal>}
   </div>;
@@ -5786,38 +5872,50 @@ function BuyersPage() {
   // Data source based on view
   const dataSource = buyersView === "monthly" ? iM : iY;
 
-  // All buyers aggregated from data source
+  // Resolve best name for a buyerId: the name with the most transactions
+  const resolveName = useCallback((records, id) => {
+    const nameCount = {};
+    records.forEach(r => {
+      if (r.buyerId?.trim() !== id || !r.buyerName) return;
+      const n = r.buyerName.trim();
+      if (n) nameCount[n] = (nameCount[n] || 0) + 1;
+    });
+    let best = id; let max = 0;
+    Object.entries(nameCount).forEach(([n, c]) => { if (c > max) { best = n; max = c; } });
+    return best;
+  }, []);
+
+  // All buyers aggregated by buyerId
   const allBuyers = useMemo(() => {
     const map = {};
     dataSource.forEach(r => {
-      if (!r.buyerName || r.cancelled) return;
-      const name = r.buyerName.trim();
-      if (!name) return;
-      if (!map[name]) map[name] = { name, total: 0, count: 0, models: new Set(), lastDate: null, firstDate: null };
-      map[name].total += r.amountILS || 0;
-      map[name].count++;
-      if (r.modelName) map[name].models.add(r.modelName);
+      const id = r.buyerId?.trim();
+      if (!id || r.cancelled) return;
+      if (!map[id]) map[id] = { buyerId: id, total: 0, count: 0, models: new Set(), lastDate: null, firstDate: null };
+      map[id].total += r.amountILS || 0;
+      map[id].count++;
+      if (r.modelName) map[id].models.add(r.modelName);
       const d = r.date;
       if (d) {
-        if (!map[name].lastDate || d > map[name].lastDate) map[name].lastDate = d;
-        if (!map[name].firstDate || d < map[name].firstDate) map[name].firstDate = d;
+        if (!map[id].lastDate || d > map[id].lastDate) map[id].lastDate = d;
+        if (!map[id].firstDate || d < map[id].firstDate) map[id].firstDate = d;
       }
     });
-    return Object.values(map).map(b => ({ ...b, models: [...b.models] }));
-  }, [dataSource]);
+    return Object.values(map).map(b => ({ ...b, name: resolveName(dataSource, b.buyerId), models: [...b.models] }));
+  }, [dataSource, resolveName]);
 
-  // Current month buyers
-  const currentBuyers = useMemo(() => new Set(iM.filter(r => r.buyerName && !r.cancelled).map(r => r.buyerName.trim()).filter(Boolean)), [iM]);
+  // Current month buyers by buyerId
+  const currentBuyers = useMemo(() => new Set(iM.filter(r => r.buyerId?.trim() && !r.cancelled).map(r => r.buyerId.trim())), [iM]);
 
-  // Previous month buyers
+  // Previous month buyers by buyerId
   const prevMonthBuyers = useMemo(() => {
     const pm = month === 0 ? 11 : month - 1;
     const py = month === 0 ? year - 1 : year;
     return new Set(income.filter(r => {
-      if (!r.buyerName || r.cancelled) return false;
+      if (!r.buyerId?.trim() || r.cancelled) return false;
       const d = r.date;
       return d && d.getFullYear() === py && d.getMonth() === pm;
-    }).map(r => r.buyerName.trim()).filter(Boolean));
+    }).map(r => r.buyerId.trim()));
   }, [income, month, year]);
 
   const newBuyers = useMemo(() => [...currentBuyers].filter(b => !prevMonthBuyers.has(b)), [currentBuyers, prevMonthBuyers]);
@@ -5832,9 +5930,10 @@ function BuyersPage() {
   const perModel = useMemo(() => {
     const map = {};
     dataSource.forEach(r => {
-      if (!r.buyerName || r.cancelled || !r.modelName) return;
+      const id = r.buyerId?.trim();
+      if (!id || r.cancelled || !r.modelName) return;
       if (!map[r.modelName]) map[r.modelName] = { model: r.modelName, buyers: new Set(), revenue: 0 };
-      map[r.modelName].buyers.add(r.buyerName.trim());
+      map[r.modelName].buyers.add(id);
       map[r.modelName].revenue += r.amountILS || 0;
     });
     const allModelBuyers = Object.values(map);
@@ -5852,23 +5951,22 @@ function BuyersPage() {
   const sharedBuyersDetail = useMemo(() => {
     const buyerModels = {};
     dataSource.forEach(r => {
-      if (!r.buyerName || r.cancelled) return;
-      const name = r.buyerName.trim();
-      if (!name) return;
-      if (!buyerModels[name]) buyerModels[name] = { name, models: new Set(), total: 0 };
-      if (r.modelName) buyerModels[name].models.add(r.modelName);
-      buyerModels[name].total += r.amountILS || 0;
+      const id = r.buyerId?.trim();
+      if (!id || r.cancelled) return;
+      if (!buyerModels[id]) buyerModels[id] = { buyerId: id, models: new Set(), total: 0 };
+      if (r.modelName) buyerModels[id].models.add(r.modelName);
+      buyerModels[id].total += r.amountILS || 0;
     });
-    return Object.values(buyerModels).filter(b => b.models.size > 1).map(b => ({ ...b, models: [...b.models] }));
-  }, [dataSource]);
+    return Object.values(buyerModels).filter(b => b.models.size > 1).map(b => ({ ...b, name: resolveName(dataSource, b.buyerId), models: [...b.models] }));
+  }, [dataSource, resolveName]);
 
   // Monthly trend for chart
   const monthlyTrend = useMemo(() => {
     const months = Array.from({ length: 12 }, (_, m) => {
-      const mBuyers = new Set(income.filter(r => r.buyerName && !r.cancelled && r.date && r.date.getFullYear() === year && r.date.getMonth() === m).map(r => r.buyerName.trim()).filter(Boolean));
+      const mBuyers = new Set(income.filter(r => r.buyerId?.trim() && !r.cancelled && r.date && r.date.getFullYear() === year && r.date.getMonth() === m).map(r => r.buyerId.trim()));
       const prevM = m === 0 ? 11 : m - 1;
       const prevY = m === 0 ? year - 1 : year;
-      const pBuyers = new Set(income.filter(r => r.buyerName && !r.cancelled && r.date && r.date.getFullYear() === prevY && r.date.getMonth() === prevM).map(r => r.buyerName.trim()).filter(Boolean));
+      const pBuyers = new Set(income.filter(r => r.buyerId?.trim() && !r.cancelled && r.date && r.date.getFullYear() === prevY && r.date.getMonth() === prevM).map(r => r.buyerId.trim()));
       const newB = [...mBuyers].filter(b => !pBuyers.has(b)).length;
       const retB = [...mBuyers].filter(b => pBuyers.has(b)).length;
       const lostB = [...pBuyers].filter(b => !mBuyers.has(b)).length;
@@ -5880,8 +5978,7 @@ function BuyersPage() {
   // Filtered & sorted buyer table
   const filteredBuyers = useMemo(() => {
     let list = allBuyers;
-    if (search) list = list.filter(b => b.name.includes(search));
-    if (modelFilter) list = list.filter(b => b.models.includes(modelFilter));
+    if (search) list = list.filter(b => b.name.includes(search) || b.buyerId.includes(search));
     list.sort((a, b) => {
       if (sortKey === "name") return sortDir * a.name.localeCompare(b.name, "he");
       if (sortKey === "total") return sortDir * (a.total - b.total);
@@ -5983,6 +6080,7 @@ function BuyersPage() {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead><tr>
             <th onClick={() => toggleSort("name")} style={{ padding: 8, textAlign: "right", color: C.pri, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>שם{sortIcon("name")}</th>
+            <th style={{ padding: 8, textAlign: "right", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>ID קונה</th>
             <th onClick={() => toggleSort("total")} style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>סכום{sortIcon("total")}</th>
             <th onClick={() => toggleSort("count")} style={{ padding: 8, textAlign: "center", color: C.pri, borderBottom: `2px solid ${C.bdr}`, cursor: "pointer" }}>עסקאות{sortIcon("count")}</th>
             <th style={{ padding: 8, textAlign: "right", color: C.pri, borderBottom: `2px solid ${C.bdr}` }}>לקוחות</th>
@@ -5991,8 +6089,9 @@ function BuyersPage() {
           </tr></thead>
           <tbody>{filteredBuyers.map(b => {
             const daysSince = b.lastDate ? Math.floor((new Date() - b.lastDate) / 86400000) : "—";
-            return <tr key={b.name}>
+            return <tr key={b.buyerId}>
               <td style={{ padding: 8, color: C.pri, borderBottom: `1px solid ${C.bdr}` }}>{b.name}</td>
+              <td style={{ padding: 8, color: C.dim, fontSize: 11, borderBottom: `1px solid ${C.bdr}` }}>{b.buyerId}</td>
               <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{fmtC(b.total)}</td>
               <td style={{ padding: 8, color: "#fff", textAlign: "center", borderBottom: `1px solid ${C.bdr}` }}>{b.count}</td>
               <td style={{ padding: 8, color: C.pri, borderBottom: `1px solid ${C.bdr}` }}>{b.models.join(", ")}</td>
