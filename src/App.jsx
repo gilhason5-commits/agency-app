@@ -5848,11 +5848,15 @@ function BuyersPage() {
   const [modelFilter, setModelFilter] = useState("");
   const [sortKey, setSortKey] = useState("count");
   const [sortDir, setSortDir] = useState(-1);
+  const [buyersView, setBuyersView] = useState("yearly"); // "yearly" | "monthly"
 
-  // All buyers aggregated from entire year's income
+  // Data source based on view
+  const dataSource = buyersView === "monthly" ? iM : iY;
+
+  // All buyers aggregated from data source
   const allBuyers = useMemo(() => {
     const map = {};
-    iY.forEach(r => {
+    dataSource.forEach(r => {
       if (!r.buyerName || r.cancelled) return;
       const name = r.buyerName.trim();
       if (!name) return;
@@ -5867,7 +5871,7 @@ function BuyersPage() {
       }
     });
     return Object.values(map).map(b => ({ ...b, models: [...b.models] }));
-  }, [iY]);
+  }, [dataSource]);
 
   // Current month buyers
   const currentBuyers = useMemo(() => new Set(iM.filter(r => r.buyerName && !r.cancelled).map(r => r.buyerName.trim()).filter(Boolean)), [iM]);
@@ -5889,18 +5893,17 @@ function BuyersPage() {
   const retentionRate = prevMonthBuyers.size > 0 ? Math.round((retained.length / prevMonthBuyers.size) * 100) : 0;
 
   // Models list
-  const modelNames = useMemo(() => [...new Set(iY.map(r => r.modelName).filter(Boolean))].sort(), [iY]);
+  const modelNames = useMemo(() => [...new Set(dataSource.map(r => r.modelName).filter(Boolean))].sort(), [dataSource]);
 
   // Per-model breakdown
   const perModel = useMemo(() => {
     const map = {};
-    iY.forEach(r => {
+    dataSource.forEach(r => {
       if (!r.buyerName || r.cancelled || !r.modelName) return;
       if (!map[r.modelName]) map[r.modelName] = { model: r.modelName, buyers: new Set(), revenue: 0 };
       map[r.modelName].buyers.add(r.buyerName.trim());
       map[r.modelName].revenue += r.amountILS || 0;
     });
-    // Shared buyers: appear in 2+ models
     const allModelBuyers = Object.values(map);
     const buyerModelCount = {};
     allModelBuyers.forEach(m => m.buyers.forEach(b => { buyerModelCount[b] = (buyerModelCount[b] || 0) + 1; }));
@@ -5910,12 +5913,12 @@ function BuyersPage() {
       sharedBuyers: [...m.buyers].filter(b => buyerModelCount[b] > 1).length,
       revenue: m.revenue
     }));
-  }, [iY]);
+  }, [dataSource]);
 
   // Shared buyers detail
   const sharedBuyersDetail = useMemo(() => {
     const buyerModels = {};
-    iY.forEach(r => {
+    dataSource.forEach(r => {
       if (!r.buyerName || r.cancelled) return;
       const name = r.buyerName.trim();
       if (!name) return;
@@ -5924,7 +5927,7 @@ function BuyersPage() {
       buyerModels[name].total += r.amountILS || 0;
     });
     return Object.values(buyerModels).filter(b => b.models.size > 1).map(b => ({ ...b, models: [...b.models] }));
-  }, [iY]);
+  }, [dataSource]);
 
   // Monthly trend for chart
   const monthlyTrend = useMemo(() => {
@@ -5965,7 +5968,7 @@ function BuyersPage() {
 
     {/* Stats */}
     <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
-      <Stat icon="👤" title="סה״כ קונים (שנתי)" value={allBuyers.length} color={C.pri} />
+      <Stat icon="👤" title={`סה״כ קונים ${buyersView === "monthly" ? `(${MONTHS_HE[month]})` : "(שנתי)"}`} value={allBuyers.length} color={C.pri} />
       <Stat icon="🆕" title={`חדשים (${MONTHS_HE[month]})`} value={newBuyers.length} color={C.grn} />
       <Stat icon="🔄" title="חוזרים" value={retained.length} color={C.cyan} />
       <Stat icon="📉" title="נטשו" value={lost.length} color={C.red} />
@@ -5973,14 +5976,18 @@ function BuyersPage() {
     </div>
 
     {/* Filters */}
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 20, alignItems: "center" }}>
+      <div style={{ display: "flex", background: C.card, borderRadius: 8, padding: 3, border: `1px solid ${C.bdr}` }}>
+        <button onClick={() => setBuyersView("yearly")} style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 13, fontWeight: buyersView === "yearly" ? 700 : 400, background: buyersView === "yearly" ? C.pri : "transparent", color: buyersView === "yearly" ? "#fff" : C.dim }}>שנתי</button>
+        <button onClick={() => setBuyersView("monthly")} style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 13, fontWeight: buyersView === "monthly" ? 700 : 400, background: buyersView === "monthly" ? C.pri : "transparent", color: buyersView === "monthly" ? "#fff" : C.dim }}>חודשי</button>
+      </div>
+      {buyersView === "monthly" && <select value={month} onChange={e => setMonth(+e.target.value)} style={inputStyle}>
+        {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
+      </select>}
       <input value={search} onChange={e => setSearch(e.target.value)} placeholder="חפש קונה..." style={{ ...inputStyle, minWidth: 180 }} />
       <select value={modelFilter} onChange={e => setModelFilter(e.target.value)} style={inputStyle}>
         <option value="">כל הלקוחות</option>
         {modelNames.map(m => <option key={m} value={m}>{m}</option>)}
-      </select>
-      <select value={month} onChange={e => setMonth(+e.target.value)} style={inputStyle}>
-        {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
       </select>
     </div>
 
