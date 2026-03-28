@@ -5984,7 +5984,6 @@ function BuyersPage() {
       {buyersView === "monthly" && <select value={month} onChange={e => setMonth(+e.target.value)} style={inputStyle}>
         {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
       </select>}
-      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="חפש קונה..." style={{ ...inputStyle, minWidth: 180 }} />
     </div>
 
     {/* Per-Model Breakdown */}
@@ -6010,7 +6009,7 @@ function BuyersPage() {
 
     {/* Shared Buyers */}
     {sharedBuyersDetail.length > 0 && <Card style={{ marginBottom: 20 }}>
-      <h3 style={{ color: C.warn, fontSize: 15, marginBottom: 12 }}>🔗 קונים משותפים ({sharedBuyersDetail.length})</h3>
+      <h3 style={{ color: "#fff", fontSize: 15, marginBottom: 12 }}>🔗 קונים משותפים ({sharedBuyersDetail.length})</h3>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead><tr>
