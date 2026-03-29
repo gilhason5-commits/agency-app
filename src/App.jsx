@@ -5128,6 +5128,10 @@ function ClientPortal() {
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} />
+        {pct > 0 && <Stat icon="🏢" title="עמלת סוכנות" value={fmtC(bal.agencyShare)} color={C.ylw} sub={`${pct}%`} />}
+        <Stat icon="👩" title="נכנס לחשבון" value={fmtC(bal.ent)} color={C.pri} />
+        {(bal.direct + bal.netSettled) > 0 && <Stat icon="✅" title="שולם" value={fmtC(bal.direct + bal.netSettled)} color={C.grn} />}
+        {bal.actualDue !== 0 && <Stat icon="📋" title="יתרה" value={fmtC(Math.abs(bal.actualDue))} color={bal.actualDue > 0 ? C.ylw : C.red} sub={bal.actualDue > 0 ? "הסוכנות חייבת" : "חוב ללקוחה"} />}
       </div>
 
       {data.length > 0 && (() => {
