@@ -69,7 +69,16 @@ const TelegramSvc = {
     const amount = exp.amount ? `₪${Number(exp.amount).toLocaleString("he-IL")}` : "";
     return this.send(`💳 <b>הוצאה תועדה</b>\nקטגוריה: ${exp.category || "—"}\nתיאור: ${exp.name || "—"}\nסכום: ${amount}\nשילם: ${exp.paidBy || "—"}`);
   },
+  notifyClockIn(shift, lateMinutes) {
+    const lateStr = lateMinutes > 0 ? ` (איחור ${lateMinutes} דק')` : " (בזמן ✅)";
+    return this.send(`🟢 <b>${shift.chatterName} עלה/תה למשמרת ${shift.slotLabel}${lateStr}</b>\nתאריך: ${shift.date}\nשעת כניסה: ${new Date().toTimeString().slice(0, 5)}`);
+  },
+  notifyClockOut(shift, hoursWorked) {
+    return this.send(`🔴 <b>${shift.chatterName} ירד/ה ממשמרת ${shift.slotLabel} — ${hoursWorked} שעות</b>\nתאריך: ${shift.date}\nשעת יציאה: ${new Date().toTimeString().slice(0, 5)}`);
+  },
 };
+
+const parseTime = (t) => { const [h, m] = (t || "0:0").split(":").map(Number); return h * 60 + m; };
 
 // Income type commission rates (hardcoded, always applied)
 const INCOME_TYPE_COMMISSIONS = { "אונלי": 20 };
@@ -2963,9 +2972,20 @@ function InlinePctInput({ value, onSave }) {
 const ENTITY_COLORS = ['#6366f1', '#22c55e', '#f97316', '#eab308', '#8b5cf6', '#06b6d4', '#f43f5e', '#84cc16', '#ec4899', '#14b8a6'];
 
 function ChattersOverviewPage({ onSelectChatter }) {
-  const { year, month, view, chatterSettings, saveChatterSetting, user } = useApp();
+  const { year, month, view, chatterSettings, saveChatterSetting, user, shifts } = useApp();
   const isSM = user?.role === "shift_manager";
   const { iM, iY, iRange, chatters } = useFD();
+
+  const onShiftMap = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const map = {};
+    shifts.filter(s => s.date === today && s.status === "approved").forEach(s => {
+      if (s.clockIn && !s.clockOut) map[s.chatterName] = "online";
+      else if (s.clockIn && s.clockOut) { if (!map[s.chatterName]) map[s.chatterName] = "done"; }
+      else { if (!map[s.chatterName]) map[s.chatterName] = "expected"; }
+    });
+    return map;
+  }, [shifts]);
   const incD = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const ymi = ym(year, new Date().getMonth());
 
@@ -3006,6 +3026,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
       <Stat icon="💰" title="סה״כ מכירות" value={fmtC(totalSales)} color={C.grn} />
       {!isSM && <Stat icon="💵" title="סה״כ משכורות" value={fmtC(totalSalary)} color={C.ylw} />}
       {pendingCount > 0 && <Stat icon="⏳" title="ממתינות" value={fmtC(pendingTotal)} color={C.ylw} sub={`${pendingCount} עסקאות`} />}
+      {(() => { const onNow = Object.entries(onShiftMap).filter(([,v]) => v === "online"); return onNow.length > 0 ? <Stat icon="🟢" title="כרגע במשמרת" value={onNow.length} color={C.grn} sub={onNow.map(([n]) => n).join(", ")} /> : null; })()}
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginBottom: 16 }}>
       <Card>
@@ -3071,6 +3092,13 @@ function ChattersOverviewPage({ onSelectChatter }) {
       <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📋 סיכום וניהול אחוזים</div>
       <DT columns={[
         { label: "צ'אטר", render: r => <button onClick={() => onSelectChatter(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontWeight: 700, fontSize: 13, padding: 0 }}>{r.name}</button> },
+        { label: "סטטוס", render: r => {
+          const st = onShiftMap[r.name];
+          if (st === "online") return <span style={{ color: C.grn, fontSize: 11, fontWeight: 600 }}>🟢 במשמרת</span>;
+          if (st === "done") return <span style={{ color: C.dim, fontSize: 11 }}>⚪ סיים</span>;
+          if (st === "expected") return <span style={{ color: C.red, fontSize: 11 }}>🔴 לא עלה</span>;
+          return <span style={{ color: C.mut, fontSize: 11 }}>—</span>;
+        }},
         { label: "מכירות", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.total)}</span> },
         ...(isSM ? [] : [
           { label: "% משרד", render: r => <InlinePctInput value={r.officePct} onSave={v => saveChatterSetting(r.name, { officePct: v })} /> },
@@ -3080,7 +3108,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
         ]),
         { label: "", render: r => <button onClick={() => onSelectChatter(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>פרטים ←</button> }
       ]} rows={chatterStats.map(c => ({ ...c, officePct: (chatterSettings[c.name] || {}).officePct ?? 17, fieldPct: (chatterSettings[c.name] || {}).fieldPct ?? 15 }))}
-      footer={isSM ? ["סה״כ", fmtC(totalSales), ""] : ["סה״כ", fmtC(totalSales), "", "", fmtC(totalSalary), fmtC(totalSales - totalSalary), ""]} />
+      footer={isSM ? ["סה״כ", "", fmtC(totalSales), ""] : ["סה״כ", "", fmtC(totalSales), "", "", fmtC(totalSalary), fmtC(totalSales - totalSalary), ""]} />
     </Card>
   </div>;
 }
@@ -4187,7 +4215,7 @@ ${overridesText || "אין"}
 // CHATTER PORTAL
 // ═══════════════════════════════════════════════════════
 function ChatterPortal({ hideHeader } = {}) {
-  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets, sheetUsers, chatterSettings, shiftSlots, shifts, addShiftCtx } = useApp();
+  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets, sheetUsers, chatterSettings, shiftSlots, shifts, addShiftCtx, updateShiftCtx } = useApp();
   const { iM, iY } = useFD();
   const w = useWin();
   const chatterName = user?.name || "";
@@ -4208,6 +4236,36 @@ function ChatterPortal({ hideHeader } = {}) {
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
   const myShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "approved").sort((a, b) => a.date > b.date ? 1 : -1), [shifts, chatterName]);
   const myPendingShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "pending"), [shifts, chatterName]);
+
+  // Clock-in/out state
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayShifts = useMemo(() => myShifts.filter(s => s.date === todayStr), [myShifts, todayStr]);
+  const activeShift = todayShifts.find(s => s.clockIn && !s.clockOut);
+  const [clockingId, setClockingId] = useState(null);
+  const [showClockOutModal, setShowClockOutModal] = useState(null);
+  const [hoursInput, setHoursInput] = useState("");
+
+  const handleClockIn = async (shift) => {
+    setClockingId(shift.id);
+    const now = new Date();
+    const clockInMinutes = now.getHours() * 60 + now.getMinutes();
+    const slotStartMinutes = parseTime(shift.slotStart);
+    const lateMinutes = Math.max(0, clockInMinutes - slotStartMinutes);
+    await updateShiftCtx(shift.id, { clockIn: now.toISOString(), lateMinutes });
+    TelegramSvc.notifyClockIn(shift, lateMinutes);
+    setClockingId(null);
+  };
+
+  const handleClockOut = async () => {
+    if (!hoursInput || isNaN(+hoursInput)) return;
+    const shift = showClockOutModal;
+    setClockingId(shift.id);
+    await updateShiftCtx(shift.id, { clockOut: new Date().toISOString(), hoursWorked: +hoursInput });
+    TelegramSvc.notifyClockOut(shift, +hoursInput);
+    setShowClockOutModal(null);
+    setHoursInput("");
+    setClockingId(null);
+  };
   const requestShift = async () => {
     if (!shiftReqSlot || !shiftReqDate) return;
     setShiftSaving(true);
@@ -4581,6 +4639,43 @@ function ChatterPortal({ hideHeader } = {}) {
         </Btn>
       </Card>
 
+      {/* Attendance Clock */}
+      {todayShifts.length > 0 && <Card style={{ marginBottom: 16, border: activeShift ? `2px solid ${C.grn}` : undefined }}>
+        <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>⏰ שעון נוכחות</h3>
+        {todayShifts.map(s => {
+          const isActive = s.clockIn && !s.clockOut;
+          const isDone = s.clockIn && s.clockOut;
+          const canClockIn = !s.clockIn;
+          return <div key={s.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.bdr}` }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 16 }}>{isActive ? "🟢" : isDone ? "⚪" : "🔵"}</span>
+              <span style={{ color: C.txt, fontSize: 13, fontWeight: 600 }}>{s.slotLabel} ({s.slotStart}-{s.slotEnd})</span>
+              {s.lateMinutes > 0 && <span style={{ color: C.ylw, fontSize: 11, background: `${C.ylw}22`, padding: "2px 8px", borderRadius: 8 }}>איחור {s.lateMinutes} דק׳</span>}
+              {s.clients?.length > 0 && <span style={{ fontSize: 11, color: C.cyan }}>| {s.clients.join(", ")}</span>}
+            </div>
+            {s.clockIn && <div style={{ marginRight: 28, marginTop: 4, fontSize: 11, color: C.dim }}>
+              כניסה: {new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}
+              {s.clockOut && <> · יציאה: {new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} · {s.hoursWorked} שעות</>}
+            </div>}
+            <div style={{ marginTop: 8 }}>
+              {canClockIn && <Btn size="sm" variant="success" onClick={() => handleClockIn(s)} disabled={clockingId === s.id}>{clockingId === s.id ? "⏳" : "🟢 עליתי למשמרת"}</Btn>}
+              {isActive && <Btn size="sm" variant="danger" onClick={() => { setShowClockOutModal(s); const diff = (Date.now() - new Date(s.clockIn).getTime()) / 3600000; setHoursInput(String(Math.round(diff * 2) / 2)); }} disabled={clockingId === s.id}>🔴 ירדתי ממשמרת</Btn>}
+              {isDone && <span style={{ color: C.grn, fontSize: 12, fontWeight: 600 }}>✅ סיימת משמרת זו</span>}
+            </div>
+          </div>;
+        })}
+      </Card>}
+
+      {/* Clock-out Modal */}
+      {showClockOutModal && <Modal open onClose={() => setShowClockOutModal(null)} title="סיום משמרת" width={360}>
+        <div style={{ direction: "rtl" }}>
+          <div style={{ color: C.dim, fontSize: 12, marginBottom: 12 }}>{showClockOutModal.slotLabel} • כניסה: {new Date(showClockOutModal.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</div>
+          <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>כמה שעות עבדת?</label>
+          <input type="number" step="0.5" min="0" max="24" value={hoursInput} onChange={e => setHoursInput(e.target.value)} style={{ width: "100%", padding: "10px 12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 10, color: C.txt, fontSize: 16, fontWeight: 700, textAlign: "center", outline: "none", boxSizing: "border-box", direction: "ltr" }} placeholder="0" />
+          <Btn onClick={handleClockOut} variant="success" size="lg" style={{ width: "100%", marginTop: 12 }} disabled={!hoursInput || clockingId}>💾 סיים משמרת</Btn>
+        </div>
+      </Modal>}
+
       {/* My Shifts */}
       <Card style={{ marginBottom: 16 }}>
         <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📅 המשמרות שלי</h3>
@@ -4592,10 +4687,13 @@ function ChatterPortal({ hideHeader } = {}) {
             <span style={{ color: C.ylw, fontSize: 11 }}>ממתין לאישור</span>
           </div>)}
         </div>}
-        {myShifts.filter(s => s.date >= new Date().toISOString().slice(0, 10)).slice(0, 10).map(s => <div key={s.id} style={{ padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
+        {myShifts.filter(s => s.date >= todayStr).slice(0, 10).map(s => <div key={s.id} style={{ padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <span style={{ color: C.grn, fontSize: 13 }}>✅</span>
+            <span style={{ fontSize: 13 }}>{s.clockIn && s.clockOut ? "⚪" : s.clockIn ? "🟢" : "✅"}</span>
             <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel} ({s.slotStart}-{s.slotEnd})</span>
+            {s.clockIn && !s.clockOut && <span style={{ color: C.grn, fontSize: 10, fontWeight: 700 }}>במשמרת</span>}
+            {s.clockIn && s.clockOut && <span style={{ color: C.dim, fontSize: 10 }}>{s.hoursWorked}ש׳</span>}
+            {s.lateMinutes > 0 && <span style={{ color: C.ylw, fontSize: 10 }}>איחור {s.lateMinutes}׳</span>}
           </div>
           {s.clients?.length > 0 && <div style={{ marginRight: 24, marginTop: 2, fontSize: 11, color: C.cyan }}>לקוחות: {s.clients.join(", ")}</div>}
         </div>)}
@@ -5737,11 +5835,48 @@ function ShiftsPage() {
     <h2 style={{ color: C.txt, fontSize: 22, fontWeight: 700, marginBottom: 16 }}>📅 משמרות</h2>
 
     {/* Stats */}
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
-      <Stat icon="✅" title="משמרות מאושרות" value={filledCount} color={C.grn} />
-      <Stat icon="⏳" title="ממתינות לאישור" value={pendingShifts.length} color={C.warn} />
-      <Stat icon="📋" title="סוגי משמרות" value={sortedSlots.length} color={C.pri} />
-    </div>
+    {(() => {
+      const todayS = new Date().toISOString().slice(0, 10);
+      const todayApproved = shifts.filter(s => s.date === todayS && s.status === "approved");
+      const onShift = todayApproved.filter(s => s.clockIn && !s.clockOut);
+      const lateCount = todayApproved.filter(s => s.lateMinutes > 0).length;
+      const doneCount = todayApproved.filter(s => s.clockIn && s.clockOut).length;
+      const noShow = todayApproved.filter(s => !s.clockIn);
+      return <>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+          <Stat icon="✅" title="משמרות מאושרות" value={filledCount} color={C.grn} />
+          <Stat icon="⏳" title="ממתינות לאישור" value={pendingShifts.length} color={C.warn} />
+          <Stat icon="📋" title="סוגי משמרות" value={sortedSlots.length} color={C.pri} />
+          <Stat icon="🟢" title="כרגע במשמרת" value={onShift.length} color={C.grn} sub={onShift.map(s => s.chatterName).join(", ") || "—"} />
+          {lateCount > 0 && <Stat icon="⚠️" title="איחרו היום" value={lateCount} color={C.ylw} />}
+        </div>
+
+        {/* Today's Attendance Card */}
+        {todayApproved.length > 0 && <Card style={{ marginBottom: 20 }}>
+          <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>🟢 נוכחות היום ({todayS.slice(5)})</h3>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fit, minmax(${w < 768 ? "100%" : "240px"}, 1fr))`, gap: 10 }}>
+            {todayApproved.map(s => {
+              const isActive = s.clockIn && !s.clockOut;
+              const isDone = s.clockIn && s.clockOut;
+              return <div key={s.id} style={{ background: isActive ? `${C.grn}15` : isDone ? `${C.dim}11` : `${C.red}11`, borderRadius: 10, padding: "10px 14px", border: `1px solid ${isActive ? C.grn : isDone ? C.bdr : C.red}44` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 14 }}>{isActive ? "🟢" : isDone ? "⚪" : "🔴"}</span>
+                  <span style={{ color: C.txt, fontWeight: 700, fontSize: 14 }}>{s.chatterName}</span>
+                  <span style={{ color: C.dim, fontSize: 11, marginRight: "auto" }}>{s.slotLabel} ({s.slotStart}-{s.slotEnd})</span>
+                </div>
+                {s.clockIn && <div style={{ fontSize: 11, color: C.dim, marginRight: 26 }}>
+                  כניסה: {new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}
+                  {s.lateMinutes > 0 && <span style={{ color: C.ylw, marginRight: 6 }}>⚠️ איחור {s.lateMinutes} דק׳</span>}
+                  {isDone && <> · יציאה: {new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} · {s.hoursWorked} שעות</>}
+                </div>}
+                {!s.clockIn && <div style={{ fontSize: 11, color: C.red, marginRight: 26 }}>לא דיווח/ה כניסה</div>}
+                {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginRight: 26, marginTop: 2 }}>לקוחות: {s.clients.join(", ")}</div>}
+              </div>;
+            })}
+          </div>
+        </Card>}
+      </>;
+    })()}
 
     {/* Slot Manager Toggle */}
     <div style={{ marginBottom: 16 }}>
@@ -5801,16 +5936,19 @@ function ShiftsPage() {
                 const approved = cellShifts.filter(s => s.status === "approved");
                 return <td key={day} style={{ padding: 6, borderBottom: `1px solid ${C.bdr}`, textAlign: "center", verticalAlign: "top", cursor: "pointer", background: approved.length ? `${C.grn}11` : "transparent" }}
                   onClick={() => { setAssignSlot({ date: day, slotId: slot.id }); setAssignChatter(""); }}>
-                  {approved.map(s => <div key={s.id} style={{ background: `${C.grn}22`, borderRadius: 6, padding: "3px 6px", marginBottom: 2, fontSize: 12, color: C.txt }}>
+                  {approved.map(s => {
+                    const clockDot = s.clockIn && s.clockOut ? "⚪" : s.clockIn ? "🟢" : null;
+                    return <div key={s.id} style={{ background: `${C.grn}22`, borderRadius: 6, padding: "3px 6px", marginBottom: 2, fontSize: 12, color: C.txt }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <span style={{ fontWeight: 600 }}>{s.chatterName}</span>
+                      <span style={{ fontWeight: 600 }}>{clockDot && <span style={{ fontSize: 8, marginLeft: 3 }}>{clockDot}</span>}{s.chatterName}</span>
                       <span style={{ display: "flex", gap: 2 }}>
                         <button onClick={e => { e.stopPropagation(); setEditShift(s); setEditClients(s.clients || []); }} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 10, padding: "0 2px" }}>✏️</button>
                         <button onClick={e => { e.stopPropagation(); removeShiftCtx(s.id); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 10, padding: "0 2px" }}>✕</button>
                       </span>
                     </div>
                     {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginTop: 1 }}>{s.clients.join(", ")}</div>}
-                  </div>)}
+                    {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.lateMinutes > 0 ? ` (${s.lateMinutes}׳+)` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}</div>}
+                  </div>; })}
                   {!approved.length && <span style={{ color: C.mut, fontSize: 11 }}>+</span>}
                 </td>;
               })}
