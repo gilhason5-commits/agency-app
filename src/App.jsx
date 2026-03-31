@@ -5767,7 +5767,7 @@ function DebtsPage() {
 // PAGE: SHIFTS (משמרות)
 // ═══════════════════════════════════════════════════════
 function ShiftsPage() {
-  const { shiftSlots, shifts, addShiftSlot, removeShiftSlotCtx, addShiftCtx, updateShiftCtx, removeShiftCtx, income, sheetUsers } = useApp();
+  const { shiftSlots, shifts, addShiftSlot, removeShiftSlotCtx, addShiftCtx, updateShiftCtx, removeShiftCtx, income, sheetUsers, user } = useApp();
   const w = useWin();
   const [weekStart, setWeekStart] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10);
@@ -5792,13 +5792,24 @@ function ShiftsPage() {
 
   const DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
 
+  // Get list of shift manager names for filtering
+  const shiftManagerNames = useMemo(() => {
+    return (sheetUsers || []).filter(u => u.role === "shift_manager").map(u => u.name);
+  }, [sheetUsers]);
+
+  // Filter shifts based on user role: shift_managers should only see chatter shifts, not other shift_manager shifts
+  const visibleShifts = useMemo(() => {
+    if (user?.role !== "shift_manager") return shifts;
+    return shifts.filter(s => !shiftManagerNames.includes(s.chatterName));
+  }, [shifts, user, shiftManagerNames]);
+
   const shiftsByKey = useMemo(() => {
     const map = {};
-    shifts.forEach(s => { const k = `${s.date}_${s.slotId}`; if (!map[k]) map[k] = []; map[k].push(s); });
+    visibleShifts.forEach(s => { const k = `${s.date}_${s.slotId}`; if (!map[k]) map[k] = []; map[k].push(s); });
     return map;
-  }, [shifts]);
+  }, [visibleShifts]);
 
-  const pendingShifts = useMemo(() => shifts.filter(s => s.status === "pending"), [shifts]);
+  const pendingShifts = useMemo(() => visibleShifts.filter(s => s.status === "pending"), [visibleShifts]);
 
   const chatterNames = useMemo(() => {
     const fromIncome = income.map(r => r.chatterName).filter(Boolean);
@@ -5857,7 +5868,7 @@ function ShiftsPage() {
     setEditShift(null); setEditClients([]);
   };
 
-  const filledCount = shifts.filter(s => s.status === "approved").length;
+  const filledCount = visibleShifts.filter(s => s.status === "approved").length;
   const inputStyle = { padding: "8px 10px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" };
 
   return <div style={{ direction: "rtl", maxWidth: 1200, margin: "0 auto" }}>
@@ -5866,7 +5877,7 @@ function ShiftsPage() {
     {/* Stats */}
     {(() => {
       const todayS = new Date().toISOString().slice(0, 10);
-      const todayApproved = shifts.filter(s => s.date === todayS && s.status === "approved");
+      const todayApproved = visibleShifts.filter(s => s.date === todayS && s.status === "approved");
       const onShift = todayApproved.filter(s => s.clockIn && !s.clockOut);
       const lateCount = todayApproved.filter(s => s.lateMinutes > 0).length;
       const doneCount = todayApproved.filter(s => s.clockIn && s.clockOut).length;
