@@ -1394,7 +1394,7 @@ function calcProgressiveTax(annualIncome) {
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
-  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements, fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx } = useApp();
+  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements, fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx, shifts } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const { agSettings } = useApp();
@@ -1667,6 +1667,7 @@ function DashPage() {
         <Stat icon="👑" title="זכאות לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
         <Stat icon="💬" title="שכר צ'אטרים" value={fmtC(totalChatterSalary)} color={C.ylw} />
         <Stat icon="📥" title="צפי הכנסה שלי" value={fmtC(agencyIncome)} color={agencyIncome >= 0 ? C.grn : C.red} sub="אחרי זכאות לקוחות" />
+        {(() => { const onNow = shifts.filter(s => s.clockIn && !s.clockOut && s.status === "approved"); return onNow.length > 0 ? <Stat icon="🟢" title="כרגע במשמרת" value={onNow.length} color={C.grn} sub={onNow.map(s => s.chatterName).join(", ")} /> : null; })()}
       </div>
 
       {/* Row 2: Expenses → gross profit */}
@@ -1977,6 +1978,8 @@ function IncPage() {
   const grandTotal = data.reduce((s, r) => s + r.amountILS, 0);
   const ilsOnlyTotal = data.reduce((s, r) => s + ((r.amountUSD || 0) > 0 ? 0 : r.amountILS), 0);
   const agencyTotal = data.filter(r => !r.cancelled && (!r.paymentTarget || r.paymentTarget === "agency")).reduce((s, r) => s + r.amountILS, 0);
+  const clientPayTotal = data.filter(r => !r.cancelled && r.paymentTarget === "client").reduce((s, r) => s + r.amountILS, 0);
+  const chatterPayTotal = data.filter(r => !r.cancelled && r.paymentTarget === "chatter").reduce((s, r) => s + r.amountILS, 0);
   const totalPreCommUSD = data.reduce((s, r) => s + (r.preCommissionUSD || 0), 0);
   const totalPreCommILS = data.reduce((s, r) => s + (r.preCommissionILS || 0), 0);
 
@@ -2029,6 +2032,8 @@ function IncPage() {
       <Stat icon="🏦" title='סה״כ ₪ (שקל)' value={fmtC(ilsOnlyTotal)} color={C.grn} sub="עסקאות שנכנסו בשקל" />
       <Stat icon="💵" title='סה״כ $' value={fmtUSD(totalUSD)} color={C.pri} sub={`≈ ${fmtC(grandTotal - ilsOnlyTotal)} (מומר לשקל)`} />
       <Stat icon="🏢" title="עבר דרך הסוכנות" value={fmtC(agencyTotal)} color={C.ylw} sub="תשלומים שיועדו לסוכנות" />
+      {clientPayTotal > 0 && <Stat icon="👩" title="נכנס דרך לקוחות" value={fmtC(clientPayTotal)} color={C.pri} sub="תשלומים ישירים ללקוחה" />}
+      {chatterPayTotal > 0 && <Stat icon="👥" title="נכנס דרך צ'אטרים" value={fmtC(chatterPayTotal)} color={C.org} sub="תשלומים ישירים לצ'אטר" />}
       {(() => { const pRows = data.filter(r => !isVerified(r.verified)); return pRows.length > 0 ? <Stat icon="⏳" title="ממתינות" value={fmtC(pRows.reduce((s, r) => s + r.amountILS, 0))} color={C.ylw} sub={`${pRows.length} עסקאות`} /> : null; })()}
     </div>
     <Card style={{ marginBottom: 16 }}>
@@ -4244,6 +4249,7 @@ function ChatterPortal({ hideHeader } = {}) {
   const [clockingId, setClockingId] = useState(null);
   const [showClockOutModal, setShowClockOutModal] = useState(null);
   const [hoursInput, setHoursInput] = useState("");
+  const [clockOutSummary, setClockOutSummary] = useState(null);
 
   const handleClockIn = async (shift) => {
     setClockingId(shift.id);
@@ -4260,8 +4266,10 @@ function ChatterPortal({ hideHeader } = {}) {
     if (!hoursInput || isNaN(+hoursInput)) return;
     const shift = showClockOutModal;
     setClockingId(shift.id);
-    await updateShiftCtx(shift.id, { clockOut: new Date().toISOString(), hoursWorked: +hoursInput });
+    const outTime = new Date();
+    await updateShiftCtx(shift.id, { clockOut: outTime.toISOString(), hoursWorked: +hoursInput });
     TelegramSvc.notifyClockOut(shift, +hoursInput);
+    setClockOutSummary({ slotLabel: shift.slotLabel, clockIn: shift.clockIn, clockOut: outTime.toISOString(), hoursWorked: +hoursInput, lateMinutes: shift.lateMinutes || 0 });
     setShowClockOutModal(null);
     setHoursInput("");
     setClockingId(null);
@@ -4390,7 +4398,7 @@ function ChatterPortal({ hideHeader } = {}) {
   }, [income]);
 
   const save = async () => {
-    if (!form.modelName || (!form.amountILS && !form.amountUSD) || !form.buyerId?.trim()) { setErr("נא למלא לקוחה, סכום ומזהה קונה"); return; }
+    if (!form.modelName || (!form.amountILS && !form.amountUSD) || !form.buyerId?.trim() || !form.buyerName?.trim()) { setErr("נא למלא לקוחה, סכום, מזהה קונה ושם קונה"); return; }
     setSaving(true); setErr("");
 
     const rate = +form.usdRate || 3.14;
@@ -4600,14 +4608,6 @@ function ChatterPortal({ hideHeader } = {}) {
             />
           </div>
           <div>
-            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
-            <input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} />
-          </div>
-          <div>
-            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
-            <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={{ ...inputStyle, direction: "ltr", textAlign: "left" }} />
-          </div>
-          <div>
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>מיקום</label>
             <div style={{ display: "flex", gap: 8 }}>
               {["משרד", "חוץ"].map(loc => (
@@ -4625,12 +4625,22 @@ function ChatterPortal({ hideHeader } = {}) {
             <input value={form.buyerId} onChange={e => upd("buyerId", e.target.value)} placeholder="מזהה ייחודי" style={inputStyle} />
           </div>
           <div>
-            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שם קונה</label>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שם קונה *</label>
             <input value={form.buyerName} onChange={e => upd("buyerName", e.target.value)} placeholder="שם הקונה" style={inputStyle} />
           </div>
           <div>
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>הערות</label>
             <input value={form.notes} onChange={e => upd("notes", e.target.value)} placeholder="אופציונלי" style={inputStyle} />
+          </div>
+          <div style={{ gridColumn: "1 / -1", display: "flex", gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
+              <input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
+              <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={{ ...inputStyle, direction: "ltr", textAlign: "left" }} />
+            </div>
           </div>
         </div>
         {err && <div style={{ color: C.red, fontSize: 12, marginTop: 8 }}>{err}</div>}
@@ -4645,7 +4655,9 @@ function ChatterPortal({ hideHeader } = {}) {
         {todayShifts.map(s => {
           const isActive = s.clockIn && !s.clockOut;
           const isDone = s.clockIn && s.clockOut;
-          const canClockIn = !s.clockIn;
+          const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+          const canClockIn = !s.clockIn && nowMin >= parseTime(s.slotStart);
+          const tooEarly = !s.clockIn && nowMin < parseTime(s.slotStart);
           return <div key={s.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.bdr}` }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontSize: 16 }}>{isActive ? "🟢" : isDone ? "⚪" : "🔵"}</span>
@@ -4659,6 +4671,7 @@ function ChatterPortal({ hideHeader } = {}) {
             </div>}
             <div style={{ marginTop: 8 }}>
               {canClockIn && <Btn size="sm" variant="success" onClick={() => handleClockIn(s)} disabled={clockingId === s.id}>{clockingId === s.id ? "⏳" : "🟢 עליתי למשמרת"}</Btn>}
+              {tooEarly && <span style={{ color: C.dim, fontSize: 12 }}>המשמרת מתחילה ב-{s.slotStart}</span>}
               {isActive && <Btn size="sm" variant="danger" onClick={() => { setShowClockOutModal(s); const diff = (Date.now() - new Date(s.clockIn).getTime()) / 3600000; setHoursInput(String(Math.round(diff * 2) / 2)); }} disabled={clockingId === s.id}>🔴 ירדתי ממשמרת</Btn>}
               {isDone && <span style={{ color: C.grn, fontSize: 12, fontWeight: 600 }}>✅ סיימת משמרת זו</span>}
             </div>
@@ -4673,6 +4686,21 @@ function ChatterPortal({ hideHeader } = {}) {
           <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>כמה שעות עבדת?</label>
           <input type="number" step="0.5" min="0" max="24" value={hoursInput} onChange={e => setHoursInput(e.target.value)} style={{ width: "100%", padding: "10px 12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 10, color: C.txt, fontSize: 16, fontWeight: 700, textAlign: "center", outline: "none", boxSizing: "border-box", direction: "ltr" }} placeholder="0" />
           <Btn onClick={handleClockOut} variant="success" size="lg" style={{ width: "100%", marginTop: 12 }} disabled={!hoursInput || clockingId}>💾 סיים משמרת</Btn>
+        </div>
+      </Modal>}
+
+      {/* Clock-out Summary */}
+      {clockOutSummary && <Modal open onClose={() => setClockOutSummary(null)} title="✅ סיימת משמרת!" width={360}>
+        <div style={{ direction: "rtl", textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>👏</div>
+          <div style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 12 }}>{clockOutSummary.slotLabel}</div>
+          <div style={{ display: "flex", justifyContent: "center", gap: 20, marginBottom: 12 }}>
+            <div><div style={{ color: C.dim, fontSize: 11 }}>כניסה</div><div style={{ color: C.grn, fontSize: 16, fontWeight: 700 }}>{new Date(clockOutSummary.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</div></div>
+            <div><div style={{ color: C.dim, fontSize: 11 }}>יציאה</div><div style={{ color: C.red, fontSize: 16, fontWeight: 700 }}>{new Date(clockOutSummary.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</div></div>
+            <div><div style={{ color: C.dim, fontSize: 11 }}>שעות</div><div style={{ color: C.pri, fontSize: 16, fontWeight: 700 }}>{clockOutSummary.hoursWorked}</div></div>
+          </div>
+          {clockOutSummary.lateMinutes > 0 && <div style={{ color: C.ylw, fontSize: 12, marginBottom: 8 }}>⚠️ איחור: {clockOutSummary.lateMinutes} דקות</div>}
+          <Btn onClick={() => setClockOutSummary(null)} variant="success" size="lg" style={{ width: "100%", marginTop: 8 }}>סגור</Btn>
         </div>
       </Modal>}
 
@@ -5900,7 +5928,7 @@ function ShiftsPage() {
 
     {/* Pending Requests */}
     {pendingShifts.length > 0 && <Card style={{ marginBottom: 20, borderColor: C.warn }}>
-      <h3 style={{ color: C.warn, fontSize: 15, marginBottom: 12 }}>⏳ בקשות ממתינות ({pendingShifts.length})</h3>
+      <h3 style={{ color: "#fff", fontSize: 15, marginBottom: 12 }}>⏳ בקשות ממתינות ({pendingShifts.length})</h3>
       {pendingShifts.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.bdr}` }}>
         <span style={{ color: C.txt, fontSize: 14, flex: 1 }}>{s.chatterName} — {s.slotLabel} — {s.date}</span>
         <Btn size="sm" variant="success" onClick={() => approve(s)}>אשר</Btn>
