@@ -4857,7 +4857,7 @@ function ChatterPortal({ hideHeader } = {}) {
 // SHIFT MANAGER PORTAL
 // ═══════════════════════════════════════════════════════
 const SM_NAV = [
-  { key: "main", label: "ראשי", icon: "👤" },
+  { key: "main", label: "הסטטוס שלי", icon: "👤" },
   { key: "approvals", label: "אישורים", icon: "✅" },
   { key: "chatters", label: "צ'אטרים", icon: "👥" },
   { key: "shifts", label: "משמרות", icon: "📅" },
