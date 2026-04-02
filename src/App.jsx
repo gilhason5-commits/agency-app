@@ -5831,11 +5831,9 @@ function ShiftsPage() {
   const monthlySummary = useMemo(() => {
     const map = {};
     visibleShifts.filter(s => s.status === "approved" && s.date && s.date.startsWith(ymi)).forEach(s => {
-      if (!map[s.chatterName]) map[s.chatterName] = { shifts: 0, totalHours: 0, lateCount: 0, activeNow: false };
+      if (!map[s.chatterName]) map[s.chatterName] = { shifts: 0, totalHours: 0 };
       map[s.chatterName].shifts++;
       if (s.hoursWorked) map[s.chatterName].totalHours += +s.hoursWorked;
-      if (s.lateMinutes > 0) map[s.chatterName].lateCount++;
-      if (s.clockIn && !s.clockOut) map[s.chatterName].activeNow = true;
     });
     return Object.entries(map).sort((a, b) => b[1].totalHours - a[1].totalHours).map(([chatterName, d]) => ({ chatterName, ...d }));
   }, [visibleShifts, ymi]);
@@ -6045,7 +6043,7 @@ function ShiftsPage() {
                       </span>
                     </div>
                     {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginTop: 1 }}>{s.clients.join(", ")}</div>}
-                    {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>↑{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.clockOut ? ` ↓${new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}{s.lateMinutes > 0 ? ` ⚠️${s.lateMinutes}׳` : ""}</div>}
+                    {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>↑{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.clockOut ? ` ↓${new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}</div>}
                   </div>; })}
                   {!approved.length && <span style={{ color: C.mut, fontSize: 11 }}>+</span>}
                 </td>;
@@ -6067,19 +6065,14 @@ function ShiftsPage() {
               <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>משמרות</th>
               <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>סה״כ שעות</th>
               <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>ממוצע למשמרת</th>
-              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>איחורים</th>
-              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>סטטוס</th>
             </tr>
           </thead>
           <tbody>
-            {monthlySummary.map(({ chatterName, shifts: cnt, totalHours, lateCount, activeNow }) => {
+            {monthlySummary.map(({ chatterName, shifts: cnt, totalHours }) => {
               const avg = cnt > 0 ? Math.round((totalHours / cnt) * 10) / 10 : 0;
               const storedHours = chatterSettings[chatterName]?.monthlyHours?.[ymi] ?? 0;
               return <tr key={chatterName} style={{ borderBottom: `1px solid ${C.bdr}` }}>
-                <td style={{ padding: "8px 10px", color: C.txt, fontWeight: 600 }}>
-                  {activeNow && <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.grn, display: "inline-block", marginLeft: 6, verticalAlign: "middle" }} />}
-                  {chatterName}
-                </td>
+                <td style={{ padding: "8px 10px", color: C.txt, fontWeight: 600 }}>{chatterName}</td>
                 <td style={{ padding: "8px 10px", color: C.txt, textAlign: "center" }}>{cnt}</td>
                 <td style={{ padding: "8px 10px", textAlign: "center" }}>
                   <span style={{ color: totalHours > 0 ? C.grn : C.mut, fontWeight: 700, fontSize: 15 }}>{totalHours}</span>
@@ -6087,8 +6080,6 @@ function ShiftsPage() {
                   {storedHours !== totalHours && <span style={{ color: C.ylw, fontSize: 10, marginRight: 4 }}>↻</span>}
                 </td>
                 <td style={{ padding: "8px 10px", color: C.dim, textAlign: "center" }}>{avg > 0 ? `${avg}ש׳` : "—"}</td>
-                <td style={{ padding: "8px 10px", textAlign: "center" }}>{lateCount > 0 ? <span style={{ color: C.ylw, fontSize: 12 }}>⚠️ {lateCount}</span> : <span style={{ color: C.mut }}>—</span>}</td>
-                <td style={{ padding: "8px 10px", textAlign: "center" }}>{activeNow ? <span style={{ color: C.grn, fontSize: 11, fontWeight: 600 }}>🟢 במשמרת</span> : <span style={{ color: C.mut, fontSize: 11 }}>—</span>}</td>
               </tr>;
             })}
           </tbody>
@@ -6100,7 +6091,7 @@ function ShiftsPage() {
                 <span style={{ color: C.grn, fontSize: 15 }}>{monthlySummary.reduce((s, r) => s + r.totalHours, 0)}</span>
                 <span style={{ color: C.dim, fontSize: 11, marginRight: 3 }}>ש׳</span>
               </td>
-              <td colSpan={3} />
+              <td />
             </tr>
           </tfoot>
         </table>
