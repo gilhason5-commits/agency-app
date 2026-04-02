@@ -5779,9 +5779,8 @@ function DebtsPage() {
 function ShiftsPage() {
   const { shiftSlots, shifts, addShiftSlot, removeShiftSlotCtx, addShiftCtx, updateShiftCtx, removeShiftCtx, income, sheetUsers, user, chatterSettings, saveChatterSetting } = useApp();
   const w = useWin();
-  const [weekStart, setWeekStart] = useState(() => {
-    const d = new Date(); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10);
-  });
+  const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => new Date().getMonth()); // 0-indexed
   const [slotForm, setSlotForm] = useState({ label: "", start: "", end: "" });
   const [showSlotMgr, setShowSlotMgr] = useState(false);
   const [assignSlot, setAssignSlot] = useState(null); // { date, slotId }
@@ -5794,15 +5793,17 @@ function ShiftsPage() {
 
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
 
-  const weekDays = useMemo(() => {
-    const start = new Date(weekStart);
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(start); d.setDate(start.getDate() + i);
-      return d.toISOString().slice(0, 10);
-    });
-  }, [weekStart]);
+  const DAY_SHORT = ["ר׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
 
-  const DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+  const monthDays = useMemo(() => {
+    const days = [];
+    const d = new Date(viewYear, viewMonth, 1);
+    while (d.getMonth() === viewMonth) {
+      days.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+    }
+    return days;
+  }, [viewYear, viewMonth]);
 
   // Get list of shift manager names for filtering
   const shiftManagerNames = useMemo(() => {
@@ -5823,19 +5824,16 @@ function ShiftsPage() {
 
   const pendingShifts = useMemo(() => visibleShifts.filter(s => s.status === "pending"), [visibleShifts]);
 
-  // ymi derived from the currently viewed week (so table always matches the calendar month)
-  const ymi = weekStart.slice(0, 7);
-  const ymiMonthName = MONTHS_HE[+ymi.slice(5, 7) - 1];
-  const ymiYear = ymi.slice(0, 4);
+  const ymi = ym(viewYear, viewMonth);
+  const ymiMonthName = MONTHS_HE[viewMonth];
+  const ymiYear = String(viewYear);
 
   const monthlySummary = useMemo(() => {
     const map = {};
     visibleShifts.filter(s => s.status === "approved" && s.date && s.date.startsWith(ymi)).forEach(s => {
-      if (!map[s.chatterName]) map[s.chatterName] = { shifts: 0, totalHours: 0, lateCount: 0, activeNow: false };
+      if (!map[s.chatterName]) map[s.chatterName] = { shifts: 0, totalHours: 0 };
       map[s.chatterName].shifts++;
       if (s.hoursWorked) map[s.chatterName].totalHours += +s.hoursWorked;
-      if (s.lateMinutes > 0) map[s.chatterName].lateCount++;
-      if (s.clockIn && !s.clockOut) map[s.chatterName].activeNow = true;
     });
     return Object.entries(map).sort((a, b) => b[1].totalHours - a[1].totalHours).map(([chatterName, d]) => ({ chatterName, ...d }));
   }, [visibleShifts, ymi]);
@@ -5863,9 +5861,10 @@ function ShiftsPage() {
     return [...new Set([...fromIncome, ...fromUsers])].sort();
   }, [income, sheetUsers]);
 
-  const navWeek = (dir) => {
-    const d = new Date(weekStart); d.setDate(d.getDate() + dir * 7);
-    setWeekStart(d.toISOString().slice(0, 10));
+  const navMonth = (dir) => {
+    let m = viewMonth + dir, y = viewYear;
+    if (m < 0) { m = 11; y--; } else if (m > 11) { m = 0; y++; }
+    setViewMonth(m); setViewYear(y);
   };
 
   const addSlot = async () => {
@@ -6005,30 +6004,42 @@ function ShiftsPage() {
       </div>)}
     </Card>}
 
-    {/* Weekly Calendar */}
+    {/* Monthly Calendar */}
     <Card>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <Btn size="sm" onClick={() => navWeek(-1)}>→ שבוע קודם</Btn>
-        <h3 style={{ color: C.txt, fontSize: 15, margin: 0 }}>שבוע {new Date(weekStart).toLocaleDateString("he-IL")}</h3>
-        <Btn size="sm" onClick={() => navWeek(1)}>שבוע הבא ←</Btn>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+        <Btn size="sm" onClick={() => navMonth(-1)}>→ חודש קודם</Btn>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <select value={viewMonth} onChange={e => setViewMonth(+e.target.value)} style={{ padding: "4px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }}>
+            {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
+          </select>
+          <select value={viewYear} onChange={e => setViewYear(+e.target.value)} style={{ padding: "4px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }}>
+            {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+        <Btn size="sm" onClick={() => navMonth(1)}>חודש הבא ←</Btn>
       </div>
 
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr>
-              <th style={{ padding: 8, color: C.dim, textAlign: "right", borderBottom: `2px solid ${C.bdr}`, minWidth: 70 }}>משמרת</th>
-              {weekDays.map((d, i) => <th key={d} style={{ padding: 8, color: C.dim, textAlign: "center", borderBottom: `2px solid ${C.bdr}`, minWidth: 100 }}>
-                {DAY_NAMES[i]}<br /><span style={{ fontSize: 11 }}>{d.slice(5)}</span>
-              </th>)}
+              <th style={{ padding: "6px 8px", color: C.dim, textAlign: "right", borderBottom: `2px solid ${C.bdr}`, minWidth: 80, position: "sticky", right: 0, background: C.card, zIndex: 1 }}>משמרת</th>
+              {monthDays.map(d => {
+                const dayIdx = new Date(d).getDay();
+                const isToday = d === new Date().toISOString().slice(0, 10);
+                return <th key={d} style={{ padding: "4px 2px", color: isToday ? C.pri : C.dim, textAlign: "center", borderBottom: `2px solid ${C.bdr}`, minWidth: 62, borderRight: dayIdx === 0 ? `2px solid ${C.bdr}` : undefined }}>
+                  <span style={{ fontSize: 10, display: "block" }}>{DAY_SHORT[dayIdx]}</span>
+                  <span style={{ fontSize: 13, fontWeight: isToday ? 700 : 400 }}>{d.slice(8)}</span>
+                </th>;
+              })}
             </tr>
           </thead>
           <tbody>
             {sortedSlots.map(slot => <tr key={slot.id}>
-              <td style={{ padding: 8, color: C.pri, fontWeight: 600, borderBottom: `1px solid ${C.bdr}`, whiteSpace: "nowrap" }}>
+              <td style={{ padding: "6px 8px", color: C.pri, fontWeight: 600, borderBottom: `1px solid ${C.bdr}`, whiteSpace: "nowrap", position: "sticky", right: 0, background: C.card, zIndex: 1 }}>
                 {slot.label}<br /><span style={{ fontSize: 10, color: C.dim }}>{slot.start}-{slot.end}</span>
               </td>
-              {weekDays.map(day => {
+              {monthDays.map(day => {
                 const key = `${day}_${slot.id}`;
                 const cellShifts = shiftsByKey[key] || [];
                 const approved = cellShifts.filter(s => s.status === "approved");
@@ -6045,7 +6056,7 @@ function ShiftsPage() {
                       </span>
                     </div>
                     {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginTop: 1 }}>{s.clients.join(", ")}</div>}
-                    {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>↑{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.clockOut ? ` ↓${new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}{s.lateMinutes > 0 ? ` ⚠️${s.lateMinutes}׳` : ""}</div>}
+                    {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>↑{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.clockOut ? ` ↓${new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}</div>}
                   </div>; })}
                   {!approved.length && <span style={{ color: C.mut, fontSize: 11 }}>+</span>}
                 </td>;
@@ -6067,19 +6078,14 @@ function ShiftsPage() {
               <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>משמרות</th>
               <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>סה״כ שעות</th>
               <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>ממוצע למשמרת</th>
-              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>איחורים</th>
-              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>סטטוס</th>
             </tr>
           </thead>
           <tbody>
-            {monthlySummary.map(({ chatterName, shifts: cnt, totalHours, lateCount, activeNow }) => {
+            {monthlySummary.map(({ chatterName, shifts: cnt, totalHours }) => {
               const avg = cnt > 0 ? Math.round((totalHours / cnt) * 10) / 10 : 0;
               const storedHours = chatterSettings[chatterName]?.monthlyHours?.[ymi] ?? 0;
               return <tr key={chatterName} style={{ borderBottom: `1px solid ${C.bdr}` }}>
-                <td style={{ padding: "8px 10px", color: C.txt, fontWeight: 600 }}>
-                  {activeNow && <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.grn, display: "inline-block", marginLeft: 6, verticalAlign: "middle" }} />}
-                  {chatterName}
-                </td>
+                <td style={{ padding: "8px 10px", color: C.txt, fontWeight: 600 }}>{chatterName}</td>
                 <td style={{ padding: "8px 10px", color: C.txt, textAlign: "center" }}>{cnt}</td>
                 <td style={{ padding: "8px 10px", textAlign: "center" }}>
                   <span style={{ color: totalHours > 0 ? C.grn : C.mut, fontWeight: 700, fontSize: 15 }}>{totalHours}</span>
@@ -6087,8 +6093,6 @@ function ShiftsPage() {
                   {storedHours !== totalHours && <span style={{ color: C.ylw, fontSize: 10, marginRight: 4 }}>↻</span>}
                 </td>
                 <td style={{ padding: "8px 10px", color: C.dim, textAlign: "center" }}>{avg > 0 ? `${avg}ש׳` : "—"}</td>
-                <td style={{ padding: "8px 10px", textAlign: "center" }}>{lateCount > 0 ? <span style={{ color: C.ylw, fontSize: 12 }}>⚠️ {lateCount}</span> : <span style={{ color: C.mut }}>—</span>}</td>
-                <td style={{ padding: "8px 10px", textAlign: "center" }}>{activeNow ? <span style={{ color: C.grn, fontSize: 11, fontWeight: 600 }}>🟢 במשמרת</span> : <span style={{ color: C.mut, fontSize: 11 }}>—</span>}</td>
               </tr>;
             })}
           </tbody>
@@ -6100,7 +6104,7 @@ function ShiftsPage() {
                 <span style={{ color: C.grn, fontSize: 15 }}>{monthlySummary.reduce((s, r) => s + r.totalHours, 0)}</span>
                 <span style={{ color: C.dim, fontSize: 11, marginRight: 3 }}>ש׳</span>
               </td>
-              <td colSpan={3} />
+              <td />
             </tr>
           </tfoot>
         </table>
