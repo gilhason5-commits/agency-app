@@ -203,8 +203,6 @@ function ymFromDate(date) { if (!date) return null; return ym(date.getFullYear()
 function getMonthlyPcts(settings, ymi) {
   const monthly = settings?.monthlyPcts || {};
   if (monthly[ymi]) return monthly[ymi];
-  const prev = Object.keys(monthly).filter(k => k < ymi).sort();
-  if (prev.length > 0) return monthly[prev[prev.length - 1]];
   return { officePct: settings?.officePct ?? 17, fieldPct: settings?.fieldPct ?? 15, salaryType: settings?.salaryType ?? "sales", hourlyRate: settings?.hourlyRate ?? 0 };
 }
 function useWin() { const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1200); useEffect(() => { const h = () => setW(window.innerWidth); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, []); return w; }
@@ -1234,8 +1232,12 @@ function MobileNav({ current, onNav }) {
   </div>;
 }
 function TopBar() {
-  const { year, setYear, connected, demo, loading, load, loadStep, logout } = useApp();
+  const { year, setYear, connected, demo, loading, load, loadStep, logout, shifts } = useApp();
   const w = useWin();
+  const onShiftNow = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return (shifts || []).filter(s => s.date === today && s.status === "approved" && s.clockIn && !s.clockOut);
+  }, [shifts]);
   return <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: w < 768 ? "10px 14px" : "10px 24px", background: C.card, borderBottom: `1px solid ${C.bdr}`, direction: "rtl" }}>
     <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
       {w < 768 && <span style={{ fontSize: 16, fontWeight: 800, color: C.pri }}>🏢</span>}
@@ -1244,6 +1246,15 @@ function TopBar() {
       {loadStep && <span style={{ fontSize: 11, color: C.priL }}>{loadStep}</span>}
     </div>
     <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+      {onShiftNow.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ color: C.mut, fontSize: 11, whiteSpace: "nowrap" }}>צאטרים מחוברים:</span>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {onShiftNow.map(s => <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4, background: `${C.grn}18`, border: `1px solid ${C.grn}44`, borderRadius: 20, padding: "2px 8px" }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.grn, display: "inline-block", flexShrink: 0 }} />
+            <span style={{ color: C.txt, fontSize: 11, fontWeight: 600 }}>{s.chatterName}</span>
+          </span>)}
+        </div>
+      </div>}
       {w < 768 && <Btn variant="ghost" size="sm" onClick={logout} style={{ color: C.red, padding: 0 }}>🚪</Btn>}
     </div>
   </div>;
@@ -2492,15 +2503,6 @@ function RecordIncomeAdmin({ onClose }) {
       </div>
 
       <div>
-        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
-        <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={{ ...inputStyle, direction: "ltr" }} />
-      </div>
-      <div>
-        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
-        <input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} />
-      </div>
-
-      <div>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>מיקום</label>
         <div style={{ display: "flex", gap: 8 }}>
           {["משרד", "חוץ"].map(loc => (
@@ -2524,6 +2526,14 @@ function RecordIncomeAdmin({ onClose }) {
       <div>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>הערות</label>
         <input value={form.notes} onChange={e => upd("notes", e.target.value)} placeholder="אופציונלי" style={inputStyle} />
+      </div>
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
+        <input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} />
+      </div>
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
+        <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={{ ...inputStyle, direction: "ltr" }} />
       </div>
     </div>
 
@@ -5767,7 +5777,7 @@ function DebtsPage() {
 // PAGE: SHIFTS (משמרות)
 // ═══════════════════════════════════════════════════════
 function ShiftsPage() {
-  const { shiftSlots, shifts, addShiftSlot, removeShiftSlotCtx, addShiftCtx, updateShiftCtx, removeShiftCtx, income, sheetUsers, user } = useApp();
+  const { shiftSlots, shifts, addShiftSlot, removeShiftSlotCtx, addShiftCtx, updateShiftCtx, removeShiftCtx, income, sheetUsers, user, year, month, chatterSettings, saveChatterSetting } = useApp();
   const w = useWin();
   const [weekStart, setWeekStart] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10);
@@ -5810,6 +5820,30 @@ function ShiftsPage() {
   }, [visibleShifts]);
 
   const pendingShifts = useMemo(() => visibleShifts.filter(s => s.status === "pending"), [visibleShifts]);
+
+  const ymi = ym(year, month);
+  const monthlySummary = useMemo(() => {
+    const map = {};
+    visibleShifts.filter(s => s.status === "approved" && s.date && s.date.startsWith(ymi)).forEach(s => {
+      if (!map[s.chatterName]) map[s.chatterName] = { shifts: 0, totalHours: 0, lateCount: 0, activeNow: false };
+      map[s.chatterName].shifts++;
+      if (s.hoursWorked) map[s.chatterName].totalHours += +s.hoursWorked;
+      if (s.lateMinutes > 0) map[s.chatterName].lateCount++;
+      if (s.clockIn && !s.clockOut) map[s.chatterName].activeNow = true;
+    });
+    return Object.entries(map).sort((a, b) => b[1].totalHours - a[1].totalHours).map(([chatterName, d]) => ({ chatterName, ...d }));
+  }, [visibleShifts, ymi]);
+
+  // Auto-sync monthly hours to chatterSettings so ChatterPage stays updated
+  useEffect(() => {
+    if (!monthlySummary.length) return;
+    monthlySummary.forEach(({ chatterName, totalHours }) => {
+      const cfg = chatterSettings[chatterName] || {};
+      if ((cfg.monthlyHours?.[ymi] ?? -1) !== totalHours) {
+        saveChatterSetting(chatterName, { monthlyHours: { ...(cfg.monthlyHours || {}), [ymi]: totalHours } });
+      }
+    });
+  }, [monthlySummary, ymi]);
 
   const chatterNames = useMemo(() => {
     const fromIncome = income.map(r => r.chatterName).filter(Boolean);
@@ -5987,7 +6021,7 @@ function ShiftsPage() {
                       </span>
                     </div>
                     {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginTop: 1 }}>{s.clients.join(", ")}</div>}
-                    {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.lateMinutes > 0 ? ` (${s.lateMinutes}׳+)` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}</div>}
+                    {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>↑{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.clockOut ? ` ↓${new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}{s.lateMinutes > 0 ? ` ⚠️${s.lateMinutes}׳` : ""}</div>}
                   </div>; })}
                   {!approved.length && <span style={{ color: C.mut, fontSize: 11 }}>+</span>}
                 </td>;
@@ -5997,6 +6031,58 @@ function ShiftsPage() {
         </table>
       </div>
     </Card>
+
+    {/* Monthly Hours Summary */}
+    {monthlySummary.length > 0 && <Card style={{ marginTop: 20 }}>
+      <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📊 סיכום משמרות — {MONTHS_HE[month]} {year}</h3>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: `2px solid ${C.bdr}` }}>
+              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "right", fontWeight: 600 }}>צ'אטר</th>
+              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>משמרות</th>
+              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>סה״כ שעות</th>
+              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>ממוצע למשמרת</th>
+              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>איחורים</th>
+              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>סטטוס</th>
+            </tr>
+          </thead>
+          <tbody>
+            {monthlySummary.map(({ chatterName, shifts: cnt, totalHours, lateCount, activeNow }) => {
+              const avg = cnt > 0 ? Math.round((totalHours / cnt) * 10) / 10 : 0;
+              const storedHours = chatterSettings[chatterName]?.monthlyHours?.[ymi] ?? 0;
+              return <tr key={chatterName} style={{ borderBottom: `1px solid ${C.bdr}` }}>
+                <td style={{ padding: "8px 10px", color: C.txt, fontWeight: 600 }}>
+                  {activeNow && <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.grn, display: "inline-block", marginLeft: 6, verticalAlign: "middle" }} />}
+                  {chatterName}
+                </td>
+                <td style={{ padding: "8px 10px", color: C.txt, textAlign: "center" }}>{cnt}</td>
+                <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                  <span style={{ color: totalHours > 0 ? C.grn : C.mut, fontWeight: 700, fontSize: 15 }}>{totalHours}</span>
+                  <span style={{ color: C.dim, fontSize: 11, marginRight: 3 }}>ש׳</span>
+                  {storedHours !== totalHours && <span style={{ color: C.ylw, fontSize: 10, marginRight: 4 }}>↻</span>}
+                </td>
+                <td style={{ padding: "8px 10px", color: C.dim, textAlign: "center" }}>{avg > 0 ? `${avg}ש׳` : "—"}</td>
+                <td style={{ padding: "8px 10px", textAlign: "center" }}>{lateCount > 0 ? <span style={{ color: C.ylw, fontSize: 12 }}>⚠️ {lateCount}</span> : <span style={{ color: C.mut }}>—</span>}</td>
+                <td style={{ padding: "8px 10px", textAlign: "center" }}>{activeNow ? <span style={{ color: C.grn, fontSize: 11, fontWeight: 600 }}>🟢 במשמרת</span> : <span style={{ color: C.mut, fontSize: 11 }}>—</span>}</td>
+              </tr>;
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{ borderTop: `2px solid ${C.bdr}` }}>
+              <td style={{ padding: "8px 10px", color: C.dim, fontWeight: 600 }}>סה״כ</td>
+              <td style={{ padding: "8px 10px", color: C.txt, textAlign: "center", fontWeight: 700 }}>{monthlySummary.reduce((s, r) => s + r.shifts, 0)}</td>
+              <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 700 }}>
+                <span style={{ color: C.grn, fontSize: 15 }}>{monthlySummary.reduce((s, r) => s + r.totalHours, 0)}</span>
+                <span style={{ color: C.dim, fontSize: 11, marginRight: 3 }}>ש׳</span>
+              </td>
+              <td colSpan={3} />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <div style={{ marginTop: 10, fontSize: 11, color: C.mut }}>⟳ שעות מסונכרנות אוטומטית לפרופיל כל צ'אטר</div>
+    </Card>}
 
     {/* Assign Modal */}
     {assignSlot && <Modal open onClose={() => { setAssignSlot(null); setAssignClients([]); }} title="שיבוץ משמרת" width={400}>
