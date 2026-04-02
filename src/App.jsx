@@ -5779,9 +5779,8 @@ function DebtsPage() {
 function ShiftsPage() {
   const { shiftSlots, shifts, addShiftSlot, removeShiftSlotCtx, addShiftCtx, updateShiftCtx, removeShiftCtx, income, sheetUsers, user, chatterSettings, saveChatterSetting } = useApp();
   const w = useWin();
-  const [weekStart, setWeekStart] = useState(() => {
-    const d = new Date(); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10);
-  });
+  const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => new Date().getMonth()); // 0-indexed
   const [slotForm, setSlotForm] = useState({ label: "", start: "", end: "" });
   const [showSlotMgr, setShowSlotMgr] = useState(false);
   const [assignSlot, setAssignSlot] = useState(null); // { date, slotId }
@@ -5794,15 +5793,17 @@ function ShiftsPage() {
 
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
 
-  const weekDays = useMemo(() => {
-    const start = new Date(weekStart);
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(start); d.setDate(start.getDate() + i);
-      return d.toISOString().slice(0, 10);
-    });
-  }, [weekStart]);
+  const DAY_SHORT = ["ר׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
 
-  const DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+  const monthDays = useMemo(() => {
+    const days = [];
+    const d = new Date(viewYear, viewMonth, 1);
+    while (d.getMonth() === viewMonth) {
+      days.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+    }
+    return days;
+  }, [viewYear, viewMonth]);
 
   // Get list of shift manager names for filtering
   const shiftManagerNames = useMemo(() => {
@@ -5823,10 +5824,9 @@ function ShiftsPage() {
 
   const pendingShifts = useMemo(() => visibleShifts.filter(s => s.status === "pending"), [visibleShifts]);
 
-  // ymi derived from the currently viewed week (so table always matches the calendar month)
-  const ymi = weekStart.slice(0, 7);
-  const ymiMonthName = MONTHS_HE[+ymi.slice(5, 7) - 1];
-  const ymiYear = ymi.slice(0, 4);
+  const ymi = ym(viewYear, viewMonth);
+  const ymiMonthName = MONTHS_HE[viewMonth];
+  const ymiYear = String(viewYear);
 
   const monthlySummary = useMemo(() => {
     const map = {};
@@ -5861,9 +5861,10 @@ function ShiftsPage() {
     return [...new Set([...fromIncome, ...fromUsers])].sort();
   }, [income, sheetUsers]);
 
-  const navWeek = (dir) => {
-    const d = new Date(weekStart); d.setDate(d.getDate() + dir * 7);
-    setWeekStart(d.toISOString().slice(0, 10));
+  const navMonth = (dir) => {
+    let m = viewMonth + dir, y = viewYear;
+    if (m < 0) { m = 11; y--; } else if (m > 11) { m = 0; y++; }
+    setViewMonth(m); setViewYear(y);
   };
 
   const addSlot = async () => {
@@ -6003,30 +6004,42 @@ function ShiftsPage() {
       </div>)}
     </Card>}
 
-    {/* Weekly Calendar */}
+    {/* Monthly Calendar */}
     <Card>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <Btn size="sm" onClick={() => navWeek(-1)}>→ שבוע קודם</Btn>
-        <h3 style={{ color: C.txt, fontSize: 15, margin: 0 }}>שבוע {new Date(weekStart).toLocaleDateString("he-IL")}</h3>
-        <Btn size="sm" onClick={() => navWeek(1)}>שבוע הבא ←</Btn>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+        <Btn size="sm" onClick={() => navMonth(-1)}>→ חודש קודם</Btn>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <select value={viewMonth} onChange={e => setViewMonth(+e.target.value)} style={{ padding: "4px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }}>
+            {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
+          </select>
+          <select value={viewYear} onChange={e => setViewYear(+e.target.value)} style={{ padding: "4px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }}>
+            {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+        <Btn size="sm" onClick={() => navMonth(1)}>חודש הבא ←</Btn>
       </div>
 
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr>
-              <th style={{ padding: 8, color: C.dim, textAlign: "right", borderBottom: `2px solid ${C.bdr}`, minWidth: 70 }}>משמרת</th>
-              {weekDays.map((d, i) => <th key={d} style={{ padding: 8, color: C.dim, textAlign: "center", borderBottom: `2px solid ${C.bdr}`, minWidth: 100 }}>
-                {DAY_NAMES[i]}<br /><span style={{ fontSize: 11 }}>{d.slice(5)}</span>
-              </th>)}
+              <th style={{ padding: "6px 8px", color: C.dim, textAlign: "right", borderBottom: `2px solid ${C.bdr}`, minWidth: 80, position: "sticky", right: 0, background: C.card, zIndex: 1 }}>משמרת</th>
+              {monthDays.map(d => {
+                const dayIdx = new Date(d).getDay();
+                const isToday = d === new Date().toISOString().slice(0, 10);
+                return <th key={d} style={{ padding: "4px 2px", color: isToday ? C.pri : C.dim, textAlign: "center", borderBottom: `2px solid ${C.bdr}`, minWidth: 62, borderRight: dayIdx === 0 ? `2px solid ${C.bdr}` : undefined }}>
+                  <span style={{ fontSize: 10, display: "block" }}>{DAY_SHORT[dayIdx]}</span>
+                  <span style={{ fontSize: 13, fontWeight: isToday ? 700 : 400 }}>{d.slice(8)}</span>
+                </th>;
+              })}
             </tr>
           </thead>
           <tbody>
             {sortedSlots.map(slot => <tr key={slot.id}>
-              <td style={{ padding: 8, color: C.pri, fontWeight: 600, borderBottom: `1px solid ${C.bdr}`, whiteSpace: "nowrap" }}>
+              <td style={{ padding: "6px 8px", color: C.pri, fontWeight: 600, borderBottom: `1px solid ${C.bdr}`, whiteSpace: "nowrap", position: "sticky", right: 0, background: C.card, zIndex: 1 }}>
                 {slot.label}<br /><span style={{ fontSize: 10, color: C.dim }}>{slot.start}-{slot.end}</span>
               </td>
-              {weekDays.map(day => {
+              {monthDays.map(day => {
                 const key = `${day}_${slot.id}`;
                 const cellShifts = shiftsByKey[key] || [];
                 const approved = cellShifts.filter(s => s.status === "approved");
