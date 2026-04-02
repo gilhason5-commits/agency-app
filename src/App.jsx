@@ -5777,7 +5777,7 @@ function DebtsPage() {
 // PAGE: SHIFTS (משמרות)
 // ═══════════════════════════════════════════════════════
 function ShiftsPage() {
-  const { shiftSlots, shifts, addShiftSlot, removeShiftSlotCtx, addShiftCtx, updateShiftCtx, removeShiftCtx, income, sheetUsers, user, year, month, chatterSettings, saveChatterSetting } = useApp();
+  const { shiftSlots, shifts, addShiftSlot, removeShiftSlotCtx, addShiftCtx, updateShiftCtx, removeShiftCtx, income, sheetUsers, user, chatterSettings, saveChatterSetting } = useApp();
   const w = useWin();
   const [weekStart, setWeekStart] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10);
@@ -5787,10 +5787,10 @@ function ShiftsPage() {
   const [assignSlot, setAssignSlot] = useState(null); // { date, slotId }
   const [assignChatter, setAssignChatter] = useState("");
   const [assignClients, setAssignClients] = useState([]);
-  const [editShift, setEditShift] = useState(null); // shift being edited for clients
+  const [editShift, setEditShift] = useState(null); // combined edit (clients + clock)
   const [editClients, setEditClients] = useState([]);
-  const [editClockShift, setEditClockShift] = useState(null); // shift being edited for clock times
-  const [editClockForm, setEditClockForm] = useState({ clockIn: "", clockOut: "", hoursWorked: "" });
+  const [editClockIn, setEditClockIn] = useState("");
+  const [editClockOut, setEditClockOut] = useState("");
 
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
 
@@ -5823,7 +5823,11 @@ function ShiftsPage() {
 
   const pendingShifts = useMemo(() => visibleShifts.filter(s => s.status === "pending"), [visibleShifts]);
 
-  const ymi = ym(year, month);
+  // ymi derived from the currently viewed week (so table always matches the calendar month)
+  const ymi = weekStart.slice(0, 7);
+  const ymiMonthName = MONTHS_HE[+ymi.slice(5, 7) - 1];
+  const ymiYear = ymi.slice(0, 4);
+
   const monthlySummary = useMemo(() => {
     const map = {};
     visibleShifts.filter(s => s.status === "approved" && s.date && s.date.startsWith(ymi)).forEach(s => {
@@ -5898,10 +5902,28 @@ function ShiftsPage() {
     setList(prev => prev.includes(name) ? prev.filter(c => c !== name) : [...prev, name]);
   };
 
-  const saveEditClients = async () => {
+  const calcHoursFromTimes = (inStr, outStr) => {
+    if (!inStr || !outStr) return 0;
+    const diff = parseTime(outStr) - parseTime(inStr);
+    return diff > 0 ? Math.round(diff / 60 * 2) / 2 : 0;
+  };
+
+  const openEdit = (s) => {
+    setEditShift(s);
+    setEditClients(s.clients || []);
+    setEditClockIn(s.clockIn ? new Date(s.clockIn).toTimeString().slice(0, 5) : "");
+    setEditClockOut(s.clockOut ? new Date(s.clockOut).toTimeString().slice(0, 5) : "");
+  };
+
+  const saveEdit = async () => {
     if (!editShift) return;
-    await updateShiftCtx(editShift.id, { clients: editClients });
-    setEditShift(null); setEditClients([]);
+    const toISO = (t) => { if (!t) return null; const [h, m] = t.split(":"); const d = new Date(editShift.date); d.setHours(+h, +m, 0, 0); return d.toISOString(); };
+    const clockIn = toISO(editClockIn);
+    const clockOut = toISO(editClockOut);
+    const hoursWorked = calcHoursFromTimes(editClockIn, editClockOut);
+    const lateMinutes = editClockIn ? Math.max(0, parseTime(editClockIn) - parseTime(editShift.slotStart)) : (editShift.lateMinutes ?? 0);
+    await updateShiftCtx(editShift.id, { clients: editClients, clockIn: clockIn || editShift.clockIn || null, clockOut: clockOut || editShift.clockOut || null, hoursWorked, lateMinutes });
+    setEditShift(null);
   };
 
   const filledCount = visibleShifts.filter(s => s.status === "approved").length;
@@ -6018,14 +6040,12 @@ function ShiftsPage() {
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <span style={{ fontWeight: 600 }}>{clockDot && <span style={{ fontSize: 8, marginLeft: 3 }}>{clockDot}</span>}{s.chatterName}</span>
                       <span style={{ display: "flex", gap: 2 }}>
-                        <button onClick={e => { e.stopPropagation(); setEditShift(s); setEditClients(s.clients || []); }} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 10, padding: "0 2px" }}>✏️</button>
+                        <button onClick={e => { e.stopPropagation(); openEdit(s); }} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 10, padding: "0 2px" }}>✏️</button>
                         <button onClick={e => { e.stopPropagation(); removeShiftCtx(s.id); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 10, padding: "0 2px" }}>✕</button>
                       </span>
                     </div>
                     {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginTop: 1 }}>{s.clients.join(", ")}</div>}
-                    <div onClick={e => { e.stopPropagation(); setEditClockShift(s); setEditClockForm({ clockIn: s.clockIn ? new Date(s.clockIn).toTimeString().slice(0,5) : "", clockOut: s.clockOut ? new Date(s.clockOut).toTimeString().slice(0,5) : "", hoursWorked: s.hoursWorked ?? "" }); }} style={{ fontSize: 9, color: s.clockIn ? C.dim : C.mut, marginTop: 1, cursor: "pointer", padding: "1px 2px", borderRadius: 4, transition: "background .1s" }} title="לחץ לעריכת שעות">
-                      {s.clockIn ? <>↑{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.clockOut ? ` ↓${new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}{s.lateMinutes > 0 ? ` ⚠️${s.lateMinutes}׳` : ""}</> : <span style={{ color: C.mut }}>⏱ הגדר שעות</span>}
-                    </div>
+                    {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>↑{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.clockOut ? ` ↓${new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}{s.lateMinutes > 0 ? ` ⚠️${s.lateMinutes}׳` : ""}</div>}
                   </div>; })}
                   {!approved.length && <span style={{ color: C.mut, fontSize: 11 }}>+</span>}
                 </td>;
@@ -6038,7 +6058,7 @@ function ShiftsPage() {
 
     {/* Monthly Hours Summary */}
     {monthlySummary.length > 0 && <Card style={{ marginTop: 20 }}>
-      <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📊 סיכום משמרות — {MONTHS_HE[month]} {year}</h3>
+      <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📊 סיכום משמרות — {ymiMonthName} {ymiYear}</h3>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
@@ -6108,50 +6128,38 @@ function ShiftsPage() {
       </div>
     </Modal>}
 
-    {/* Edit Clients Modal */}
-    {editShift && <Modal open onClose={() => setEditShift(null)} title={`עריכת לקוחות — ${editShift.chatterName}`} width={400}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ color: C.dim, fontSize: 13 }}>{editShift.slotLabel} — {editShift.date}</div>
+    {/* Combined Edit Modal — clients + clock times */}
+    {editShift && <Modal open onClose={() => setEditShift(null)} title={`✏️ עריכת משמרת — ${editShift.chatterName}`} width={420}>
+      <div style={{ direction: "rtl", display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ color: C.dim, fontSize: 12 }}>{editShift.slotLabel} — {editShift.date} ({editShift.slotStart}–{editShift.slotEnd})</div>
+
+        {/* Clock times */}
         <div>
-          <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>לקוחות למשמרת:</div>
+          <div style={{ color: C.txt, fontSize: 13, fontWeight: 600, marginBottom: 8 }}>⏱ שעות נוכחות</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 4 }}>כניסה ↑</label>
+              <input type="time" value={editClockIn} onChange={e => setEditClockIn(e.target.value)} style={{ width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 16, outline: "none", direction: "ltr", boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 4 }}>יציאה ↓</label>
+              <input type="time" value={editClockOut} onChange={e => setEditClockOut(e.target.value)} style={{ width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 16, outline: "none", direction: "ltr", boxSizing: "border-box" }} />
+            </div>
+          </div>
+          {editClockIn && editClockOut && <div style={{ marginTop: 8, textAlign: "center", color: C.grn, fontSize: 13, fontWeight: 700 }}>
+            סה״כ: {calcHoursFromTimes(editClockIn, editClockOut)} שעות
+          </div>}
+        </div>
+
+        {/* Clients */}
+        <div>
+          <div style={{ color: C.txt, fontSize: 13, fontWeight: 600, marginBottom: 8 }}>👩 לקוחות למשמרת</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {clientNames.map(c => <button key={c} onClick={() => toggleClient(editClients, setEditClients, c)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${editClients.includes(c) ? C.pri : C.bdr}`, background: editClients.includes(c) ? `${C.pri}33` : C.bg, color: editClients.includes(c) ? C.pri : C.dim, cursor: "pointer", fontSize: 12 }}>{c}</button>)}
           </div>
         </div>
-        <Btn variant="success" onClick={saveEditClients}>שמור</Btn>
-      </div>
-    </Modal>}
 
-    {/* Edit Clock Times Modal */}
-    {editClockShift && <Modal open onClose={() => setEditClockShift(null)} title={`⏱ עריכת שעות — ${editClockShift.chatterName}`} width={360}>
-      <div style={{ direction: "rtl", display: "flex", flexDirection: "column", gap: 14 }}>
-        <div style={{ color: C.dim, fontSize: 12 }}>{editClockShift.slotLabel} — {editClockShift.date} ({editClockShift.slotStart}–{editClockShift.slotEnd})</div>
-        <div>
-          <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעת כניסה ↑</label>
-          <input type="time" value={editClockForm.clockIn} onChange={e => setEditClockForm(f => ({ ...f, clockIn: e.target.value }))} style={{ width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 16, outline: "none", direction: "ltr", boxSizing: "border-box" }} />
-        </div>
-        <div>
-          <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעת יציאה ↓</label>
-          <input type="time" value={editClockForm.clockOut} onChange={e => setEditClockForm(f => ({ ...f, clockOut: e.target.value }))} style={{ width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 16, outline: "none", direction: "ltr", boxSizing: "border-box" }} />
-        </div>
-        <div>
-          <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעות עבודה</label>
-          <input type="number" step="0.5" min="0" max="24" value={editClockForm.hoursWorked} onChange={e => setEditClockForm(f => ({ ...f, hoursWorked: e.target.value }))} style={{ width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 20, fontWeight: 700, outline: "none", textAlign: "center", direction: "ltr", boxSizing: "border-box" }} placeholder="0" />
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Btn variant="success" style={{ flex: 1 }} onClick={async () => {
-            const date = editClockShift.date;
-            const toISO = (timeStr) => { if (!timeStr) return null; const [h, m] = timeStr.split(":"); const d = new Date(date); d.setHours(+h, +m, 0, 0); return d.toISOString(); };
-            const clockIn = toISO(editClockForm.clockIn);
-            const clockOut = toISO(editClockForm.clockOut);
-            const slotStartMin = parseTime(editClockShift.slotStart);
-            const clockInMin = editClockForm.clockIn ? parseTime(editClockForm.clockIn) : null;
-            const lateMinutes = clockInMin != null ? Math.max(0, clockInMin - slotStartMin) : (editClockShift.lateMinutes ?? 0);
-            await updateShiftCtx(editClockShift.id, { clockIn: clockIn || null, clockOut: clockOut || null, hoursWorked: +editClockForm.hoursWorked || 0, lateMinutes });
-            setEditClockShift(null);
-          }}>💾 שמור</Btn>
-          <Btn variant="ghost" onClick={() => setEditClockShift(null)}>ביטול</Btn>
-        </div>
+        <Btn variant="success" onClick={saveEdit}>💾 שמור</Btn>
       </div>
     </Modal>}
   </div>;
