@@ -203,8 +203,6 @@ function ymFromDate(date) { if (!date) return null; return ym(date.getFullYear()
 function getMonthlyPcts(settings, ymi) {
   const monthly = settings?.monthlyPcts || {};
   if (monthly[ymi]) return monthly[ymi];
-  const prev = Object.keys(monthly).filter(k => k < ymi).sort();
-  if (prev.length > 0) return monthly[prev[prev.length - 1]];
   return { officePct: settings?.officePct ?? 17, fieldPct: settings?.fieldPct ?? 15, salaryType: settings?.salaryType ?? "sales", hourlyRate: settings?.hourlyRate ?? 0 };
 }
 function useWin() { const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1200); useEffect(() => { const h = () => setW(window.innerWidth); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, []); return w; }
@@ -2492,15 +2490,6 @@ function RecordIncomeAdmin({ onClose }) {
       </div>
 
       <div>
-        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
-        <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={{ ...inputStyle, direction: "ltr" }} />
-      </div>
-      <div>
-        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
-        <input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} />
-      </div>
-
-      <div>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>מיקום</label>
         <div style={{ display: "flex", gap: 8 }}>
           {["משרד", "חוץ"].map(loc => (
@@ -2524,6 +2513,14 @@ function RecordIncomeAdmin({ onClose }) {
       <div>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>הערות</label>
         <input value={form.notes} onChange={e => upd("notes", e.target.value)} placeholder="אופציונלי" style={inputStyle} />
+      </div>
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
+        <input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} />
+      </div>
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
+        <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={{ ...inputStyle, direction: "ltr" }} />
       </div>
     </div>
 
@@ -5987,7 +5984,7 @@ function ShiftsPage() {
                       </span>
                     </div>
                     {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginTop: 1 }}>{s.clients.join(", ")}</div>}
-                    {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.lateMinutes > 0 ? ` (${s.lateMinutes}׳+)` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}</div>}
+                    {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>↑{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.clockOut ? ` ↓${new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}{s.lateMinutes > 0 ? ` ⚠️${s.lateMinutes}׳` : ""}</div>}
                   </div>; })}
                   {!approved.length && <span style={{ color: C.mut, fontSize: 11 }}>+</span>}
                 </td>;
