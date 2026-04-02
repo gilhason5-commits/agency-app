@@ -5789,6 +5789,8 @@ function ShiftsPage() {
   const [assignClients, setAssignClients] = useState([]);
   const [editShift, setEditShift] = useState(null); // shift being edited for clients
   const [editClients, setEditClients] = useState([]);
+  const [editClockShift, setEditClockShift] = useState(null); // shift being edited for clock times
+  const [editClockForm, setEditClockForm] = useState({ clockIn: "", clockOut: "", hoursWorked: "" });
 
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
 
@@ -6021,7 +6023,9 @@ function ShiftsPage() {
                       </span>
                     </div>
                     {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginTop: 1 }}>{s.clients.join(", ")}</div>}
-                    {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>↑{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.clockOut ? ` ↓${new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}{s.lateMinutes > 0 ? ` ⚠️${s.lateMinutes}׳` : ""}</div>}
+                    <div onClick={e => { e.stopPropagation(); setEditClockShift(s); setEditClockForm({ clockIn: s.clockIn ? new Date(s.clockIn).toTimeString().slice(0,5) : "", clockOut: s.clockOut ? new Date(s.clockOut).toTimeString().slice(0,5) : "", hoursWorked: s.hoursWorked ?? "" }); }} style={{ fontSize: 9, color: s.clockIn ? C.dim : C.mut, marginTop: 1, cursor: "pointer", padding: "1px 2px", borderRadius: 4, transition: "background .1s" }} title="לחץ לעריכת שעות">
+                      {s.clockIn ? <>↑{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.clockOut ? ` ↓${new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}{s.lateMinutes > 0 ? ` ⚠️${s.lateMinutes}׳` : ""}</> : <span style={{ color: C.mut }}>⏱ הגדר שעות</span>}
+                    </div>
                   </div>; })}
                   {!approved.length && <span style={{ color: C.mut, fontSize: 11 }}>+</span>}
                 </td>;
@@ -6115,6 +6119,39 @@ function ShiftsPage() {
           </div>
         </div>
         <Btn variant="success" onClick={saveEditClients}>שמור</Btn>
+      </div>
+    </Modal>}
+
+    {/* Edit Clock Times Modal */}
+    {editClockShift && <Modal open onClose={() => setEditClockShift(null)} title={`⏱ עריכת שעות — ${editClockShift.chatterName}`} width={360}>
+      <div style={{ direction: "rtl", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ color: C.dim, fontSize: 12 }}>{editClockShift.slotLabel} — {editClockShift.date} ({editClockShift.slotStart}–{editClockShift.slotEnd})</div>
+        <div>
+          <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעת כניסה ↑</label>
+          <input type="time" value={editClockForm.clockIn} onChange={e => setEditClockForm(f => ({ ...f, clockIn: e.target.value }))} style={{ width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 16, outline: "none", direction: "ltr", boxSizing: "border-box" }} />
+        </div>
+        <div>
+          <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעת יציאה ↓</label>
+          <input type="time" value={editClockForm.clockOut} onChange={e => setEditClockForm(f => ({ ...f, clockOut: e.target.value }))} style={{ width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 16, outline: "none", direction: "ltr", boxSizing: "border-box" }} />
+        </div>
+        <div>
+          <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעות עבודה</label>
+          <input type="number" step="0.5" min="0" max="24" value={editClockForm.hoursWorked} onChange={e => setEditClockForm(f => ({ ...f, hoursWorked: e.target.value }))} style={{ width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 20, fontWeight: 700, outline: "none", textAlign: "center", direction: "ltr", boxSizing: "border-box" }} placeholder="0" />
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn variant="success" style={{ flex: 1 }} onClick={async () => {
+            const date = editClockShift.date;
+            const toISO = (timeStr) => { if (!timeStr) return null; const [h, m] = timeStr.split(":"); const d = new Date(date); d.setHours(+h, +m, 0, 0); return d.toISOString(); };
+            const clockIn = toISO(editClockForm.clockIn);
+            const clockOut = toISO(editClockForm.clockOut);
+            const slotStartMin = parseTime(editClockShift.slotStart);
+            const clockInMin = editClockForm.clockIn ? parseTime(editClockForm.clockIn) : null;
+            const lateMinutes = clockInMin != null ? Math.max(0, clockInMin - slotStartMin) : (editClockShift.lateMinutes ?? 0);
+            await updateShiftCtx(editClockShift.id, { clockIn: clockIn || null, clockOut: clockOut || null, hoursWorked: +editClockForm.hoursWorked || 0, lateMinutes });
+            setEditClockShift(null);
+          }}>💾 שמור</Btn>
+          <Btn variant="ghost" onClick={() => setEditClockShift(null)}>ביטול</Btn>
+        </div>
       </div>
     </Modal>}
   </div>;
