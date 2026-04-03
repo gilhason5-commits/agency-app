@@ -5831,10 +5831,12 @@ function ShiftsPage() {
   const monthlySummary = useMemo(() => {
     const map = {};
     visibleShifts.filter(s => s.status === "approved" && s.date && s.date.startsWith(ymi)).forEach(s => {
-      if (!map[s.chatterName]) map[s.chatterName] = { shifts: 0, totalHours: 0 };
+      if (!map[s.chatterName]) map[s.chatterName] = { shifts: 0, totalHours: 0, entries: [] };
       map[s.chatterName].shifts++;
       if (s.hoursWorked) map[s.chatterName].totalHours += +s.hoursWorked;
+      map[s.chatterName].entries.push(s);
     });
+    Object.values(map).forEach(d => d.entries.sort((a, b) => a.date.localeCompare(b.date)));
     return Object.entries(map).sort((a, b) => b[1].totalHours - a[1].totalHours).map(([chatterName, d]) => ({ chatterName, ...d }));
   }, [visibleShifts, ymi]);
 
@@ -6067,47 +6069,54 @@ function ShiftsPage() {
       </div>
     </Card>
 
-    {/* Monthly Hours Summary */}
+    {/* Monthly Shift Log per Chatter */}
     {monthlySummary.length > 0 && <Card style={{ marginTop: 20 }}>
-      <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📊 סיכום משמרות — {ymiMonthName} {ymiYear}</h3>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ borderBottom: `2px solid ${C.bdr}` }}>
-              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "right", fontWeight: 600 }}>צ'אטר</th>
-              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>משמרות</th>
-              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>סה״כ שעות</th>
-              <th style={{ padding: "6px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>ממוצע למשמרת</th>
-            </tr>
-          </thead>
-          <tbody>
-            {monthlySummary.map(({ chatterName, shifts: cnt, totalHours }) => {
-              const avg = cnt > 0 ? Math.round((totalHours / cnt) * 10) / 10 : 0;
-              const storedHours = chatterSettings[chatterName]?.monthlyHours?.[ymi] ?? 0;
-              return <tr key={chatterName} style={{ borderBottom: `1px solid ${C.bdr}` }}>
-                <td style={{ padding: "8px 10px", color: C.txt, fontWeight: 600 }}>{chatterName}</td>
-                <td style={{ padding: "8px 10px", color: C.txt, textAlign: "center" }}>{cnt}</td>
-                <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                  <span style={{ color: totalHours > 0 ? C.grn : C.mut, fontWeight: 700, fontSize: 15 }}>{totalHours}</span>
-                  <span style={{ color: C.dim, fontSize: 11, marginRight: 3 }}>ש׳</span>
-                  {storedHours !== totalHours && <span style={{ color: C.ylw, fontSize: 10, marginRight: 4 }}>↻</span>}
-                </td>
-                <td style={{ padding: "8px 10px", color: C.dim, textAlign: "center" }}>{avg > 0 ? `${avg}ש׳` : "—"}</td>
-              </tr>;
-            })}
-          </tbody>
-          <tfoot>
-            <tr style={{ borderTop: `2px solid ${C.bdr}` }}>
-              <td style={{ padding: "8px 10px", color: C.dim, fontWeight: 600 }}>סה״כ</td>
-              <td style={{ padding: "8px 10px", color: C.txt, textAlign: "center", fontWeight: 700 }}>{monthlySummary.reduce((s, r) => s + r.shifts, 0)}</td>
-              <td style={{ padding: "8px 10px", textAlign: "center", fontWeight: 700 }}>
-                <span style={{ color: C.grn, fontSize: 15 }}>{monthlySummary.reduce((s, r) => s + r.totalHours, 0)}</span>
-                <span style={{ color: C.dim, fontSize: 11, marginRight: 3 }}>ש׳</span>
-              </td>
-              <td />
-            </tr>
-          </tfoot>
-        </table>
+      <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📊 לוג משמרות — {ymiMonthName} {ymiYear}</h3>
+      {monthlySummary.map(({ chatterName, shifts: cnt, totalHours, entries }) => {
+        const avg = cnt > 0 ? Math.round((totalHours / cnt) * 10) / 10 : 0;
+        return <div key={chatterName} style={{ marginBottom: 16, border: `1px solid ${C.bdr}`, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: `${C.pri}15` }}>
+            <span style={{ color: C.txt, fontWeight: 700, fontSize: 14 }}>{chatterName}</span>
+            <span style={{ color: C.dim, fontSize: 12 }}>
+              {cnt} משמרות · <span style={{ color: totalHours > 0 ? C.grn : C.mut, fontWeight: 700 }}>{totalHours}</span> ש׳
+              {avg > 0 && <span> · ממוצע {avg}ש׳</span>}
+            </span>
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${C.bdr}`, background: C.bg }}>
+                <th style={{ padding: "5px 10px", color: C.dim, textAlign: "right", fontWeight: 600 }}>תאריך</th>
+                <th style={{ padding: "5px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>משמרת</th>
+                <th style={{ padding: "5px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>כניסה</th>
+                <th style={{ padding: "5px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>יציאה</th>
+                <th style={{ padding: "5px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>שעות</th>
+                <th style={{ padding: "5px 10px", color: C.dim, textAlign: "right", fontWeight: 600 }}>לקוחות</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map(s => {
+                const dayDate = new Date(s.date + "T00:00:00");
+                const dayName = DAY_SHORT[dayDate.getDay()];
+                const clockInTime = s.clockIn ? new Date(s.clockIn).toTimeString().slice(0, 5) : "—";
+                const clockOutTime = s.clockOut ? new Date(s.clockOut).toTimeString().slice(0, 5) : "—";
+                return <tr key={s.id} style={{ borderBottom: `1px solid ${C.bdr}22` }}>
+                  <td style={{ padding: "6px 10px", color: C.txt }}>{dayName} {s.date.slice(8)}/{s.date.slice(5, 7)}</td>
+                  <td style={{ padding: "6px 10px", color: C.dim, textAlign: "center" }}>{s.slotLabel || ""}</td>
+                  <td style={{ padding: "6px 10px", color: s.clockIn ? C.grn : C.mut, textAlign: "center" }}>{clockInTime}</td>
+                  <td style={{ padding: "6px 10px", color: s.clockOut ? C.txt : C.mut, textAlign: "center" }}>{clockOutTime}</td>
+                  <td style={{ padding: "6px 10px", textAlign: "center", color: s.hoursWorked ? C.grn : C.mut, fontWeight: 600 }}>{s.hoursWorked ? `${s.hoursWorked}ש׳` : "—"}</td>
+                  <td style={{ padding: "6px 10px", color: C.dim, textAlign: "right", fontSize: 11 }}>{(s.clients || []).join(", ") || "—"}</td>
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>;
+      })}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderTop: `2px solid ${C.bdr}`, marginTop: 4 }}>
+        <span style={{ color: C.dim, fontWeight: 600 }}>סה״כ</span>
+        <span style={{ color: C.dim, fontSize: 13 }}>
+          {monthlySummary.reduce((s, r) => s + r.shifts, 0)} משמרות · <span style={{ color: C.grn, fontWeight: 700 }}>{monthlySummary.reduce((s, r) => s + r.totalHours, 0)}</span> ש׳
+        </span>
       </div>
       <div style={{ marginTop: 10, fontSize: 11, color: C.mut }}>⟳ שעות מסונכרנות אוטומטית לפרופיל כל צ'אטר</div>
     </Card>}
