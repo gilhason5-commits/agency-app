@@ -828,7 +828,6 @@ function Prov({ children }) {
   useEffect(() => { ExRate.fetchUsdIls().then(r => setLiveRate(r)); }, []);
 
   const load = useCallback(async () => {
-    console.log("[DEBUG] load() called — starting data fetch from Firebase");
     setLoading(true); setError(null); setLoadStep("טוען נתונים...");
     try {
       setLoadStep("טוען הכנסות מ-Firebase...");
@@ -859,10 +858,8 @@ function Prov({ children }) {
       } catch (e) { console.error("Error fetching agencySettings:", e); }
       try { const u = await UserSvc.fetchAll(); setSheetUsers(u); } catch (e) { console.error("Error fetching users:", e); }
       setConnected(true);
-      console.log("[DEBUG] load() completed successfully — connected=true");
       setTimeout(() => setLoadStep(""), 3000);
     } catch (e) {
-      console.error("[DEBUG] load() FAILED:", e.message, e);
       setError(e.message);
       setLoadStep("");
     }
@@ -870,26 +867,22 @@ function Prov({ children }) {
   }, [year]);
 
   useEffect(() => {
-    console.log("[DEBUG] load useEffect triggered — demo:", demo, "VITE_USE_AUTH:", import.meta.env.VITE_USE_AUTH, "AGENCY_USER:", !!localStorage.getItem("AGENCY_USER"));
     if (demo) loadDemo();
     else if (!import.meta.env.VITE_USE_AUTH || localStorage.getItem("AGENCY_USER")) {
       load();
-    } else {
-      console.log("[DEBUG] load() NOT called — auth required but no user");
     }
   }, [demo, load]);
 
   useEffect(() => {
     // Load local DBs automatically
-    console.log("[DEBUG] secondary useEffect — loading local DBs & shifts");
     ModelSvc.fetchAll().then(setModels);
     HistorySvc.fetchAll().then(setHistory);
     GenParamsSvc.fetch().then(setGenParams);
     loadRatesFromFirebase().then(() => setRv(v => v + 1));
-    fetchFixedExpenses().then(setFixedExps).catch(e => console.error("[DEBUG] fixedExps error:", e));
-    fetchEmployees().then(setEmployees).catch(e => console.error("[DEBUG] employees error:", e));
-    fetchShiftSlots().then(ss => { console.log("[DEBUG] shiftSlots loaded:", ss.length); setShiftSlots(ss); }).catch(e => console.error("[DEBUG] shiftSlots error:", e));
-    fetchShifts().then(s => { console.log("[DEBUG] shifts loaded:", s.length); setShifts(s); }).catch(e => console.error("[DEBUG] shifts error:", e));
+    fetchFixedExpenses().then(setFixedExps).catch(() => {});
+    fetchEmployees().then(setEmployees).catch(() => {});
+    fetchShiftSlots().then(setShiftSlots).catch(() => {});
+    fetchShifts().then(setShifts).catch(() => {});
   }, []);
 
   const loadDemo = useCallback(() => {
@@ -5548,6 +5541,33 @@ function DebtsPage() {
     }).filter(r => r.totalIncome > 0 || Math.abs(r.actualDue) > 0).sort((a, b) => b.totalIncome - a.totalIncome);
   }, [allClientNames, yearIncome, settlements, year, clientSettings]);
 
+  // Yearly breakdown per chatter: total salary owed across the whole year
+  const yearlyChatterRows = useMemo(() => {
+    const names = [...new Set(yearIncome.map(r => r.chatterName).filter(Boolean))];
+    const yearChatterSets = settlements.filter(s => s.entityType === "chatter" && new Date(s.timestamp || s.date || Date.now()).getFullYear() === year);
+    return names.map(name => {
+      let totalSales = 0, totalSalary = 0, totalPaidDirect = 0;
+      for (let mi = 0; mi < 12; mi++) {
+        const mRows = yearIncome.filter(r => r.chatterName === name && new Date(r.date || 0).getMonth() === mi);
+        const cfg = (chatterSettings || {})[name] || {};
+        const sal = Calc.chatterSalary(mRows, cfg, ym(year, mi));
+        totalSales += mRows.reduce((s, r) => s + r.amountILS, 0);
+        totalSalary += sal.total;
+        totalPaidDirect += mRows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+      }
+      let netSettled = 0;
+      yearChatterSets.filter(s => s.modelName === name).forEach(s => {
+        if (s.direction === "AgencyToChatter") netSettled += s.amount;
+        if (s.direction === "ChatterToAgency") netSettled -= s.amount;
+      });
+      const balance = totalSalary - totalPaidDirect - netSettled;
+      const cfg = (chatterSettings || {})[name] || {};
+      const hasVat = cfg.vatChatter ?? false;
+      const finalBalance = Math.abs(balance) * (hasVat ? 1.18 : 1);
+      return { name, totalSales, totalSalary, totalPaidDirect, netSettled, balance, hasVat, finalBalance };
+    }).filter(r => r.totalSales > 0 || Math.abs(r.balance) > 0).sort((a, b) => b.totalSales - a.totalSales);
+  }, [yearIncome, chatterSettings, settlements, year]);
+
   const totalDue = debtRows.reduce((acc, r) => acc + r.actualDue, 0);
   const annualTotalDue = yearlyMonthRows.reduce((acc, r) => acc + r.totalDue, 0);
   const annualTotalSettled = yearlyMonthRows.reduce((acc, r) => acc + r.totalSettled, 0);
@@ -5686,9 +5706,12 @@ function DebtsPage() {
     </> : <>
       {/* ── YEARLY VIEW ── */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon="📊" title={`סה״כ זכאות לקוחות — ${year}`} value={fmtC(annualTotalEntitlement)} color={C.pri} sub="סה״כ מגיע לכולן" />
-        <Stat icon="✅" title={`סה״כ קוזז — ${year}`} value={fmtC(annualTotalSettled)} color={C.ylw} sub="שולם/קוזז בפועל" />
-        <Stat icon="⚠️" title={`נשאר לקיזוז — ${year}`} value={fmtC(Math.abs(annualTotalDue))} color={annualTotalDue > 0 ? C.grn : C.red} sub={annualTotalDue > 0 ? "הסוכנות חייבת" : "לקוחות חייבות"} />
+        <Stat icon="📊" title={`זכאות לקוחות — ${year}`} value={fmtC(annualTotalEntitlement)} color={C.pri} sub="סה״כ מגיע לכולן" />
+        <Stat icon="✅" title={`קוזז לקוחות — ${year}`} value={fmtC(annualTotalSettled)} color={C.ylw} sub="שולם/קוזז בפועל" />
+        <Stat icon="⚠️" title={`נשאר לקוחות — ${year}`} value={fmtC(Math.abs(annualTotalDue))} color={annualTotalDue > 0 ? C.grn : C.red} sub={annualTotalDue > 0 ? "הסוכנות חייבת" : "לקוחות חייבות"} />
+        <Stat icon="👥" title={`שכר צ'אטרים — ${year}`} value={fmtC(yearlyChatterRows.reduce((s,r)=>s+r.totalSalary,0))} color={C.pri} sub="סה״כ מגיע לצ'אטרים" />
+        <Stat icon="💰" title={`שולם לצ'אטרים — ${year}`} value={fmtC(yearlyChatterRows.reduce((s,r)=>s+r.totalPaidDirect+r.netSettled,0))} color={C.ylw} sub="שולם ישירות + קוזז" />
+        <Stat icon="⚠️" title={`נשאר לצ'אטרים — ${year}`} value={fmtC(Math.abs(yearlyChatterRows.reduce((s,r)=>s+r.balance,0)))} color={yearlyChatterRows.reduce((s,r)=>s+r.balance,0) > 0 ? C.red : C.grn} sub={yearlyChatterRows.reduce((s,r)=>s+r.balance,0) > 0 ? "אנחנו חייבים" : "הם חייבים"} />
       </div>
 
       {/* Monthly breakdown table */}
@@ -5729,6 +5752,29 @@ function DebtsPage() {
           }}
         ]} rows={yearlyClientRows}
         footer={["סה״כ", fmtC(yearlyClientRows.reduce((s,r)=>s+r.totalIncome,0)), fmtC(yearlyClientRows.reduce((s,r)=>s+r.entitlement,0)), fmtC(yearlyClientRows.reduce((s,r)=>s+r.netSettled,0)), fmtC(Math.abs(yearlyClientRows.reduce((s,r)=>s+r.actualDue,0)))]} />
+      </Card>
+
+      {/* Per-chatter annual breakdown */}
+      <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 10 }}>👥 פירוט לפי צ'אטר — {year}</h3>
+      <Card style={{ padding: 0, marginBottom: 32 }}>
+        <DT columns={[
+          { label: "צ'אטר", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
+          { label: "סה״כ מכירות", render: r => <span style={{ color: C.dim }}>{fmtC(r.totalSales)}</span> },
+          { label: "שכר מגיע", render: r => <span style={{ color: C.pri }}>{fmtC(r.totalSalary)}</span> },
+          { label: "שולם ישירות", render: r => <span style={{ color: C.grn }}>{fmtC(r.totalPaidDirect)}</span> },
+          { label: "קוזז", render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
+          { label: "נשאר לקיזוז", render: r => {
+            if (Math.abs(r.balance) < 1) return <span style={{ color: C.mut }}>מאוזן</span>;
+            const col = r.balance > 0 ? C.red : C.grn;
+            const txt = r.balance > 0 ? "אנחנו חייבים" : "הוא חייב לנו";
+            return <div style={{ color: col, fontWeight: 700 }}>
+              {fmtC(r.hasVat ? r.finalBalance : Math.abs(r.balance))}
+              {r.hasVat && <div style={{ fontSize: 10, color: C.ylw }}>כולל מע״מ</div>}
+              <div style={{ fontSize: 10, fontWeight: 400 }}>{txt}</div>
+            </div>;
+          }}
+        ]} rows={yearlyChatterRows}
+        footer={["סה״כ", fmtC(yearlyChatterRows.reduce((s,r)=>s+r.totalSales,0)), fmtC(yearlyChatterRows.reduce((s,r)=>s+r.totalSalary,0)), fmtC(yearlyChatterRows.reduce((s,r)=>s+r.totalPaidDirect,0)), fmtC(yearlyChatterRows.reduce((s,r)=>s+r.netSettled,0)), fmtC(Math.abs(yearlyChatterRows.reduce((s,r)=>s+r.balance,0)))]} />
       </Card>
     </>}
 
