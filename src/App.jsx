@@ -5705,14 +5705,17 @@ function DebtsPage() {
       </Card>
     </> : <>
       {/* ── YEARLY VIEW ── */}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat icon="📊" title={`זכאות לקוחות — ${year}`} value={fmtC(annualTotalEntitlement)} color={C.pri} sub="סה״כ מגיע לכולן" />
-        <Stat icon="✅" title={`קוזז לקוחות — ${year}`} value={fmtC(annualTotalSettled)} color={C.ylw} sub="שולם/קוזז בפועל" />
-        <Stat icon="⚠️" title={`נשאר לקוחות — ${year}`} value={fmtC(Math.abs(annualTotalDue))} color={annualTotalDue > 0 ? C.grn : C.red} sub={annualTotalDue > 0 ? "הסוכנות חייבת" : "לקוחות חייבות"} />
-        <Stat icon="👥" title={`שכר צ'אטרים — ${year}`} value={fmtC(yearlyChatterRows.reduce((s,r)=>s+r.totalSalary,0))} color={C.pri} sub="סה״כ מגיע לצ'אטרים" />
-        <Stat icon="💰" title={`שולם לצ'אטרים — ${year}`} value={fmtC(yearlyChatterRows.reduce((s,r)=>s+r.totalPaidDirect+r.netSettled,0))} color={C.ylw} sub="שולם ישירות + קוזז" />
-        <Stat icon="⚠️" title={`נשאר לצ'אטרים — ${year}`} value={fmtC(Math.abs(yearlyChatterRows.reduce((s,r)=>s+r.balance,0)))} color={yearlyChatterRows.reduce((s,r)=>s+r.balance,0) > 0 ? C.red : C.grn} sub={yearlyChatterRows.reduce((s,r)=>s+r.balance,0) > 0 ? "אנחנו חייבים" : "הם חייבים"} />
-      </div>
+      {(() => {
+        const chatterBal = yearlyChatterRows.reduce((s,r)=>s+r.balance,0);
+        return <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+          <Stat icon="📊" title={`מגיע ללקוחות — ${year}`} value={fmtC(annualTotalEntitlement)} color={C.pri} sub="סה״כ זכאות" />
+          <Stat icon="✅" title={`שולם/קוזז לקוחות — ${year}`} value={fmtC(annualTotalSettled)} color={C.ylw} sub="שולם/קוזז בפועל" />
+          <Stat icon={annualTotalDue > 0 ? "🔴" : "🟢"} title={`נשאר לקוחות — ${year}`} value={fmtC(Math.abs(annualTotalDue))} color={annualTotalDue > 0 ? C.red : C.grn} sub={annualTotalDue > 0 ? "אנחנו חייבים להן" : "הן חייבות לנו"} />
+          <Stat icon="📊" title={`מגיע לצ'אטרים — ${year}`} value={fmtC(yearlyChatterRows.reduce((s,r)=>s+r.totalSalary,0))} color={C.pri} sub="סה״כ זכאות" />
+          <Stat icon="✅" title={`שולם/קוזז צ'אטרים — ${year}`} value={fmtC(yearlyChatterRows.reduce((s,r)=>s+r.totalPaidDirect+r.netSettled,0))} color={C.ylw} sub="שולם/קוזז בפועל" />
+          <Stat icon={chatterBal > 0 ? "🔴" : "🟢"} title={`נשאר צ'אטרים — ${year}`} value={fmtC(Math.abs(chatterBal))} color={chatterBal > 0 ? C.red : C.grn} sub={chatterBal > 0 ? "אנחנו חייבים להם" : "הם חייבים לנו"} />
+        </div>;
+      })()}
 
       {/* Monthly breakdown table */}
       <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 10 }}>📅 פירוט חודשי — {year}</h3>
