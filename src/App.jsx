@@ -828,6 +828,7 @@ function Prov({ children }) {
   useEffect(() => { ExRate.fetchUsdIls().then(r => setLiveRate(r)); }, []);
 
   const load = useCallback(async () => {
+    console.log("[DEBUG] load() called — starting data fetch from Firebase");
     setLoading(true); setError(null); setLoadStep("טוען נתונים...");
     try {
       setLoadStep("טוען הכנסות מ-Firebase...");
@@ -858,8 +859,10 @@ function Prov({ children }) {
       } catch (e) { console.error("Error fetching agencySettings:", e); }
       try { const u = await UserSvc.fetchAll(); setSheetUsers(u); } catch (e) { console.error("Error fetching users:", e); }
       setConnected(true);
+      console.log("[DEBUG] load() completed successfully — connected=true");
       setTimeout(() => setLoadStep(""), 3000);
     } catch (e) {
+      console.error("[DEBUG] load() FAILED:", e.message, e);
       setError(e.message);
       setLoadStep("");
     }
@@ -867,22 +870,26 @@ function Prov({ children }) {
   }, [year]);
 
   useEffect(() => {
+    console.log("[DEBUG] load useEffect triggered — demo:", demo, "VITE_USE_AUTH:", import.meta.env.VITE_USE_AUTH, "AGENCY_USER:", !!localStorage.getItem("AGENCY_USER"));
     if (demo) loadDemo();
     else if (!import.meta.env.VITE_USE_AUTH || localStorage.getItem("AGENCY_USER")) {
       load();
+    } else {
+      console.log("[DEBUG] load() NOT called — auth required but no user");
     }
   }, [demo, load]);
 
   useEffect(() => {
     // Load local DBs automatically
+    console.log("[DEBUG] secondary useEffect — loading local DBs & shifts");
     ModelSvc.fetchAll().then(setModels);
     HistorySvc.fetchAll().then(setHistory);
     GenParamsSvc.fetch().then(setGenParams);
     loadRatesFromFirebase().then(() => setRv(v => v + 1));
-    fetchFixedExpenses().then(setFixedExps).catch(() => {});
-    fetchEmployees().then(setEmployees).catch(() => {});
-    fetchShiftSlots().then(setShiftSlots).catch(() => {});
-    fetchShifts().then(setShifts).catch(() => {});
+    fetchFixedExpenses().then(setFixedExps).catch(e => console.error("[DEBUG] fixedExps error:", e));
+    fetchEmployees().then(setEmployees).catch(e => console.error("[DEBUG] employees error:", e));
+    fetchShiftSlots().then(ss => { console.log("[DEBUG] shiftSlots loaded:", ss.length); setShiftSlots(ss); }).catch(e => console.error("[DEBUG] shiftSlots error:", e));
+    fetchShifts().then(s => { console.log("[DEBUG] shifts loaded:", s.length); setShifts(s); }).catch(e => console.error("[DEBUG] shifts error:", e));
   }, []);
 
   const loadDemo = useCallback(() => {
