@@ -1449,7 +1449,7 @@ function DashPage() {
   const empGrossMonthly = employees.reduce((s, e) => s + e.grossAmount, 0);
   const empNIMonthly = employees.reduce((s, e) => s + e.nationalInsurance, 0);
   const empMonthly = empGrossMonthly + empNIMonthly;
-  const burnRate = fixedMonthly + empMonthly;
+  const burnRate = mp.exp + empMonthly;
   const agencyIncome = mp.inc - totalClientSalary;
   const lmCurr = view === "monthly" ? (lmVals[year]?.[month] || 0) : 0;
   const vatBase = agencyIncome - lmCurr;
@@ -1678,7 +1678,7 @@ function DashPage() {
         <Stat icon="👑" title="זכאות לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
         <Stat icon="💬" title="שכר צ'אטרים" value={fmtC(totalChatterSalary)} color={C.ylw} />
         <Stat icon="📥" title="צפי הכנסה שלי" value={fmtC(agencyIncome)} color={agencyIncome >= 0 ? C.grn : C.red} sub="אחרי זכאות לקוחות" />
-        {(() => { const onNow = shifts.filter(s => s.clockIn && !s.clockOut && s.status === "approved"); return onNow.length > 0 ? <Stat icon="🟢" title="כרגע במשמרת" value={onNow.length} color={C.grn} sub={onNow.map(s => s.chatterName).join(", ")} /> : null; })()}
+        {(() => { const today = new Date().toISOString().slice(0,10); const onNow = shifts.filter(s => s.date === today && s.clockIn && !s.clockOut && s.status === "approved"); return onNow.length > 0 ? <Stat icon="🟢" title="כרגע במשמרת" value={onNow.length} color={C.grn} sub={onNow.map(s => s.chatterName).join(", ")} /> : null; })()}
       </div>
 
       {/* Row 2: Expenses → gross profit */}
@@ -4408,6 +4408,7 @@ function ChatterPortal({ hideHeader } = {}) {
   }, [income]);
 
   const save = async () => {
+    if (!activeShift) { setErr("אנא הזן כניסה למשמרת לפני הזנת מכירה"); return; }
     if (!form.modelName || (!form.amountILS && !form.amountUSD) || !form.buyerId?.trim() || !form.buyerName?.trim()) { setErr("נא למלא לקוחה, סכום, מזהה קונה ושם קונה"); return; }
     setSaving(true); setErr("");
 
@@ -5851,14 +5852,28 @@ function ShiftsPage() {
 
   const DAY_SHORT = ["ר׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
 
-  const monthDays = useMemo(() => {
+  const [weekStart, setWeekStart] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - d.getDay());
+    return d.toISOString().slice(0, 10);
+  });
+
+  const weekDays = useMemo(() => {
     const days = [];
-    const d = new Date(viewYear, viewMonth, 1);
-    while (d.getMonth() === viewMonth) {
-      days.push(d.toISOString().slice(0, 10));
-      d.setDate(d.getDate() + 1);
-    }
+    const d = new Date(weekStart + "T00:00:00");
+    for (let i = 0; i < 7; i++) { days.push(d.toISOString().slice(0, 10)); d.setDate(d.getDate() + 1); }
     return days;
+  }, [weekStart]);
+
+  const navWeek = (dir) => {
+    const d = new Date(weekStart + "T00:00:00");
+    d.setDate(d.getDate() + dir * 7);
+    setWeekStart(d.toISOString().slice(0, 10));
+  };
+
+  useEffect(() => {
+    const first = new Date(viewYear, viewMonth, 1);
+    first.setDate(first.getDate() - first.getDay());
+    setWeekStart(first.toISOString().slice(0, 10));
   }, [viewYear, viewMonth]);
 
   // Get list of shift manager names for filtering
@@ -6062,10 +6077,9 @@ function ShiftsPage() {
       </div>)}
     </Card>}
 
-    {/* Monthly Calendar */}
+    {/* Weekly Calendar */}
     <Card>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
-        <Btn size="sm" onClick={() => navMonth(-1)}>→ חודש קודם</Btn>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <select value={viewMonth} onChange={e => setViewMonth(+e.target.value)} style={{ padding: "4px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }}>
             {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
@@ -6074,7 +6088,11 @@ function ShiftsPage() {
             {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
-        <Btn size="sm" onClick={() => navMonth(1)}>חודש הבא ←</Btn>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Btn size="sm" onClick={() => navWeek(-1)}>→ שבוע קודם</Btn>
+          <span style={{ color: C.dim, fontSize: 12, whiteSpace: "nowrap" }}>{weekDays[0].slice(5)} — {weekDays[6].slice(5)}</span>
+          <Btn size="sm" onClick={() => navWeek(1)}>שבוע הבא ←</Btn>
+        </div>
       </div>
 
       <div style={{ overflowX: "auto" }}>
@@ -6082,12 +6100,12 @@ function ShiftsPage() {
           <thead>
             <tr>
               <th style={{ padding: "6px 8px", color: C.dim, textAlign: "right", borderBottom: `2px solid ${C.bdr}`, minWidth: 80, position: "sticky", right: 0, background: C.card, zIndex: 1 }}>משמרת</th>
-              {monthDays.map(d => {
-                const dayIdx = new Date(d).getDay();
+              {weekDays.map(d => {
+                const dayIdx = new Date(d + "T00:00:00").getDay();
                 const isToday = d === new Date().toISOString().slice(0, 10);
-                return <th key={d} style={{ padding: "4px 2px", color: isToday ? C.pri : C.dim, textAlign: "center", borderBottom: `2px solid ${C.bdr}`, minWidth: 62, borderRight: dayIdx === 0 ? `2px solid ${C.bdr}` : undefined }}>
+                return <th key={d} style={{ padding: "4px 6px", color: isToday ? C.pri : C.dim, textAlign: "center", borderBottom: `2px solid ${C.bdr}`, minWidth: 90 }}>
                   <span style={{ fontSize: 10, display: "block" }}>{DAY_SHORT[dayIdx]}</span>
-                  <span style={{ fontSize: 13, fontWeight: isToday ? 700 : 400 }}>{d.slice(8)}</span>
+                  <span style={{ fontSize: 13, fontWeight: isToday ? 700 : 400 }}>{d.slice(8)}/{d.slice(5, 7)}</span>
                 </th>;
               })}
             </tr>
@@ -6097,7 +6115,7 @@ function ShiftsPage() {
               <td style={{ padding: "6px 8px", color: C.pri, fontWeight: 600, borderBottom: `1px solid ${C.bdr}`, whiteSpace: "nowrap", position: "sticky", right: 0, background: C.card, zIndex: 1 }}>
                 {slot.label}<br /><span style={{ fontSize: 10, color: C.dim }}>{slot.start}-{slot.end}</span>
               </td>
-              {monthDays.map(day => {
+              {weekDays.map(day => {
                 const key = `${day}_${slot.id}`;
                 const cellShifts = shiftsByKey[key] || [];
                 const approved = cellShifts.filter(s => s.status === "approved");
