@@ -19,7 +19,8 @@ import {
   fetchShifts, addShift, updateShift, removeShift,
   fetchModels as fbFetchModels, addModel as fbAddModel, updateModel as fbUpdateModel, removeModel as fbRemoveModel,
   fetchHistory as fbFetchHistory, addHistory as fbAddHistory,
-  fetchGenParams as fbFetchGenParams, saveGenParams as fbSaveGenParams
+  fetchGenParams as fbFetchGenParams, saveGenParams as fbSaveGenParams,
+  fetchAssets, addAssetRecord, updateAssetRecord, removeAssetRecord
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -146,9 +147,9 @@ function applyCommission(r, rate) {
 }
 
 const EXPENSE_CATEGORIES = [
-  "עלות רו״ח", "חיובי בנק", "Directors Pay", "Financing Costs", "ביטוח", "אחר", "שכירות",
+  "עלות רו״ח", "חיובי בנק", "Directors Pay", "Financing Costs", "ביטוח", "ביטוח לאומי", "אחר", "שכירות",
   "חשמל", "מים", "ארנונה", "עלויות אתר", "שיווק", "הוצאות משרד", "תוכנות", "תשלומים כוח אדם",
-  "דלק והוצאות רכב", "הזמנות אינטרנט", "ביגוד"
+  "דלק והוצאות רכב", "הזמנות אינטרנט", "ביגוד", "קיזוז לקוח", "קיזוז צ'אטר"
 ];
 const MONTHS_HE = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
 const MONTHS_SHORT = ["ינו", "פבר", "מרץ", "אפר", "מאי", "יונ", "יול", "אוג", "ספט", "אוק", "נוב", "דצמ"];
@@ -857,6 +858,7 @@ function Prov({ children }) {
         if (ag.customCats?.length) setCustomCats(ag.customCats);
       } catch (e) { console.error("Error fetching agencySettings:", e); }
       try { const u = await UserSvc.fetchAll(); setSheetUsers(u); } catch (e) { console.error("Error fetching users:", e); }
+      try { const a = await fetchAssets(); setAssets(a); } catch (e) { console.error("Error fetching assets:", e); }
       setConnected(true);
       setTimeout(() => setLoadStep(""), 3000);
     } catch (e) {
@@ -995,6 +997,7 @@ function Prov({ children }) {
   const [shiftSlots, setShiftSlots] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [agSettings, setAgSettings] = useState({});
+  const [assets, setAssets] = useState([]);
 
   const [customCats, setCustomCats] = useState([...EXPENSE_CATEGORIES]);
   const _syncCatsToFB = (cats) => { saveAgencySettings({ customCats: cats }).catch(() => {}); };
@@ -1025,7 +1028,10 @@ function Prov({ children }) {
       setClientSettings(prev => ({ ...prev, [name]: { ...(prev[name] || {}), ...settings } }));
       await saveClientSettings(name, settings);
     },
-    shiftSlots, shifts, agSettings,
+    shiftSlots, shifts, agSettings, setAgSettings, assets, setAssets,
+    addAssetCtx: async (data) => { const saved = await addAssetRecord(data); setAssets(prev => [...prev, saved]); return saved; },
+    updateAssetCtx: async (id, updates) => { await updateAssetRecord(id, updates); setAssets(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a)); },
+    removeAssetCtx: async (id) => { await removeAssetRecord(id); setAssets(prev => prev.filter(a => a.id !== id)); },
     addShiftSlot: async (slot) => {
       const saved = await saveShiftSlot(slot);
       setShiftSlots(prev => [...prev.filter(s => s.id !== saved.id), saved]);
@@ -1205,6 +1211,7 @@ const NAV = [
   { key: "clients", label: "לקוחות", icon: "👩" },
   { key: "targets", label: "יעדים", icon: "🎯" },
   { key: "record", label: "תיעוד הוצאות", icon: "📱" },
+  { key: "assets", label: "נכסים וציוד", icon: "🏗️" },
   { key: "users", label: "ניהול משתמשים", icon: "⚙️" },
   { key: "generator", label: "מחולל תכנים", icon: "✨" }
 ];
@@ -1458,7 +1465,7 @@ function DashPage() {
   const recognizedExp = mp.exp - nonDeductible;
   const grossProfit = agencyIncome - recognizedExp - totalChatterSalary;
   const niTotal = empNIMonthly + manualNI;
-  const taxableIncome = (agencyIncome - vat) - mp.exp - fixedMonthly - niTotal + nonDeductible - lmCurr;
+  const taxableIncome = (agencyIncome - vat) - mp.exp - niTotal + nonDeductible - lmCurr;
   const incomeTax = taxableIncome > 0
     ? (bizType === "חברה"
         ? taxableIncome * 0.23
@@ -4230,7 +4237,7 @@ ${overridesText || "אין"}
 // CHATTER PORTAL
 // ═══════════════════════════════════════════════════════
 function ChatterPortal({ hideHeader } = {}) {
-  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets, sheetUsers, chatterSettings, shiftSlots, shifts, addShiftCtx, updateShiftCtx } = useApp();
+  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets, sheetUsers, chatterSettings, shiftSlots, shifts, addShiftCtx, updateShiftCtx, agSettings } = useApp();
   const { iM, iY } = useFD();
   const w = useWin();
   const chatterName = user?.name || "";
@@ -4247,8 +4254,12 @@ function ChatterPortal({ hideHeader } = {}) {
   // Shift request state
   const [shiftReqDate, setShiftReqDate] = useState(new Date().toISOString().slice(0, 10));
   const [shiftReqSlot, setShiftReqSlot] = useState("");
+  const [shiftReqPlatform, setShiftReqPlatform] = useState("");
+  const [shiftReqClients, setShiftReqClients] = useState([]);
   const [shiftSaving, setShiftSaving] = useState(false);
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
+  const shiftPlatforms = agSettings.shiftPlatforms || ["אונלי", "טלגרם", "אונלי וטלגרם"];
+  const registeredClients = useMemo(() => (sheetUsers || []).filter(u => u.role === "client").map(u => u.name).sort(), [sheetUsers]);
   const myShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "approved").sort((a, b) => a.date > b.date ? 1 : -1), [shifts, chatterName]);
   const myPendingShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "pending"), [shifts, chatterName]);
 
@@ -4289,10 +4300,10 @@ function ChatterPortal({ hideHeader } = {}) {
     setShiftSaving(true);
     const slot = sortedSlots.find(s => s.id === shiftReqSlot);
     if (!slot) { setShiftSaving(false); return; }
-    const data = { date: shiftReqDate, slotId: slot.id, slotLabel: slot.label, slotStart: slot.start, slotEnd: slot.end, chatterName, status: "pending", source: "request" };
+    const data = { date: shiftReqDate, slotId: slot.id, slotLabel: slot.label, slotStart: slot.start, slotEnd: slot.end, chatterName, status: "pending", source: "request", platform: shiftReqPlatform, clients: shiftReqClients };
     const saved = await addShiftCtx(data);
     TelegramSvc.notifyShiftRequested(saved);
-    setShiftSaving(false); setShiftReqSlot("");
+    setShiftSaving(false); setShiftReqSlot(""); setShiftReqPlatform(""); setShiftReqClients([]);
   };
 
   const [editTx, setEditTx] = useState(null);
@@ -4738,14 +4749,26 @@ function ChatterPortal({ hideHeader } = {}) {
         </div>)}
 
         {/* Request shift form */}
-        {sortedSlots.length > 0 && <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        {sortedSlots.length > 0 && <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
           <span style={{ color: C.dim, fontSize: 12 }}>בקש משמרת:</span>
-          <input type="date" value={shiftReqDate} onChange={e => setShiftReqDate(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }} />
-          <select value={shiftReqSlot} onChange={e => setShiftReqSlot(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }}>
-            <option value="">בחר משמרת...</option>
-            {sortedSlots.map(s => <option key={s.id} value={s.id}>{s.label} ({s.start}-{s.end})</option>)}
-          </select>
-          <Btn size="sm" variant="success" onClick={requestShift} disabled={shiftSaving || !shiftReqSlot}>{shiftSaving ? "⏳" : "שלח בקשה"}</Btn>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+            <input type="date" value={shiftReqDate} onChange={e => setShiftReqDate(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }} />
+            <select value={shiftReqSlot} onChange={e => setShiftReqSlot(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }}>
+              <option value="">בחר משמרת...</option>
+              {sortedSlots.map(s => <option key={s.id} value={s.id}>{s.label} ({s.start}-{s.end})</option>)}
+            </select>
+            <select value={shiftReqPlatform} onChange={e => setShiftReqPlatform(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }}>
+              <option value="">בחר פלטפורמה...</option>
+              {shiftPlatforms.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+            <span style={{ color: C.dim, fontSize: 11 }}>לקוחות:</span>
+            {registeredClients.map(c => <button key={c} onClick={() => setShiftReqClients(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, border: `1px solid ${shiftReqClients.includes(c) ? C.pri : C.bdr}`, background: shiftReqClients.includes(c) ? `${C.pri}22` : C.card, color: shiftReqClients.includes(c) ? C.pri : C.dim, cursor: "pointer" }}>{c}</button>)}
+          </div>
+          <div>
+            <Btn size="sm" variant="success" onClick={requestShift} disabled={shiftSaving || !shiftReqSlot}>{shiftSaving ? "⏳" : "שלח בקשה"}</Btn>
+          </div>
         </div>}
       </Card>
 
@@ -4919,14 +4942,19 @@ function ShiftManagerPortal() {
 function isVerified(v) { return v === "V" || v === "מאומת"; }
 
 function ApprovalsPage() {
-  const { income, setIncome, demo, liveRate } = useApp();
+  const { income, setIncome, demo, liveRate, sheetUsers } = useApp();
   const [approving, setApproving] = useState(null);
   const [approveError, setApproveError] = useState(null);
   const [page, setPage] = useState(0);
   const [noteView, setNoteView] = useState(null);
   const [noteEdit, setNoteEdit] = useState(null); // { row, text }
   const [savingNote, setSavingNote] = useState(false);
+  const [editRow, setEditRow] = useState(null); // full edit modal
+  const [editForm, setEditForm] = useState({});
   const PAGE_SIZE = 50;
+
+  const registeredChatters = useMemo(() => (sheetUsers || []).filter(u => u.role === "chatter").map(u => u.name).sort(), [sheetUsers]);
+  const registeredClients = useMemo(() => (sheetUsers || []).filter(u => u.role === "client").map(u => u.name).sort(), [sheetUsers]);
 
   const pendingAll = useMemo(() =>
     income.filter(r => !isVerified(r.verified) && r.chatterName).sort((a, b) => {
@@ -4963,6 +4991,27 @@ function ApprovalsPage() {
       setApproveError(`שגיאה באישור: ${e?.code || e?.message || String(e)}`);
     }
     setApproving(null);
+  };
+
+  const openEditRow = (r) => {
+    setEditRow(r);
+    setEditForm({
+      chatterName: r.chatterName || "", modelName: r.modelName || "", platform: r.platform || "",
+      amountILS: r.amountILS || "", amountUSD: r.amountUSD || "", shiftLocation: r.shiftLocation || "משרד",
+      buyerName: r.buyerName || "", buyerId: r.buyerId || "", incomeType: r.incomeType || "", notes: r.notes || "",
+      date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : "", hour: r.hour || ""
+    });
+  };
+  const saveEditRow = async () => {
+    if (!editRow) return;
+    const updates = { ...editForm, amountILS: +editForm.amountILS || 0, amountUSD: +editForm.amountUSD || 0 };
+    if (editForm.date) updates.date = new Date(editForm.date);
+    try {
+      if (editRow._fromPending) await updatePending(editRow.id, updates);
+      else await updateIncome(editRow.id, updates);
+      setIncome(prev => prev.map(r => r.id === editRow.id ? { ...r, ...updates } : r));
+      setEditRow(null);
+    } catch (e) { alert("שגיאה: " + e.message); }
   };
 
   const reject = async (row) => {
@@ -5074,6 +5123,7 @@ function ApprovalsPage() {
         {
           label: "פעולות", render: r => (
             <div style={{ display: "flex", gap: 6 }}>
+              <Btn size="sm" variant="outline" onClick={() => openEditRow(r)}>✏️</Btn>
               <Btn size="sm" variant="success" onClick={() => approve(r)} disabled={approving === r.id}>
                 {approving === r.id ? "⏳" : "✅ אשר"}
               </Btn>
@@ -5103,6 +5153,33 @@ function ApprovalsPage() {
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <Btn variant="ghost" onClick={() => setNoteEdit(null)}>ביטול</Btn>
           <Btn variant="primary" onClick={saveNote} disabled={savingNote}>{savingNote ? "⏳ שומר..." : "💾 שמור"}</Btn>
+        </div>
+      </div>
+    </Modal>}
+    {editRow && <Modal open={true} onClose={() => setEditRow(null)} title={`✏️ עריכת עסקה — ${editRow.chatterName}`} width={500}>
+      <div style={{ direction: "rtl", display: "flex", flexDirection: "column", gap: 10 }}>
+        {[
+          { label: "צ'אטר", key: "chatterName", type: "select", options: registeredChatters },
+          { label: "לקוחה", key: "modelName", type: "select", options: registeredClients },
+          { label: "פלטפורמה", key: "platform", type: "select", options: ["", "טלגרם", "אונלי", "Fansly", "Instagram"] },
+          { label: "סכום ₪", key: "amountILS", type: "number" },
+          { label: "סכום $", key: "amountUSD", type: "number" },
+          { label: "מיקום", key: "shiftLocation", type: "select", options: ["משרד", "חוץ"] },
+          { label: "ID קונה", key: "buyerId" },
+          { label: "שם קונה", key: "buyerName" },
+          { label: "סוג הכנסה", key: "incomeType" },
+          { label: "תאריך", key: "date", type: "date" },
+          { label: "שעה", key: "hour", type: "time" },
+          { label: "הערות", key: "notes" },
+        ].map(({ label, key, type, options }) => <div key={key}>
+          <label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>{label}</label>
+          {type === "select" ? <select value={editForm[key]} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" }}>
+            {options.map(o => <option key={o} value={o}>{o || "—"}</option>)}
+          </select> : <input type={type || "text"} value={editForm[key]} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" }} />}
+        </div>)}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+          <Btn variant="ghost" onClick={() => setEditRow(null)}>ביטול</Btn>
+          <Btn variant="primary" onClick={saveEditRow}>💾 שמור</Btn>
         </div>
       </div>
     </Modal>}
@@ -5449,7 +5526,7 @@ function UserManagementPage() {
 // PAGE: DEBTS REPORT (דוח חובות)
 // ═══════════════════════════════════════════════════════
 function DebtsPage() {
-  const { models, income, settlements, month, year, setMonth, addSettlement, chatterSettings, clientSettings } = useApp();
+  const { models, income, settlements, month, year, setMonth, addSettlement, chatterSettings, clientSettings, expenses, setExpenses } = useApp();
   const [debtsView, setDebtsView] = useState("monthly");
   const [modalClient, setModalClient] = useState(null);
   const [form, setForm] = useState({ amount: "", direction: "AgencyToClient", notes: "" });
@@ -5569,6 +5646,46 @@ function DebtsPage() {
     }).filter(r => r.totalSales > 0 || Math.abs(r.balance) > 0).sort((a, b) => b.totalSales - a.totalSales);
   }, [yearIncome, chatterSettings, settlements, year]);
 
+  // Cumulative (year-to-date) debts per client
+  const cumulativeClientDebts = useMemo(() => {
+    const result = {};
+    allClientNames.forEach(cn => {
+      let cum = 0;
+      for (let mi = 0; mi <= month; mi++) {
+        const mInc = income.filter(r => new Date(r.date || 0).getMonth() === mi && new Date(r.date || 0).getFullYear() === year);
+        const mSets = settlements.filter(s => { const d = new Date(s.timestamp || s.date || Date.now()); return d.getMonth() === mi && d.getFullYear() === year; });
+        const pct = getRate(cn, ym(year, mi));
+        const bal = Calc.clientBal(mInc, cn, pct, mSets, chatterSettings);
+        cum += bal.actualDue;
+      }
+      result[cn] = cum;
+    });
+    return result;
+  }, [allClientNames, income, settlements, year, month, chatterSettings]);
+
+  // Cumulative (year-to-date) debts per chatter
+  const cumulativeChatterDebts = useMemo(() => {
+    const names = [...new Set(income.map(r => r.chatterName).filter(Boolean))];
+    const result = {};
+    names.forEach(name => {
+      let cum = 0;
+      for (let mi = 0; mi <= month; mi++) {
+        const mRows = income.filter(r => r.chatterName === name && new Date(r.date || 0).getMonth() === mi && new Date(r.date || 0).getFullYear() === year);
+        const cfg = (chatterSettings || {})[name] || {};
+        const sal = Calc.chatterSalary(mRows, cfg, ym(year, mi));
+        const pd = mRows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+        let ns = 0;
+        settlements.filter(s => s.entityType === "chatter" && s.modelName === name && (() => { const d = new Date(s.timestamp || s.date || Date.now()); return d.getMonth() === mi && d.getFullYear() === year; })()).forEach(s => {
+          if (s.direction === "AgencyToChatter") ns += s.amount;
+          if (s.direction === "ChatterToAgency") ns -= s.amount;
+        });
+        cum += sal.total - pd - ns;
+      }
+      result[name] = cum;
+    });
+    return result;
+  }, [income, settlements, year, month, chatterSettings]);
+
   const totalDue = debtRows.reduce((acc, r) => acc + r.actualDue, 0);
   const annualTotalDue = yearlyMonthRows.reduce((acc, r) => acc + r.totalDue, 0);
   const annualTotalSettled = yearlyMonthRows.reduce((acc, r) => acc + r.totalSettled, 0);
@@ -5586,6 +5703,10 @@ function DebtsPage() {
         date: new Date().toISOString()
       };
       await addSettlement(settlementData);
+      // Auto-create expense record for the settlement
+      const expRecord = { category: "קיזוז לקוח", name: `קיזוז — ${modalClient.name}`, amount: Number(form.amount), date: new Date(), notes: form.notes || "", taxRecognized: true, vatRecognized: false, source: "auto-settlement" };
+      const savedExp = await addExpense(expRecord);
+      setExpenses(prev => [...prev, { id: savedExp.id || savedExp, ...expRecord }]);
       setModalClient(null);
     } catch (e) {
       alert("שגיאה במערכת: " + e.message);
@@ -5606,6 +5727,10 @@ function DebtsPage() {
         date: new Date().toISOString()
       };
       await addSettlement(chatterSettlementData);
+      // Auto-create expense record for the settlement
+      const expRecord = { category: "קיזוז צ'אטר", name: `קיזוז — ${modalChatter.name}`, amount: Number(chatterForm.amount), date: new Date(), notes: chatterForm.notes || "", taxRecognized: true, vatRecognized: false, source: "auto-settlement" };
+      const savedExp = await addExpense(expRecord);
+      setExpenses(prev => [...prev, { id: savedExp.id || savedExp, ...expRecord }]);
       setModalChatter(null);
     } catch (e) {
       alert("שגיאה במערכת: " + e.message);
@@ -5663,6 +5788,14 @@ function DebtsPage() {
               }
             },
             {
+              label: 'חוב מצטבר',
+              render: r => {
+                const cum = cumulativeClientDebts[r.name] || 0;
+                const col = Math.abs(cum) < 1 ? C.mut : cum > 0 ? C.red : C.grn;
+                return <span style={{ color: col, fontWeight: 700 }}>{Math.abs(cum) < 1 ? "מאוזן" : fmtC(Math.abs(cum))}</span>;
+              }
+            },
+            {
               label: 'פעולות',
               render: r => <Btn size="sm" variant="outline" onClick={() => { setModalClient(r); setForm({ amount: Math.abs(r.actualDue), direction: r.actualDue > 0 ? "AgencyToClient" : "ClientToAgency", notes: "" }) }}>
                 ⚖️ בצע קיזוז
@@ -5696,6 +5829,14 @@ function DebtsPage() {
             }
             return <div style={{ color: col, fontWeight: 700 }}><div>{fmtC(r.finalBalance)}</div><div style={{ fontSize: 10 }}>{txt}</div></div>;
           }},
+          {
+            label: "חוב מצטבר",
+            render: r => {
+              const cum = cumulativeChatterDebts[r.name] || 0;
+              const col = Math.abs(cum) < 1 ? C.mut : cum > 0 ? C.red : C.grn;
+              return <span style={{ color: col, fontWeight: 700 }}>{Math.abs(cum) < 1 ? "מאוזן" : fmtC(Math.abs(cum))}</span>;
+            }
+          },
           {
             label: "פעולות",
             render: r => <Btn size="sm" variant="outline" onClick={() => { setModalChatter(r); setChatterForm({ amount: Math.abs(r.balance), direction: r.balance > 0 ? "AgencyToChatter" : "ChatterToAgency", notes: "" }); }}>
@@ -5834,12 +5975,14 @@ function DebtsPage() {
 // PAGE: SHIFTS (משמרות)
 // ═══════════════════════════════════════════════════════
 function ShiftsPage() {
-  const { shiftSlots, shifts, addShiftSlot, removeShiftSlotCtx, addShiftCtx, updateShiftCtx, removeShiftCtx, income, sheetUsers, user, chatterSettings, saveChatterSetting } = useApp();
+  const { shiftSlots, shifts, addShiftSlot, removeShiftSlotCtx, addShiftCtx, updateShiftCtx, removeShiftCtx, income, sheetUsers, user, chatterSettings, saveChatterSetting, agSettings, setAgSettings } = useApp();
   const w = useWin();
   const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
   const [viewMonth, setViewMonth] = useState(() => new Date().getMonth()); // 0-indexed
   const [slotForm, setSlotForm] = useState({ label: "", start: "", end: "" });
   const [showSlotMgr, setShowSlotMgr] = useState(false);
+  const [newPlatform, setNewPlatform] = useState("");
+  const shiftPlatforms = agSettings.shiftPlatforms || ["אונלי", "טלגרם", "אונלי וטלגרם"];
   const [assignSlot, setAssignSlot] = useState(null); // { date, slotId }
   const [assignChatter, setAssignChatter] = useState("");
   const [assignClients, setAssignClients] = useState([]);
@@ -5959,14 +6102,20 @@ function ShiftsPage() {
     if (!assignSlot || !assignChatter) return;
     const slot = sortedSlots.find(s => s.id === assignSlot.slotId);
     if (!slot) return;
-    const data = {
-      date: assignSlot.date, slotId: slot.id, slotLabel: slot.label,
-      slotStart: slot.start, slotEnd: slot.end,
-      chatterName: assignChatter, clients: assignClients, status: "approved", source: "manual",
-      approvedBy: "admin", approvedAt: new Date().toISOString()
-    };
-    const saved = await addShiftCtx(data);
-    TelegramSvc.notifyShiftApproved(saved);
+    if (assignSlot.editingShiftId) {
+      // Editing an existing pending shift
+      const updates = { date: assignSlot.date, slotId: slot.id, slotLabel: slot.label, slotStart: slot.start, slotEnd: slot.end, chatterName: assignChatter, clients: assignClients };
+      await updateShiftCtx(assignSlot.editingShiftId, updates);
+    } else {
+      const data = {
+        date: assignSlot.date, slotId: slot.id, slotLabel: slot.label,
+        slotStart: slot.start, slotEnd: slot.end,
+        chatterName: assignChatter, clients: assignClients, status: "approved", source: "manual",
+        approvedBy: "admin", approvedAt: new Date().toISOString()
+      };
+      const saved = await addShiftCtx(data);
+      TelegramSvc.notifyShiftApproved(saved);
+    }
     setAssignSlot(null); setAssignChatter(""); setAssignClients([]);
   };
 
@@ -6067,11 +6216,37 @@ function ShiftsPage() {
       </div>)}
     </Card>}
 
+    {/* Platform Options Manager */}
+    {showSlotMgr && <Card style={{ marginBottom: 20 }}>
+      <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📱 ניהול פלטפורמות משמרת</h3>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+        <input value={newPlatform} onChange={e => setNewPlatform(e.target.value)} placeholder="שם פלטפורמה חדשה..." style={inputStyle} />
+        <Btn size="sm" variant="success" onClick={() => {
+          const n = newPlatform.trim();
+          if (!n || shiftPlatforms.includes(n)) return;
+          const updated = [...shiftPlatforms, n];
+          setAgSettings(prev => ({ ...prev, shiftPlatforms: updated }));
+          saveAgencySettings({ shiftPlatforms: updated }).catch(() => {});
+          setNewPlatform("");
+        }}>+ הוסף</Btn>
+      </div>
+      {shiftPlatforms.map(p => <div key={p} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
+        <span style={{ color: C.txt, fontSize: 14, flex: 1 }}>{p}</span>
+        <Btn size="sm" variant="danger" onClick={() => {
+          const updated = shiftPlatforms.filter(x => x !== p);
+          setAgSettings(prev => ({ ...prev, shiftPlatforms: updated }));
+          saveAgencySettings({ shiftPlatforms: updated }).catch(() => {});
+        }}>מחק</Btn>
+      </div>)}
+    </Card>}
+
     {/* Pending Requests */}
     {pendingShifts.length > 0 && <Card style={{ marginBottom: 20, borderColor: C.warn }}>
       <h3 style={{ color: "#fff", fontSize: 15, marginBottom: 12 }}>⏳ בקשות ממתינות ({pendingShifts.length})</h3>
-      {pendingShifts.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.bdr}` }}>
-        <span style={{ color: C.txt, fontSize: 14, flex: 1 }}>{s.chatterName} — {s.slotLabel} — {s.date}</span>
+      {pendingShifts.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.bdr}`, flexWrap: "wrap" }}>
+        <span style={{ color: C.txt, fontSize: 14, flex: 1 }}>{s.chatterName} — {s.slotLabel} — {s.date}{s.platform ? ` — ${s.platform}` : ""}</span>
+        {s.clients?.length > 0 && <span style={{ color: C.cyan, fontSize: 11 }}>לקוחות: {s.clients.join(", ")}</span>}
+        <Btn size="sm" variant="outline" onClick={() => { setAssignSlot({ date: s.date, slotId: s.slotId, editingShiftId: s.id }); setAssignChatter(s.chatterName); setAssignClients(s.clients || []); }}>✏️</Btn>
         <Btn size="sm" variant="success" onClick={() => approve(s)}>אשר</Btn>
         <Btn size="sm" variant="danger" onClick={() => reject(s)}>דחה</Btn>
       </div>)}
@@ -6131,6 +6306,7 @@ function ShiftsPage() {
                         <button onClick={e => { e.stopPropagation(); removeShiftCtx(s.id); }} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 10, padding: "0 2px" }}>✕</button>
                       </span>
                     </div>
+                    {s.platform && <div style={{ fontSize: 9, color: C.ylw, marginTop: 1 }}>{s.platform}</div>}
                     {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginTop: 1 }}>{s.clients.join(", ")}</div>}
                     {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>↑{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.clockOut ? ` ↓${new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}</div>}
                   </div>; })}
@@ -6255,6 +6431,100 @@ function ShiftsPage() {
 // ═══════════════════════════════════════════════════════
 // PAGE: BUYERS (קונים)
 // ═══════════════════════════════════════════════════════
+function AssetsPage() {
+  const { assets, addAssetCtx, updateAssetCtx, removeAssetCtx, demo } = useApp();
+  const [showForm, setShowForm] = useState(false);
+  const [editAsset, setEditAsset] = useState(null);
+  const [form, setForm] = useState({ name: "", category: "ציוד", purchaseDate: new Date().toISOString().slice(0, 10), cost: "", status: "פעיל", notes: "" });
+  const [saving, setSaving] = useState(false);
+  const [delConfirm, setDelConfirm] = useState(null);
+
+  const openAdd = () => { setForm({ name: "", category: "ציוד", purchaseDate: new Date().toISOString().slice(0, 10), cost: "", status: "פעיל", notes: "" }); setEditAsset(null); setShowForm(true); };
+  const openEdit = (a) => { setForm({ name: a.name || "", category: a.category || "ציוד", purchaseDate: (a.purchaseDate || "").slice?.(0, 10) || "", cost: a.cost || "", status: a.status || "פעיל", notes: a.notes || "" }); setEditAsset(a); setShowForm(true); };
+
+  const handleSave = async () => {
+    if (!form.name.trim() || !form.cost) return alert("נא למלא שם ומחיר");
+    setSaving(true);
+    try {
+      const data = { ...form, cost: +form.cost || 0 };
+      if (editAsset) await updateAssetCtx(editAsset.id, data);
+      else await addAssetCtx(data);
+      setShowForm(false);
+    } catch (e) { alert("שגיאה: " + e.message); }
+    setSaving(false);
+  };
+
+  const handleDelete = async (a) => {
+    try { await removeAssetCtx(a.id); setDelConfirm(null); } catch (e) { alert("שגיאה: " + e.message); }
+  };
+
+  const active = assets.filter(a => a.status === "פעיל");
+  const totalValue = active.reduce((s, a) => s + (+a.cost || 0), 0);
+
+  return <div style={{ direction: "rtl", maxWidth: 1000, margin: "0 auto" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
+      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>🏗️ נכסים וציוד</h2>
+      <Btn variant="primary" onClick={openAdd}>+ הוסף נכס/ציוד</Btn>
+    </div>
+
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+      <Stat icon="📦" title="סה״כ פריטים" value={assets.length} color={C.pri} />
+      <Stat icon="✅" title="פעילים" value={active.length} color={C.grn} />
+      <Stat icon="💰" title="שווי נכסים פעילים" value={fmtC(totalValue)} color={C.ylw} />
+    </div>
+
+    <Card style={{ padding: 0 }}>
+      <DT columns={[
+        { label: "שם", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
+        { label: "קטגוריה", render: r => <span style={{ color: r.category === "נכס" ? C.pri : C.cyan }}>{r.category}</span> },
+        { label: "תאריך רכישה", render: r => r.purchaseDate ? r.purchaseDate.slice(0, 10) : "—" },
+        { label: "עלות ₪", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(+r.cost || 0)}</span> },
+        { label: "סטטוס", render: r => <span style={{ color: r.status === "פעיל" ? C.grn : r.status === "נמכר" ? C.ylw : C.red }}>{r.status}</span> },
+        { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> },
+        { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}>
+          <Btn size="sm" variant="outline" onClick={() => openEdit(r)}>✏️</Btn>
+          <Btn size="sm" variant="danger" onClick={() => setDelConfirm(r)}>🗑️</Btn>
+        </div> }
+      ]} rows={assets} />
+    </Card>
+
+    {showForm && <Modal open={true} onClose={() => setShowForm(false)} title={editAsset ? "✏️ עריכת נכס/ציוד" : "➕ הוספת נכס/ציוד"} width={420}>
+      <div style={{ direction: "rtl", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>שם</label>
+          <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
+        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>קטגוריה</label>
+          <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" }}>
+            <option value="ציוד">ציוד</option><option value="נכס">נכס</option>
+          </select></div>
+        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>תאריך רכישה</label>
+          <input type="date" value={form.purchaseDate} onChange={e => setForm(f => ({ ...f, purchaseDate: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
+        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>עלות ₪</label>
+          <input type="number" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
+        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>סטטוס</label>
+          <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" }}>
+            <option value="פעיל">פעיל</option><option value="נמכר">נמכר</option><option value="הושלך">הושלך</option>
+          </select></div>
+        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>הערות</label>
+          <input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+          <Btn variant="ghost" onClick={() => setShowForm(false)}>ביטול</Btn>
+          <Btn variant="primary" onClick={handleSave} disabled={saving}>{saving ? "⏳" : "💾 שמור"}</Btn>
+        </div>
+      </div>
+    </Modal>}
+
+    {delConfirm && <Modal open={true} onClose={() => setDelConfirm(null)} title="🗑️ מחיקת נכס" width={360}>
+      <div style={{ direction: "rtl", textAlign: "center" }}>
+        <p style={{ color: C.txt, marginBottom: 16 }}>למחוק את <strong>{delConfirm.name}</strong>?</p>
+        <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+          <Btn variant="ghost" onClick={() => setDelConfirm(null)}>ביטול</Btn>
+          <Btn variant="danger" onClick={() => handleDelete(delConfirm)}>🗑️ מחק</Btn>
+        </div>
+      </div>
+    </Modal>}
+  </div>;
+}
+
 function BuyersPage() {
   const { income, year, month, setMonth, setYear } = useApp();
   const { iY, iM } = useFD();
@@ -6504,7 +6774,7 @@ function BuyersPage() {
 // ═══════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════
-const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterHub, clients: ClientHub, debts: DebtsPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage, approvals: ApprovalsPage, users: UserManagementPage, shifts: ShiftsPage, buyers: BuyersPage };
+const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterHub, clients: ClientHub, debts: DebtsPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage, approvals: ApprovalsPage, users: UserManagementPage, shifts: ShiftsPage, buyers: BuyersPage, assets: AssetsPage };
 function Content() {
   const { page, setPage, connected, user, load } = useApp();
   const w = useWin();
