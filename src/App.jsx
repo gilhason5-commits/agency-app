@@ -1453,10 +1453,13 @@ function DashPage() {
   // ─── New financial metrics ───────────────────────────────────────
   const toMonthly = (amount, period) => period === "monthly" ? amount : period === "quarterly" ? amount / 3 : amount / 12;
   const fixedMonthly = fixedExps.reduce((s, e) => s + toMonthly(e.amount, e.period), 0);
+  // Fixed expenses not yet recorded as actual expenses this period
+  const fixedAlreadyRecorded = activeE.filter(e => e.isFixed).reduce((s, e) => s + (e.amount || 0), 0);
+  const fixedGap = Math.max(0, fixedMonthly - fixedAlreadyRecorded);
   const empGrossMonthly = employees.reduce((s, e) => s + e.grossAmount, 0);
   const empNIMonthly = employees.reduce((s, e) => s + e.nationalInsurance, 0);
   const empMonthly = empGrossMonthly + empNIMonthly;
-  const burnRate = mp.exp + empMonthly;
+  const burnRate = mp.exp + empMonthly + fixedGap;
   const agencyIncome = mp.inc - totalClientSalary;
   const lmCurr = view === "monthly" ? (lmVals[year]?.[month] || 0) : 0;
   const vatBase = agencyIncome - lmCurr;
@@ -3637,8 +3640,8 @@ function RecordExpensePage({ editMode, onDone }) {
         setExpenses(prev => prev.map(x => x.id === editMode.id ? updated : x));
         if (form.isFixed) {
           const existing = fixedExps.find(f => f.linkedExpId === editMode.id);
-          if (existing) await updateFixedExp(existing.id, { name: form.name, amount: +form.amount, period: form.fixedPeriod });
-          else await addFixedExp({ linkedExpId: editMode.id, name: form.name, amount: +form.amount, period: form.fixedPeriod });
+          if (existing) await updateFixedExp(existing.id, { name: form.name, amount: +form.amount, period: form.fixedPeriod || "monthly" });
+          else await addFixedExp({ linkedExpId: editMode.id, name: form.name, amount: +form.amount, period: form.fixedPeriod || "monthly" });
         } else {
           const existing = fixedExps.find(f => f.linkedExpId === editMode.id);
           if (existing) await removeFixedExp(existing.id);
@@ -3648,7 +3651,7 @@ function RecordExpensePage({ editMode, onDone }) {
       if (!demo) await ExpSvc.add(exp);
       TelegramSvc.notifyExpenseAdded(exp);
       if (form.isFixed) {
-        await addFixedExp({ name: form.name, amount: +form.amount, period: form.fixedPeriod });
+        await addFixedExp({ name: form.name, amount: +form.amount, period: form.fixedPeriod || "monthly" });
       }
       setSaving(false);
       setMode(null);
