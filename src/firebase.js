@@ -671,3 +671,25 @@ export async function fetchGenParams() {
 export async function saveGenParams(params) {
     await setDoc(doc(db, "config", "genParams"), params, { merge: true });
 }
+
+// ═══════════════════════════════════════════════════════
+// ASSETS/EQUIPMENT API
+// ═══════════════════════════════════════════════════════
+export async function fetchAssets() {
+    const snap = await getDocs(collection(db, "assets"));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function addAssetRecord(record) {
+    const docRef = await addDoc(collection(db, "assets"), record);
+    return { id: docRef.id, ...record };
+}
+
+export async function updateAssetRecord(id, updates) {
+    await updateDoc(doc(db, "assets", id), updates);
+    return { id, ...updates };
+}
+
+export async function removeAssetRecord(id) {
+    await deleteDoc(doc(db, "assets", id));
+}
