@@ -146,7 +146,7 @@ function applyCommission(r, rate) {
 }
 
 const EXPENSE_CATEGORIES = [
-  "עלות רו״ח", "חיובי בנק", "Directors Pay", "Financing Costs", "ביטוח", "אחר", "שכירות",
+  "עלות רו״ח", "חיובי בנק", "Directors Pay", "Financing Costs", "ביטוח", "ביטוח לאומי", "אחר", "שכירות",
   "חשמל", "מים", "ארנונה", "עלויות אתר", "שיווק", "הוצאות משרד", "תוכנות", "תשלומים כוח אדם",
   "דלק והוצאות רכב", "הזמנות אינטרנט", "ביגוד"
 ];
@@ -1458,7 +1458,7 @@ function DashPage() {
   const recognizedExp = mp.exp - nonDeductible;
   const grossProfit = agencyIncome - recognizedExp - totalChatterSalary;
   const niTotal = empNIMonthly + manualNI;
-  const taxableIncome = (agencyIncome - vat) - mp.exp - fixedMonthly - niTotal + nonDeductible - lmCurr;
+  const taxableIncome = (agencyIncome - vat) - mp.exp - niTotal + nonDeductible - lmCurr;
   const incomeTax = taxableIncome > 0
     ? (bizType === "חברה"
         ? taxableIncome * 0.23
@@ -4919,14 +4919,19 @@ function ShiftManagerPortal() {
 function isVerified(v) { return v === "V" || v === "מאומת"; }
 
 function ApprovalsPage() {
-  const { income, setIncome, demo, liveRate } = useApp();
+  const { income, setIncome, demo, liveRate, sheetUsers } = useApp();
   const [approving, setApproving] = useState(null);
   const [approveError, setApproveError] = useState(null);
   const [page, setPage] = useState(0);
   const [noteView, setNoteView] = useState(null);
   const [noteEdit, setNoteEdit] = useState(null); // { row, text }
   const [savingNote, setSavingNote] = useState(false);
+  const [editRow, setEditRow] = useState(null); // full edit modal
+  const [editForm, setEditForm] = useState({});
   const PAGE_SIZE = 50;
+
+  const registeredChatters = useMemo(() => (sheetUsers || []).filter(u => u.role === "chatter").map(u => u.name).sort(), [sheetUsers]);
+  const registeredClients = useMemo(() => (sheetUsers || []).filter(u => u.role === "client").map(u => u.name).sort(), [sheetUsers]);
 
   const pendingAll = useMemo(() =>
     income.filter(r => !isVerified(r.verified) && r.chatterName).sort((a, b) => {
@@ -4963,6 +4968,27 @@ function ApprovalsPage() {
       setApproveError(`שגיאה באישור: ${e?.code || e?.message || String(e)}`);
     }
     setApproving(null);
+  };
+
+  const openEditRow = (r) => {
+    setEditRow(r);
+    setEditForm({
+      chatterName: r.chatterName || "", modelName: r.modelName || "", platform: r.platform || "",
+      amountILS: r.amountILS || "", amountUSD: r.amountUSD || "", shiftLocation: r.shiftLocation || "משרד",
+      buyerName: r.buyerName || "", buyerId: r.buyerId || "", incomeType: r.incomeType || "", notes: r.notes || "",
+      date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : "", hour: r.hour || ""
+    });
+  };
+  const saveEditRow = async () => {
+    if (!editRow) return;
+    const updates = { ...editForm, amountILS: +editForm.amountILS || 0, amountUSD: +editForm.amountUSD || 0 };
+    if (editForm.date) updates.date = new Date(editForm.date);
+    try {
+      if (editRow._fromPending) await updatePending(editRow.id, updates);
+      else await updateIncome(editRow.id, updates);
+      setIncome(prev => prev.map(r => r.id === editRow.id ? { ...r, ...updates } : r));
+      setEditRow(null);
+    } catch (e) { alert("שגיאה: " + e.message); }
   };
 
   const reject = async (row) => {
@@ -5074,6 +5100,7 @@ function ApprovalsPage() {
         {
           label: "פעולות", render: r => (
             <div style={{ display: "flex", gap: 6 }}>
+              <Btn size="sm" variant="outline" onClick={() => openEditRow(r)}>✏️</Btn>
               <Btn size="sm" variant="success" onClick={() => approve(r)} disabled={approving === r.id}>
                 {approving === r.id ? "⏳" : "✅ אשר"}
               </Btn>
@@ -5103,6 +5130,33 @@ function ApprovalsPage() {
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <Btn variant="ghost" onClick={() => setNoteEdit(null)}>ביטול</Btn>
           <Btn variant="primary" onClick={saveNote} disabled={savingNote}>{savingNote ? "⏳ שומר..." : "💾 שמור"}</Btn>
+        </div>
+      </div>
+    </Modal>}
+    {editRow && <Modal open={true} onClose={() => setEditRow(null)} title={`✏️ עריכת עסקה — ${editRow.chatterName}`} width={500}>
+      <div style={{ direction: "rtl", display: "flex", flexDirection: "column", gap: 10 }}>
+        {[
+          { label: "צ'אטר", key: "chatterName", type: "select", options: registeredChatters },
+          { label: "לקוחה", key: "modelName", type: "select", options: registeredClients },
+          { label: "פלטפורמה", key: "platform", type: "select", options: ["", "טלגרם", "אונלי", "Fansly", "Instagram"] },
+          { label: "סכום ₪", key: "amountILS", type: "number" },
+          { label: "סכום $", key: "amountUSD", type: "number" },
+          { label: "מיקום", key: "shiftLocation", type: "select", options: ["משרד", "חוץ"] },
+          { label: "ID קונה", key: "buyerId" },
+          { label: "שם קונה", key: "buyerName" },
+          { label: "סוג הכנסה", key: "incomeType" },
+          { label: "תאריך", key: "date", type: "date" },
+          { label: "שעה", key: "hour", type: "time" },
+          { label: "הערות", key: "notes" },
+        ].map(({ label, key, type, options }) => <div key={key}>
+          <label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>{label}</label>
+          {type === "select" ? <select value={editForm[key]} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" }}>
+            {options.map(o => <option key={o} value={o}>{o || "—"}</option>)}
+          </select> : <input type={type || "text"} value={editForm[key]} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" }} />}
+        </div>)}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+          <Btn variant="ghost" onClick={() => setEditRow(null)}>ביטול</Btn>
+          <Btn variant="primary" onClick={saveEditRow}>💾 שמור</Btn>
         </div>
       </div>
     </Modal>}
@@ -5959,14 +6013,20 @@ function ShiftsPage() {
     if (!assignSlot || !assignChatter) return;
     const slot = sortedSlots.find(s => s.id === assignSlot.slotId);
     if (!slot) return;
-    const data = {
-      date: assignSlot.date, slotId: slot.id, slotLabel: slot.label,
-      slotStart: slot.start, slotEnd: slot.end,
-      chatterName: assignChatter, clients: assignClients, status: "approved", source: "manual",
-      approvedBy: "admin", approvedAt: new Date().toISOString()
-    };
-    const saved = await addShiftCtx(data);
-    TelegramSvc.notifyShiftApproved(saved);
+    if (assignSlot.editingShiftId) {
+      // Editing an existing pending shift
+      const updates = { date: assignSlot.date, slotId: slot.id, slotLabel: slot.label, slotStart: slot.start, slotEnd: slot.end, chatterName: assignChatter, clients: assignClients };
+      await updateShiftCtx(assignSlot.editingShiftId, updates);
+    } else {
+      const data = {
+        date: assignSlot.date, slotId: slot.id, slotLabel: slot.label,
+        slotStart: slot.start, slotEnd: slot.end,
+        chatterName: assignChatter, clients: assignClients, status: "approved", source: "manual",
+        approvedBy: "admin", approvedAt: new Date().toISOString()
+      };
+      const saved = await addShiftCtx(data);
+      TelegramSvc.notifyShiftApproved(saved);
+    }
     setAssignSlot(null); setAssignChatter(""); setAssignClients([]);
   };
 
@@ -6072,6 +6132,7 @@ function ShiftsPage() {
       <h3 style={{ color: "#fff", fontSize: 15, marginBottom: 12 }}>⏳ בקשות ממתינות ({pendingShifts.length})</h3>
       {pendingShifts.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.bdr}` }}>
         <span style={{ color: C.txt, fontSize: 14, flex: 1 }}>{s.chatterName} — {s.slotLabel} — {s.date}</span>
+        <Btn size="sm" variant="outline" onClick={() => { setAssignSlot({ date: s.date, slotId: s.slotId, editingShiftId: s.id }); setAssignChatter(s.chatterName); setAssignClients(s.clients || []); }}>✏️</Btn>
         <Btn size="sm" variant="success" onClick={() => approve(s)}>אשר</Btn>
         <Btn size="sm" variant="danger" onClick={() => reject(s)}>דחה</Btn>
       </div>)}
