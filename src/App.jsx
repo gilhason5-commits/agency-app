@@ -5849,17 +5849,17 @@ function DebtsPage() {
           { label: "שולם ישירות", render: r => <span style={{ color: C.grn }}>{fmtC(r.paidDirect)}</span> },
           { label: "קוזז החודש", render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
           { label: "יתרה לתשלום", render: r => {
-            const col = Math.abs(r.balance) < 1 ? C.mut : r.balance > 0 ? C.red : C.grn;
-            const txt = Math.abs(r.balance) < 1 ? "מאוזן" : r.balance > 0 ? "אנחנו חייבים" : "הוא חייב לנו";
-            if (r.hasVat && Math.abs(r.balance) >= 1) {
-              return <div style={{ color: col, fontWeight: 700 }}>
-                <div style={{ fontSize: 11, color: C.dim }}>לפני מע״מ: {fmtC(Math.abs(r.balance))}</div>
-                <div style={{ fontSize: 11, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div>
-                <div style={{ fontSize: 14 }}>סה״כ: {fmtC(r.finalBalance)}</div>
-                <div style={{ fontSize: 10 }}>{txt} + מע״מ</div>
-              </div>;
-            }
-            return <div style={{ color: col, fontWeight: 700 }}><div>{fmtC(r.finalBalance)}</div><div style={{ fontSize: 10 }}>{txt}</div></div>;
+            const bg = r.finalBalance < 1 ? 'transparent' : (r.balance > 0 ? `${C.red}15` : `${C.grn}15`);
+            const col = r.finalBalance < 1 ? C.mut : (r.balance > 0 ? C.red : C.grn);
+            const txt = r.finalBalance < 1 ? 'מאוזן' : (r.balance > 0 ? 'אנחנו צריכים לשלם לו' : 'הוא צריך להעביר לנו');
+            return <div style={{ background: bg, color: col, padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 13 }}>
+              {r.hasVat && r.finalBalance >= 1 ? <>
+                <div style={{ fontSize: 10, color: C.dim }}>זכאות: {fmtC(Math.abs(r.balance))}</div>
+                <div style={{ fontSize: 10, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div>
+                <div style={{ fontSize: 16 }}>{fmtC(r.finalBalance)}</div>
+              </> : <div style={{ fontSize: 16 }}>{fmtC(r.finalBalance)}</div>}
+              <div style={{ fontSize: 9 }}>{txt}{r.hasVat && r.finalBalance >= 1 ? " (כולל מע״מ)" : ""}</div>
+            </div>;
           }},
           {
             label: "חוב מצטבר",
