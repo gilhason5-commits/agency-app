@@ -1749,7 +1749,7 @@ function DashPage() {
       <Card style={{ marginBottom: 12, background: `${C.red}08`, border: `1px solid ${C.red}30` }}>
         <div style={{ color: C.ylw, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>🧾 מסים ותשלומים חובה</div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <Stat icon="📋" title="מע״מ (18%)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatBase)}`} />
+          <Stat icon="📋" title="מע״מ (18/118)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatLiableIncome)}`} />
           <Stat icon="🏛️" title={`מס הכנסה${bizType === "חברה" ? " (23%)" : " (מדרגות)"}`} value={<span>{taxableIncome > 0 && <span style={{ display: "block", fontSize: 11, color: C.mut, fontWeight: 400, marginBottom: 2 }}>{effectiveTaxRate.toFixed(1)}% מהבסיס החייב</span>}{fmtC(incomeTax)}</span>} color={C.ylw} sub={`בסיס: ${fmtC(Math.max(0, taxableIncome))}`} />
           <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + ידני" : "ידני"} />
           <Stat icon="💸" title="סה״כ מסים" value={fmtC(vat + incomeTax + niTotal)} color={C.red} sub="מע״מ + מס + ב.ל" />
@@ -1793,7 +1793,7 @@ function DashPage() {
       <Card style={{ marginBottom: 12, background: `${C.red}08`, border: `1px solid ${C.red}30` }}>
         <div style={{ color: C.ylw, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>🧾 מסים ותשלומים חובה</div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <Stat icon="📋" title="מע״מ (18%)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatBase)}`} />
+          <Stat icon="📋" title="מע״מ (18/118)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatLiableIncome)}`} />
           <Stat icon="🏛️" title={`מס הכנסה${bizType === "חברה" ? " (23%)" : " (מדרגות)"}`} value={<span>{taxableIncome > 0 && <span style={{ display: "block", fontSize: 11, color: C.mut, fontWeight: 400, marginBottom: 2 }}>{effectiveTaxRate.toFixed(1)}% מהבסיס החייב</span>}{fmtC(incomeTax)}</span>} color={C.ylw} sub={`בסיס: ${fmtC(Math.max(0, taxableIncome))}`} />
           <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + ידני" : "ידני"} />
           <Stat icon="💸" title="סה״כ מסים" value={fmtC(vat + incomeTax + niTotal)} color={C.red} sub="מע״מ + מס + ב.ל" />
