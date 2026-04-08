@@ -1998,9 +1998,10 @@ function IncPage() {
   const usdInILS = totalUSD * liveRate;
   const grandTotal = data.reduce((s, r) => s + r.amountILS, 0);
   const ilsOnlyTotal = data.reduce((s, r) => s + ((r.amountUSD || 0) > 0 ? 0 : r.amountILS), 0);
-  const agencyTotal = data.filter(r => !r.cancelled && (!r.paymentTarget || r.paymentTarget === "agency")).reduce((s, r) => s + r.amountILS, 0);
-  const clientPayTotal = data.filter(r => !r.cancelled && r.paymentTarget === "client").reduce((s, r) => s + r.amountILS, 0);
-  const chatterPayTotal = data.filter(r => !r.cancelled && r.paymentTarget === "chatter").reduce((s, r) => s + r.amountILS, 0);
+  const getTarget = r => r.paymentTarget || (r.paidToClient ? "client" : "agency");
+  const agencyTotal = data.filter(r => !r.cancelled && getTarget(r) === "agency").reduce((s, r) => s + r.amountILS, 0);
+  const clientPayTotal = data.filter(r => !r.cancelled && getTarget(r) === "client").reduce((s, r) => s + r.amountILS, 0);
+  const chatterPayTotal = data.filter(r => !r.cancelled && getTarget(r) === "chatter").reduce((s, r) => s + r.amountILS, 0);
   const totalPreCommUSD = data.reduce((s, r) => s + (r.preCommissionUSD || 0), 0);
   const totalPreCommILS = data.reduce((s, r) => s + (r.preCommissionILS || 0), 0);
 
@@ -2062,6 +2063,30 @@ function IncPage() {
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
     {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "ID קונה", render: r => r.buyerId || "—" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "הערה", render: r => { if (!r.notes) return ""; const words = r.notes.trim().split(/\s+/); if (words.length <= 3) return <span style={{ fontSize: 11, color: C.dim }}>{r.notes}</span>; return <span onClick={() => setNoteView(r.notes)} style={{ fontSize: 11, color: C.pri, cursor: "pointer", whiteSpace: "nowrap" }} title="לחץ לצפייה בהערה המלאה">{words.slice(0, 3).join(" ")}...</span>; } }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", totalPreCommUSD > 0 ? fmtUSD(totalPreCommUSD) : "", totalPreCommILS > 0 ? fmtC(totalPreCommILS) : "", fmtUSD(totalUSD), fmtC(grandTotal), "", "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+
+    {/* Per-client entitlement summary */}
+    {(() => {
+      const ymi = ym(year, month);
+      const clients = [...new Set(data.map(r => r.modelName).filter(Boolean))];
+      const rows = clients.map(cn => {
+        const clData = data.filter(r => r.modelName === cn && !r.cancelled);
+        const tot = clData.reduce((s, r) => s + r.amountILS, 0);
+        const pct = getRate(cn, ymi);
+        const ent = tot - tot * (pct / 100);
+        return { name: cn, tot, pct, ent };
+      }).filter(r => r.tot > 0);
+      if (!rows.length) return null;
+      const totalEnt = rows.reduce((s, r) => s + r.ent, 0);
+      return <Card style={{ marginTop: 12, marginBottom: 16 }}>
+        <h4 style={{ color: C.dim, fontSize: 13, marginBottom: 8 }}>💰 זכאות לקוחות (אחרי עמלת סוכנות)</h4>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+          {rows.map(r => <div key={r.name} style={{ fontSize: 12, color: C.txt }}>
+            <span style={{ fontWeight: 600 }}>{r.name}</span>: {fmtC(r.tot)} × {100 - r.pct}% = <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(r.ent)}</span>
+          </div>)}
+        </div>
+        {rows.length > 1 && <div style={{ marginTop: 6, fontSize: 13, color: C.pri, fontWeight: 700 }}>סה״כ זכאות: {fmtC(totalEnt)}</div>}
+      </Card>;
+    })()}
 
     {showIncForm && <Modal open={true} onClose={() => setShowIncForm(false)} title="➕ תיעוד מכירה ידנית" width={500}>
       <RecordIncomeAdmin onClose={() => setShowIncForm(false)} />
@@ -5706,10 +5731,12 @@ function DebtsPage() {
         date: new Date().toISOString()
       };
       await addSettlement(settlementData);
-      // Auto-create expense record for the settlement
-      const expRecord = { category: "קיזוז לקוח", name: `קיזוז — ${modalClient.name}`, amount: Number(form.amount), date: new Date(), notes: form.notes || "", taxRecognized: true, vatRecognized: false, source: "auto-settlement" };
-      const savedExp = await addExpense(expRecord);
-      setExpenses(prev => [...prev, { id: savedExp.id || savedExp, ...expRecord }]);
+      // Auto-create expense (non-blocking — don't fail settlement if this fails)
+      try {
+        const expRecord = { category: "קיזוז לקוח", name: `קיזוז — ${modalClient.name}`, amount: Number(form.amount), date: new Date(), notes: form.notes || "", taxRecognized: true, vatRecognized: false, source: "auto-settlement" };
+        const savedExp = await addExpense(expRecord);
+        setExpenses(prev => [...prev, { id: savedExp.id || savedExp, ...expRecord }]);
+      } catch (expErr) { console.error("Auto-expense failed:", expErr); }
       setModalClient(null);
     } catch (e) {
       alert("שגיאה במערכת: " + e.message);
@@ -5730,10 +5757,12 @@ function DebtsPage() {
         date: new Date().toISOString()
       };
       await addSettlement(chatterSettlementData);
-      // Auto-create expense record for the settlement
-      const expRecord = { category: "קיזוז צ'אטר", name: `קיזוז — ${modalChatter.name}`, amount: Number(chatterForm.amount), date: new Date(), notes: chatterForm.notes || "", taxRecognized: true, vatRecognized: false, source: "auto-settlement" };
-      const savedExp = await addExpense(expRecord);
-      setExpenses(prev => [...prev, { id: savedExp.id || savedExp, ...expRecord }]);
+      // Auto-create expense (non-blocking — don't fail settlement if this fails)
+      try {
+        const expRecord = { category: "קיזוז צ'אטר", name: `קיזוז — ${modalChatter.name}`, amount: Number(chatterForm.amount), date: new Date(), notes: chatterForm.notes || "", taxRecognized: true, vatRecognized: false, source: "auto-settlement" };
+        const savedExp = await addExpense(expRecord);
+        setExpenses(prev => [...prev, { id: savedExp.id || savedExp, ...expRecord }]);
+      } catch (expErr) { console.error("Auto-expense failed:", expErr); }
       setModalChatter(null);
     } catch (e) {
       alert("שגיאה במערכת: " + e.message);
