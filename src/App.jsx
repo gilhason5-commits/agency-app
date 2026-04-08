@@ -156,6 +156,23 @@ const MONTHS_SHORT = ["ינו", "פבר", "מרץ", "אפר", "מאי", "יונ"
 const C = { bg: "#0f172a", card: "#1e293b", cardH: "#334155", bdr: "#334155", pri: "#3b82f6", priL: "#60a5fa", grn: "#22c55e", red: "#ef4444", ylw: "#eab308", org: "#f97316", txt: "#f8fafc", dim: "#94a3b8", mut: "#64748b", purple: "#a855f7", cyan: "#06b6d4", pink: "#ec4899" };
 const CHART_COLORS = [C.pri, C.grn, C.org, C.purple, C.cyan, C.pink, C.ylw, C.red];
 
+// CSV export utility with BOM for Hebrew
+function exportCSV(headers, rows, filename) {
+  const bom = "\uFEFF";
+  const csvRows = [headers.join(",")];
+  rows.forEach(row => {
+    csvRows.push(row.map(cell => {
+      const str = String(cell ?? "").replace(/"/g, '""');
+      return str.includes(",") || str.includes('"') || str.includes("\n") ? `"${str}"` : str;
+    }).join(","));
+  });
+  const blob = new Blob([bom + csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `${filename}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ═══════════════════════════════════════════════════════
 // UTILITIES
 // ═══════════════════════════════════════════════════════
@@ -381,7 +398,9 @@ function mapInc(row, i) {
     date: parseDate(row[8]), hour,
     notes: row[10] || "", verified: row[11] || "", shiftLocation: row[12] || "",
     paidToClient: String(row[13]).trim() === "V",
-    cancelled
+    cancelled,
+    vatLiable: true, // default: all income is VAT-liable unless toggled off
+    isLm: false      // default: not a ל.מ (prior-month) record
   };
 }
 // Combined income per row: rawILS + (USD × liveRate), avoids double-counting
@@ -1426,6 +1445,7 @@ function DashPage() {
   }, [agSettings]);
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); saveAgencySettings({ lmVals: updated }).catch(() => {}); };
   const _dashOpenMonth = useState(null);
+  const [hourFilter, setHourFilter] = useState("profitable");
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
   const mp = Calc.profit(activeI, activeE);
@@ -1461,14 +1481,36 @@ function DashPage() {
   const empMonthly = empGrossMonthly + empNIMonthly;
   const burnRate = mp.exp + empMonthly + fixedGap;
   const agencyIncome = mp.inc - totalClientSalary;
-  const lmCurr = view === "monthly" ? (lmVals[year]?.[month] || 0) : 0;
-  const vatBase = agencyIncome - lmCurr;
-  const vat = vatBase > 0 ? vatBase * 0.18 : 0;
+  // ל.מ: sum of income records marked as isLm, fallback to manual lmVals
+  const lmFromRecords = activeI.filter(r => r.isLm === true && !r.cancelled).reduce((s, r) => s + r.amountILS, 0);
+  const lmCurr = view === "monthly" ? (lmFromRecords > 0 ? lmFromRecords : (lmVals[year]?.[month] || 0)) : 0;
+  // VAT: only on vatLiable income, using 18/118 formula (extract VAT from gross)
+  const vatLiableIncome = (() => {
+    const vatRows = activeI.filter(r => r.vatLiable !== false && !r.cancelled);
+    const vatTotal = vatRows.reduce((s, r) => s + r.amountILS, 0);
+    // Deduct client entitlement on VAT-liable income
+    const names = [...new Set(vatRows.map(r => r.modelName).filter(Boolean))];
+    const clientEnt = names.reduce((sum, n) => {
+      const pct = getRate(n, ymi);
+      const clRows = vatRows.filter(r => r.modelName === n);
+      const clTot = clRows.reduce((s, r) => s + r.amountILS, 0);
+      return sum + clTot * (1 - pct / 100);
+    }, 0);
+    return vatTotal - clientEnt - lmCurr;
+  })();
+  const vatRecognizedExpTotal = activeE.filter(e => e.vatRecognized).reduce((s, e) => s + (e.amount || 0), 0);
+  const vat = Math.max(0, (vatLiableIncome * 18 / 118) - (vatRecognizedExpTotal * 18 / 118));
+  // Tax: dual-recognized expenses deducted at net (×100/118), tax-only at full amount
+  const taxDeductibleExpenses = activeE.reduce((sum, e) => {
+    if (!e.taxRecognized) return sum;
+    if (e.vatRecognized) return sum + (e.amount || 0) * 100 / 118; // net of VAT
+    return sum + (e.amount || 0); // full amount
+  }, 0);
   const nonDeductible = activeE.filter(e => !e.taxRecognized).reduce((s, e) => s + (e.amount || 0), 0);
   const recognizedExp = mp.exp - nonDeductible;
   const grossProfit = agencyIncome - recognizedExp - totalChatterSalary;
   const niTotal = empNIMonthly + manualNI;
-  const taxableIncome = (agencyIncome - vat) - mp.exp - niTotal + nonDeductible - lmCurr;
+  const taxableIncome = agencyIncome - vat - taxDeductibleExpenses - niTotal - lmCurr;
   const incomeTax = taxableIncome > 0
     ? (bizType === "חברה"
         ? taxableIncome * 0.23
@@ -1674,7 +1716,10 @@ function DashPage() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <label style={{ color: C.dim, fontSize: 12 }}>ל.מ (ניכויים) ₪</label>
-          <input type="number" value={lmVals[year]?.[month] || ""} placeholder="0" onChange={e => saveLm(month, +e.target.value)} style={{ width: 90, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
+          {lmFromRecords > 0
+            ? <span style={{ color: C.ylw, fontSize: 13, fontWeight: 600 }}>{fmtC(lmFromRecords)} <span style={{ fontSize: 10, color: C.dim }}>(מסימון מכירות)</span></span>
+            : <input type="number" value={lmVals[year]?.[month] || ""} placeholder="0" onChange={e => saveLm(month, +e.target.value)} style={{ width: 90, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
+          }
         </div>
         {employees.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <label style={{ color: C.dim, fontSize: 12 }}>ב.ל נוסף (שכירים) ₪</label>
@@ -1873,27 +1918,46 @@ function DashPage() {
     })()}
 
     {(() => {
-      const hourMap = {};
-      for (let h = 0; h < 24; h++) hourMap[h] = 0;
-      const activeI = view === "monthly" ? iM : iY;
-      activeI.forEach(r => {
+      const incData = view === "monthly" ? iM : iY;
+      // Build multi-metric hour data
+      const hourData = {};
+      for (let h = 0; h < 24; h++) hourData[h] = { revenue: 0, count: 0, buyers: new Set() };
+      incData.forEach(r => {
         let hStr = r.hour;
         if (!hStr) return;
         if (typeof hStr === "string" && hStr.includes("1899-") && hStr.includes("T")) hStr = hStr.split("T")[1].substring(0, 5);
         const hNum = parseInt(hStr, 10);
         if (isNaN(hNum) || hNum < 0 || hNum > 23) return;
-        hourMap[hNum] += r.amountILS;
+        hourData[hNum].revenue += r.amountILS;
+        hourData[hNum].count += 1;
+        if (r.buyerId || r.buyerName) hourData[hNum].buyers.add(r.buyerId || r.buyerName);
       });
-      const hours = Object.entries(hourMap).map(([h, total]) => ({ hour: +h, total })).filter(h => h.total > 0).sort((a, b) => b.total - a.total);
-      const top3 = hours.slice(0, 3);
-      const bot3 = hours.length > 3 ? hours.slice(-3).reverse() : [];
+      const maxRev = Math.max(...Object.values(hourData).map(d => d.revenue), 1);
+      const maxCnt = Math.max(...Object.values(hourData).map(d => d.count), 1);
+      const maxBuy = Math.max(...Object.values(hourData).map(d => d.buyers.size), 1);
+      const hours = Object.entries(hourData).map(([h, d]) => {
+        const val = hourFilter === "profitable" ? d.revenue
+          : hourFilter === "buyers" ? d.buyers.size
+          : hourFilter === "volume" ? d.count
+          : (d.revenue / maxRev * 0.4 + d.count / maxCnt * 0.3 + d.buyers.size / maxBuy * 0.3) * maxRev;
+        return { hour: +h, total: val, revenue: d.revenue, count: d.count, buyerCount: d.buyers.size };
+      }).filter(h => h.revenue > 0 || h.count > 0).sort((a, b) => b.total - a.total);
+      const top4 = hours.slice(0, 4);
+      const bot4 = hours.length > 4 ? hours.slice(-4).reverse() : [];
       const fmtH = h => `${String(h).padStart(2, "0")}:00`;
-      const medals = ["🥇", "🥈", "🥉"];
-      return top3.length > 0 ? <div style={{ marginTop: 16 }}>
-        <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>⏰ שעות פעילות</h3>
+      const medals = ["🥇", "🥈", "🥉", "4."];
+      const fmtVal = h => hourFilter === "profitable" ? fmtC(h.total) : hourFilter === "buyers" ? `${h.buyerCount} קונים` : hourFilter === "volume" ? `${h.count} עסקאות` : fmtC(h.total);
+      const filterOpts = [{ key: "profitable", label: "רווחיות" }, { key: "buyers", label: "קונים" }, { key: "volume", label: "נפח" }, { key: "combined", label: "משולב" }];
+      return top4.length > 0 ? <div style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, margin: 0 }}>⏰ שעות פעילות</h3>
+          <div style={{ display: "flex", gap: 0, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.bdr}` }}>
+            {filterOpts.map(f => <button key={f.key} onClick={() => setHourFilter(f.key)} style={{ padding: "5px 12px", background: hourFilter === f.key ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 11, fontWeight: hourFilter === f.key ? 700 : 400 }}>{f.label}</button>)}
+          </div>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr" : "1fr 1fr", gap: 12 }}>
-          <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.grn, marginBottom: 8 }}>🔥 שעות הכי רווחיות</div>{top3.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 2 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{medals[i]} {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(h.total)}</span></div>)}</Card>
-          {bot3.length > 0 && <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.red, marginBottom: 8 }}>📉 שעות הכי חלשות</div>{bot3.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 2 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{i + 1}. {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.red, fontWeight: 700 }}>{fmtC(h.total)}</span></div>)}</Card>}
+          <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.grn, marginBottom: 8 }}>🔥 שעות חזקות</div>{top4.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 3 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{medals[i]} {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.grn, fontWeight: 700 }}>{fmtVal(h)}</span></div>)}</Card>
+          {bot4.length > 0 && <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.red, marginBottom: 8 }}>📉 שעות חלשות</div>{bot4.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 3 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{i + 1}. {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.red, fontWeight: 700 }}>{fmtVal(h)}</span></div>)}</Card>}
         </div>
       </div> : null;
     })()}
@@ -2045,6 +2109,14 @@ function IncPage() {
       <div style={{ display: "flex", gap: 8 }}>
         <Btn variant="success" size="sm" onClick={() => setShowIncForm(true)}>➕ הוסף מכירה ידנית</Btn>
         <Btn variant="ghost" size="sm" onClick={() => setShowIncTypesMgr(true)}>✏️ עריכת סוגי הכנסה</Btn>
+        <Btn variant="ghost" size="sm" onClick={() => {
+          const headers = ["תאריך", "שעה", "צ'אטר", "לקוחה", "פלטפורמה", "סוג", "מיקום", "סכום ₪", "סכום $", "שולם", "חייב מע״מ", "ל.מ"];
+          const csvRows = data.map(r => [
+            r.date instanceof Date ? r.date.toLocaleDateString("he-IL") : "", r.hour || "", r.chatterName || "", r.modelName || "", r.platform || "", r.incomeType || "", r.shiftLocation || "",
+            r.amountILS || 0, r.amountUSD || 0, r.paymentTarget || "agency", r.vatLiable !== false ? "כן" : "לא", r.isLm ? "כן" : "לא"
+          ]);
+          exportCSV(headers, csvRows, `income-${view}`);
+        }}>📥 CSV</Btn>
       </div>
     </div>
     <FB><ViewFilter /></FB>
@@ -2062,7 +2134,7 @@ function IncPage() {
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "ID קונה", render: r => r.buyerId || "—" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "הערה", render: r => { if (!r.notes) return ""; const words = r.notes.trim().split(/\s+/); if (words.length <= 3) return <span style={{ fontSize: 11, color: C.dim }}>{r.notes}</span>; return <span onClick={() => setNoteView(r.notes)} style={{ fontSize: 11, color: C.pri, cursor: "pointer", whiteSpace: "nowrap" }} title="לחץ לצפייה בהערה המלאה">{words.slice(0, 3).join(" ")}...</span>; } }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", totalPreCommUSD > 0 ? fmtUSD(totalPreCommUSD) : "", totalPreCommILS > 0 ? fmtC(totalPreCommILS) : "", fmtUSD(totalUSD), fmtC(grandTotal), "", "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "ID קונה", render: r => r.buyerId || "—" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "סימון", render: r => <span style={{ fontSize: 10 }}>{r.vatLiable === false ? <span style={{ color: C.red, marginLeft: 2 }} title="פטור מע״מ">!מע״מ</span> : ""}{r.isLm ? <span style={{ color: C.ylw, marginLeft: 2 }} title="ל.מ">ל.מ</span> : ""}</span> }, { label: "הערה", render: r => { if (!r.notes) return ""; const words = r.notes.trim().split(/\s+/); if (words.length <= 3) return <span style={{ fontSize: 11, color: C.dim }}>{r.notes}</span>; return <span onClick={() => setNoteView(r.notes)} style={{ fontSize: 11, color: C.pri, cursor: "pointer", whiteSpace: "nowrap" }} title="לחץ לצפייה בהערה המלאה">{words.slice(0, 3).join(" ")}...</span>; } }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", totalPreCommUSD > 0 ? fmtUSD(totalPreCommUSD) : "", totalPreCommILS > 0 ? fmtC(totalPreCommILS) : "", fmtUSD(totalUSD), fmtC(grandTotal), "", "", "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
 
     {/* Per-client entitlement summary */}
     {(() => {
@@ -2276,6 +2348,14 @@ function EditIncomeModal({ record, onClose }) {
   const [txDate, setTxDate] = useState(initDate);
   const [buyerId, setBuyerId] = useState(record.buyerId || "");
   const [buyerName, setBuyerName] = useState(record.buyerName || "");
+  const [vatLiable, setVatLiable] = useState(record.vatLiable !== false);
+  const [isLm, setIsLm] = useState(record.isLm === true);
+  const [paymentTarget, setPaymentTarget] = useState(record.paymentTarget || (record.paidToClient ? "client" : "agency"));
+  const [paymentTargetChatter, setPaymentTargetChatter] = useState(record.paymentTargetChatter || "");
+  const chattersForSelect = useMemo(() => {
+    const fromData = income.map(r => r.chatterName).filter(Boolean);
+    return [...new Set(fromData)].sort();
+  }, [income]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -2301,6 +2381,10 @@ function EditIncomeModal({ record, onClose }) {
         usdRate: rate,
         buyerId: buyerId.trim(),
         buyerName: buyerName.trim(),
+        vatLiable,
+        isLm,
+        paymentTarget,
+        paymentTargetChatter: paymentTarget === "chatter" ? paymentTargetChatter : "",
         ...commFields,
       };
       if (record._fromPending) {
@@ -2378,6 +2462,31 @@ function EditIncomeModal({ record, onClose }) {
       <input value={buyerName} onChange={e => setBuyerName(e.target.value)} placeholder="שם קונה" style={inputStyle} />
     </div>
 
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 6 }}>יעד תשלום</label>
+      <select value={paymentTarget} onChange={e => setPaymentTarget(e.target.value)} style={inputStyle}>
+        <option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option>
+      </select>
+      {paymentTarget === "chatter" && <div style={{ marginTop: 6 }}>
+        <label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 4 }}>לאיזה צ'אטר?</label>
+        <select value={paymentTargetChatter} onChange={e => setPaymentTargetChatter(e.target.value)} style={inputStyle}>
+          <option value="">בחר צ'אטר...</option>
+          {chattersForSelect.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>}
+    </div>
+
+    <div style={{ display: "flex", gap: 16, marginBottom: 14 }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+        <input type="checkbox" checked={vatLiable} onChange={e => setVatLiable(e.target.checked)} />
+        <span style={{ color: vatLiable ? C.grn : C.mut, fontSize: 13 }}>חייב מע״מ</span>
+      </label>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+        <input type="checkbox" checked={isLm} onChange={e => setIsLm(e.target.checked)} />
+        <span style={{ color: isLm ? C.ylw : C.mut, fontSize: 13 }}>ל.מ (לחודש קודם)</span>
+      </label>
+    </div>
+
     {(() => {
       const commPct = resolveCommissionPct(platform, incomeType);
       if (!commPct) return null;
@@ -2420,7 +2529,9 @@ function RecordIncomeAdmin({ onClose }) {
     buyerName: "",
     buyerId: "",
     date: new Date().toISOString().split("T")[0],
-    hour: new Date().toTimeString().slice(0, 5)
+    hour: new Date().toTimeString().slice(0, 5),
+    vatLiable: true,
+    isLm: false
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
@@ -2472,6 +2583,8 @@ function RecordIncomeAdmin({ onClose }) {
         paymentTarget: "agency",
         paidToClient: false,
         cancelled: false,
+        vatLiable: form.vatLiable !== false,
+        isLm: form.isLm === true,
         source: "ידני ממשק מנהל",
         submittedAt: new Date().toISOString(),
       };
@@ -2569,6 +2682,16 @@ function RecordIncomeAdmin({ onClose }) {
       <div>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
         <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={{ ...inputStyle, direction: "ltr" }} />
+      </div>
+      <div style={{ gridColumn: "1 / -1", display: "flex", gap: 16 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+          <input type="checkbox" checked={form.vatLiable !== false} onChange={e => upd("vatLiable", e.target.checked)} />
+          <span style={{ color: form.vatLiable !== false ? C.grn : C.mut, fontSize: 13 }}>חייב מע״מ</span>
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+          <input type="checkbox" checked={form.isLm === true} onChange={e => upd("isLm", e.target.checked)} />
+          <span style={{ color: form.isLm === true ? C.ylw : C.mut, fontSize: 13 }}>ל.מ (לחודש קודם)</span>
+        </label>
       </div>
     </div>
 
@@ -3001,8 +3124,41 @@ function ChatterPage({ forceSel, onBack } = {}) {
       </Modal>}
 
     </> : <>
+      {/* Yearly summary stats */}
+      {(() => {
+        const totSales = mbd.reduce((s, r) => s + r.sales, 0);
+        const totOffice = mbd.reduce((s, r) => s + r.oSales, 0);
+        const totField = mbd.reduce((s, r) => s + r.rSales, 0);
+        const totSalary = mbd.reduce((s, r) => s + r.total, 0);
+        const approvedCnt = approvedRows.length;
+        return <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+          <Stat icon="💰" title="סה״כ מכירות" value={fmtC(totSales)} color={C.grn} />
+          <Stat icon="🏢" title="משרד" value={fmtC(totOffice)} color={C.pri} />
+          <Stat icon="🏠" title="חוץ" value={fmtC(totField)} color={C.cyan} />
+          <Stat icon="📊" title="עסקאות" value={approvedCnt} color={C.dim} />
+          {!isSM && <Stat icon="💵" title="סה״כ שכר" value={fmtC(totSalary)} color={C.ylw} />}
+        </div>;
+      })()}
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><ComposedChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="sales" fill={C.pri} radius={[4, 4, 0, 0]} name="מכירות" />{!isSM && <Line type="monotone" dataKey="total" stroke={C.ylw} strokeWidth={2} dot={{ r: 3 }} name="משכורת" />}</ComposedChart></ResponsiveContainer></Card>
       <DT columns={[{ label: "חודש", key: "month" }, { label: "מכירות", render: r => fmtC(r.sales) }, { label: "משרד", render: r => fmtC(r.oSales) }, { label: "חוץ", render: r => fmtC(r.rSales) }, ...(isSM ? [] : [{ label: "שכר", render: r => <strong style={{ color: C.pri }}>{fmtC(r.total)}</strong> }])]} rows={mbd} footer={isSM ? ["סה״כ", fmtC(mbd.reduce((s, r) => s + r.sales, 0)), "", ""] : ["סה״כ", fmtC(mbd.reduce((s, r) => s + r.sales, 0)), "", "", fmtC(mbd.reduce((s, r) => s + r.total, 0))]} />
+
+      {/* Per-client breakdown */}
+      {byCl.length > 0 && <Card style={{ marginTop: 16 }}>
+        <h4 style={{ color: C.dim, fontSize: 13, marginBottom: 8 }}>👤 פירוט לפי לקוחה</h4>
+        {byCl.map((c, i) => <div key={c.name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < byCl.length - 1 ? `1px solid ${C.bdr}` : "none" }}>
+          <span style={{ color: C.txt, fontWeight: 600, fontSize: 13 }}>{c.name}</span>
+          <span style={{ color: C.grn, fontWeight: 700, fontSize: 13 }}>{fmtC(c.value)}</span>
+        </div>)}
+      </Card>}
+
+      {/* Per income-type breakdown */}
+      {byType.length > 0 && <Card style={{ marginTop: 12 }}>
+        <h4 style={{ color: C.dim, fontSize: 13, marginBottom: 8 }}>📊 פירוט לפי סוג הכנסה</h4>
+        {byType.map((t, i) => <div key={t.name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < byType.length - 1 ? `1px solid ${C.bdr}` : "none" }}>
+          <span style={{ color: C.txt, fontSize: 13 }}>{t.name}</span>
+          <span style={{ color: C.pri, fontWeight: 700, fontSize: 13 }}>{fmtC(t.value)}</span>
+        </div>)}
+      </Card>}
     </>}
   </div>;
 }
@@ -4754,6 +4910,45 @@ function ChatterPortal({ hideHeader } = {}) {
         </div>
       </Modal>}
 
+      {/* Weekly Calendar - All Shifts */}
+      {(() => {
+        const allApproved = shifts.filter(s => s.status === "approved");
+        const today = new Date();
+        const dayOfWeek = today.getDay(); // 0=Sun
+        const weekStartDate = new Date(today);
+        weekStartDate.setDate(today.getDate() - dayOfWeek);
+        const wDays = [];
+        for (let i = 0; i < 7; i++) { const dd = new Date(weekStartDate); dd.setDate(weekStartDate.getDate() + i); wDays.push(dd.toISOString().slice(0, 10)); }
+        const DAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+        const sSlots = [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+        return sSlots.length > 0 ? <Card style={{ marginBottom: 16, padding: 10 }}>
+          <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 10 }}>📅 משמרות השבוע</h3>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead>
+                <tr><th style={{ padding: 4, color: C.dim, textAlign: "right", borderBottom: `1px solid ${C.bdr}` }}>משמרת</th>
+                  {wDays.map((d, i) => <th key={d} style={{ padding: 4, color: d === todayStr ? C.pri : C.dim, textAlign: "center", borderBottom: `1px solid ${C.bdr}`, fontWeight: d === todayStr ? 700 : 400, background: d === todayStr ? `${C.pri}10` : "transparent" }}>{DAY_NAMES[i]}<br /><span style={{ fontSize: 10 }}>{d.slice(8)}/{d.slice(5, 7)}</span></th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {sSlots.map(slot => <tr key={slot.id}>
+                  <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 600, borderBottom: `1px solid ${C.bdr}22`, whiteSpace: "nowrap" }}>{slot.label}<br /><span style={{ fontSize: 9, color: C.dim }}>{slot.start}-{slot.end}</span></td>
+                  {wDays.map(d => {
+                    const cellShifts = allApproved.filter(s => s.date === d && s.slotId === slot.id);
+                    return <td key={d} style={{ padding: 3, textAlign: "center", borderBottom: `1px solid ${C.bdr}22`, verticalAlign: "top", background: d === todayStr ? `${C.pri}08` : "transparent" }}>
+                      {cellShifts.map(s => <div key={s.id} style={{ padding: "2px 4px", borderRadius: 4, marginBottom: 2, fontSize: 10, background: s.chatterName === chatterName ? `${C.pri}30` : `${C.bdr}40`, color: s.chatterName === chatterName ? C.pri : C.dim, fontWeight: s.chatterName === chatterName ? 700 : 400 }}>
+                        {s.chatterName === chatterName ? "אני" : s.chatterName}
+                        {s.clockIn && !s.clockOut && <span style={{ color: C.grn }}> ●</span>}
+                      </div>)}
+                    </td>;
+                  })}
+                </tr>)}
+              </tbody>
+            </table>
+          </div>
+        </Card> : null;
+      })()}
+
       {/* My Shifts */}
       <Card style={{ marginBottom: 16 }}>
         <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📅 המשמרות שלי</h3>
@@ -5027,12 +5222,13 @@ function ApprovalsPage() {
       chatterName: r.chatterName || "", modelName: r.modelName || "", platform: r.platform || "",
       amountILS: r.amountILS || "", amountUSD: r.amountUSD || "", shiftLocation: r.shiftLocation || "משרד",
       buyerName: r.buyerName || "", buyerId: r.buyerId || "", incomeType: r.incomeType || "", notes: r.notes || "",
-      date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : "", hour: r.hour || ""
+      date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : "", hour: r.hour || "",
+      vatLiable: r.vatLiable !== false, isLm: r.isLm === true
     });
   };
   const saveEditRow = async () => {
     if (!editRow) return;
-    const updates = { ...editForm, amountILS: +editForm.amountILS || 0, amountUSD: +editForm.amountUSD || 0 };
+    const updates = { ...editForm, amountILS: +editForm.amountILS || 0, amountUSD: +editForm.amountUSD || 0, vatLiable: editForm.vatLiable !== false, isLm: editForm.isLm === true };
     if (editForm.date) updates.date = new Date(editForm.date);
     try {
       if (editRow._fromPending) await updatePending(editRow.id, updates);
@@ -5205,6 +5401,16 @@ function ApprovalsPage() {
             {options.map(o => <option key={o} value={o}>{o || "—"}</option>)}
           </select> : <input type={type || "text"} value={editForm[key]} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" }} />}
         </div>)}
+        <div style={{ display: "flex", gap: 16, marginTop: 4 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+            <input type="checkbox" checked={editForm.vatLiable !== false} onChange={e => setEditForm(f => ({ ...f, vatLiable: e.target.checked }))} />
+            <span style={{ color: editForm.vatLiable !== false ? C.grn : C.mut, fontSize: 13 }}>חייב מע״מ</span>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+            <input type="checkbox" checked={editForm.isLm === true} onChange={e => setEditForm(f => ({ ...f, isLm: e.target.checked }))} />
+            <span style={{ color: editForm.isLm === true ? C.ylw : C.mut, fontSize: 13 }}>ל.מ (לחודש קודם)</span>
+          </label>
+        </div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
           <Btn variant="ghost" onClick={() => setEditRow(null)}>ביטול</Btn>
           <Btn variant="primary" onClick={saveEditRow}>💾 שמור</Btn>
@@ -5557,9 +5763,9 @@ function DebtsPage() {
   const { models, income, settlements, month, year, setMonth, addSettlement, chatterSettings, clientSettings, expenses, setExpenses } = useApp();
   const [debtsView, setDebtsView] = useState("monthly");
   const [modalClient, setModalClient] = useState(null);
-  const [form, setForm] = useState({ amount: "", direction: "AgencyToClient", notes: "" });
+  const [form, setForm] = useState({ amount: "", direction: "AgencyToClient", notes: "", paidBy: "סוכנות", taxRecognized: true, vatRecognized: false });
   const [modalChatter, setModalChatter] = useState(null);
-  const [chatterForm, setChatterForm] = useState({ amount: "", direction: "AgencyToChatter", notes: "" });
+  const [chatterForm, setChatterForm] = useState({ amount: "", direction: "AgencyToChatter", notes: "", paidBy: "סוכנות", taxRecognized: true, vatRecognized: false });
   const [saving, setSaving] = useState(false);
 
   const allClientNames = useMemo(() => [...new Set([...models.map(m => m.name), ...income.map(i => i.modelName)])].filter(Boolean), [models, income]);
@@ -5607,6 +5813,7 @@ function DebtsPage() {
         throughAgency: bal.through,
         pct: bal.pct,
         entitlement: bal.ent,
+        agencyShare: bal.agencyShare,
         netSettled: bal.netSettled,
         actualDue: bal.actualDue,
         hasVat, vatAmt, finalDue
@@ -5733,7 +5940,7 @@ function DebtsPage() {
       await addSettlement(settlementData);
       // Auto-create expense (non-blocking — don't fail settlement if this fails)
       try {
-        const expRecord = { category: "קיזוז לקוח", name: `קיזוז — ${modalClient.name}`, amount: Number(form.amount), date: new Date(), notes: form.notes || "", taxRecognized: true, vatRecognized: false, source: "auto-settlement" };
+        const expRecord = { category: "קיזוז לקוח", name: `קיזוז — ${modalClient.name}`, amount: Number(form.amount), date: new Date(), notes: form.notes || "", paidBy: form.paidBy || "סוכנות", taxRecognized: form.taxRecognized !== false, vatRecognized: form.vatRecognized === true, source: "auto-settlement" };
         const savedExp = await addExpense(expRecord);
         setExpenses(prev => [...prev, { id: savedExp.id || savedExp, ...expRecord }]);
       } catch (expErr) { console.error("Auto-expense failed:", expErr); }
@@ -5759,7 +5966,7 @@ function DebtsPage() {
       await addSettlement(chatterSettlementData);
       // Auto-create expense (non-blocking — don't fail settlement if this fails)
       try {
-        const expRecord = { category: "קיזוז צ'אטר", name: `קיזוז — ${modalChatter.name}`, amount: Number(chatterForm.amount), date: new Date(), notes: chatterForm.notes || "", taxRecognized: true, vatRecognized: false, source: "auto-settlement" };
+        const expRecord = { category: "קיזוז צ'אטר", name: `קיזוז — ${modalChatter.name}`, amount: Number(chatterForm.amount), date: new Date(), notes: chatterForm.notes || "", paidBy: chatterForm.paidBy || "סוכנות", taxRecognized: chatterForm.taxRecognized !== false, vatRecognized: chatterForm.vatRecognized === true, source: "auto-settlement" };
         const savedExp = await addExpense(expRecord);
         setExpenses(prev => [...prev, { id: savedExp.id || savedExp, ...expRecord }]);
       } catch (expErr) { console.error("Auto-expense failed:", expErr); }
@@ -5774,6 +5981,11 @@ function DebtsPage() {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>⚖️ דוח חובות והתחשבנות</h2>
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <Btn variant="ghost" size="sm" onClick={() => {
+          const headers = ["לקוחה", "סה״כ הכנסות", "זכאות לקוחה", "זכאות סוכנות", "קוזז", "חוב לתשלום"];
+          const csvRows = debtRows.map(r => [r.name, r.totalIncome, r.entitlement, r.agencyShare, r.netSettled, r.actualDue]);
+          exportCSV(headers, csvRows, `debts-${MONTHS_HE[month]}-${year}`);
+        }}>📥 CSV</Btn>
         <Sel label="תצוגה:" value={debtsView} onChange={v => setDebtsView(v)} options={[{ value: "monthly", label: "חודשי" }, { value: "yearly", label: "שנתי" }]} />
         {debtsView === "monthly" && <Sel label="חודש:" value={month} onChange={v => setMonth(+v)} options={MONTHS_HE.map((m, i) => ({ value: i, label: m }))} />}
       </div>
@@ -5801,6 +6013,7 @@ function DebtsPage() {
             { label: 'דרך סוכנות', render: r => <span style={{ color: C.dim }}>{fmtC(r.throughAgency)}</span> },
             { label: 'שולם ללקוחה ישירות', render: r => <span style={{ color: C.dim }}>{fmtC(r.direct)}</span> },
             { label: '% סוכנות', render: r => <span style={{ color: C.dim }}>{r.pct}%</span> },
+            { label: 'זכאות סוכנות', render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(r.agencyShare)}</span> },
             { label: 'זכאות לקוחה', render: r => <span style={{ color: C.pri }}>{fmtC(r.entitlement)}</span> },
             { label: 'קוזז החודש', render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
             {
@@ -5829,7 +6042,7 @@ function DebtsPage() {
             },
             {
               label: 'פעולות',
-              render: r => <Btn size="sm" variant="outline" onClick={() => { setModalClient(r); setForm({ amount: Math.abs(r.actualDue), direction: r.actualDue > 0 ? "AgencyToClient" : "ClientToAgency", notes: "" }) }}>
+              render: r => <Btn size="sm" variant="outline" onClick={() => { setModalClient(r); setForm({ amount: Math.abs(r.actualDue), direction: r.actualDue > 0 ? "AgencyToClient" : "ClientToAgency", notes: "", paidBy: "סוכנות", taxRecognized: true, vatRecognized: false }) }}>
                 ⚖️ בצע קיזוז
               </Btn>
             }
@@ -5849,17 +6062,17 @@ function DebtsPage() {
           { label: "שולם ישירות", render: r => <span style={{ color: C.grn }}>{fmtC(r.paidDirect)}</span> },
           { label: "קוזז החודש", render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
           { label: "יתרה לתשלום", render: r => {
-            const col = Math.abs(r.balance) < 1 ? C.mut : r.balance > 0 ? C.red : C.grn;
-            const txt = Math.abs(r.balance) < 1 ? "מאוזן" : r.balance > 0 ? "אנחנו חייבים" : "הוא חייב לנו";
-            if (r.hasVat && Math.abs(r.balance) >= 1) {
-              return <div style={{ color: col, fontWeight: 700 }}>
-                <div style={{ fontSize: 11, color: C.dim }}>לפני מע״מ: {fmtC(Math.abs(r.balance))}</div>
-                <div style={{ fontSize: 11, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div>
-                <div style={{ fontSize: 14 }}>סה״כ: {fmtC(r.finalBalance)}</div>
-                <div style={{ fontSize: 10 }}>{txt} + מע״מ</div>
-              </div>;
-            }
-            return <div style={{ color: col, fontWeight: 700 }}><div>{fmtC(r.finalBalance)}</div><div style={{ fontSize: 10 }}>{txt}</div></div>;
+            const bg = r.finalBalance < 1 ? 'transparent' : (r.balance > 0 ? `${C.red}15` : `${C.grn}15`);
+            const col = r.finalBalance < 1 ? C.mut : (r.balance > 0 ? C.red : C.grn);
+            const txt = r.finalBalance < 1 ? 'מאוזן' : (r.balance > 0 ? 'אנחנו צריכים לשלם לו' : 'הוא צריך להעביר לנו');
+            return <div style={{ background: bg, color: col, padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 13 }}>
+              {r.hasVat && r.finalBalance >= 1 ? <>
+                <div style={{ fontSize: 10, color: C.dim }}>זכאות: {fmtC(Math.abs(r.balance))}</div>
+                <div style={{ fontSize: 10, color: C.ylw }}>מע״מ 18%: {fmtC(r.vatAmt)}</div>
+                <div style={{ fontSize: 16 }}>{fmtC(r.finalBalance)}</div>
+              </> : <div style={{ fontSize: 16 }}>{fmtC(r.finalBalance)}</div>}
+              <div style={{ fontSize: 9 }}>{txt}{r.hasVat && r.finalBalance >= 1 ? " (כולל מע״מ)" : ""}</div>
+            </div>;
           }},
           {
             label: "חוב מצטבר",
@@ -5871,7 +6084,7 @@ function DebtsPage() {
           },
           {
             label: "פעולות",
-            render: r => <Btn size="sm" variant="outline" onClick={() => { setModalChatter(r); setChatterForm({ amount: Math.abs(r.balance), direction: r.balance > 0 ? "AgencyToChatter" : "ChatterToAgency", notes: "" }); }}>
+            render: r => <Btn size="sm" variant="outline" onClick={() => { setModalChatter(r); setChatterForm({ amount: Math.abs(r.balance), direction: r.balance > 0 ? "AgencyToChatter" : "ChatterToAgency", notes: "", paidBy: "סוכנות", taxRecognized: true, vatRecognized: false }); }}>
               ⚖️ בצע קיזוז
             </Btn>
           }
@@ -5918,13 +6131,17 @@ function DebtsPage() {
           { label: "שכר מגיע", render: r => <span style={{ color: C.pri }}>{fmtC(r.entitlement)}</span> },
           { label: "קוזז", render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
           { label: "נשאר לקיזוז", render: r => {
-            if (Math.abs(r.actualDue) < 1) return <span style={{ color: C.mut }}>מאוזן</span>;
-            const col = r.actualDue > 0 ? C.grn : C.red;
+            if (Math.abs(r.actualDue) < 1) return <div style={{ background: 'transparent', color: C.mut, padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 13 }}><div style={{ fontSize: 16 }}>מאוזן</div></div>;
+            const bg = r.actualDue > 0 ? `${C.red}15` : `${C.grn}15`;
+            const col = r.actualDue > 0 ? C.red : C.grn;
             const txt = r.actualDue > 0 ? "אנחנו חייבים לה" : "היא חייבת לנו";
-            return <div style={{ color: col, fontWeight: 700 }}>
-              {fmtC(r.hasVat ? r.finalDue : Math.abs(r.actualDue))}
-              {r.hasVat && <div style={{ fontSize: 10, color: C.ylw }}>כולל מע״מ</div>}
-              <div style={{ fontSize: 10, fontWeight: 400 }}>{txt}</div>
+            return <div style={{ background: bg, color: col, padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 13 }}>
+              {r.hasVat ? <>
+                <div style={{ fontSize: 10, color: C.dim }}>זכאות: {fmtC(Math.abs(r.actualDue))}</div>
+                <div style={{ fontSize: 10, color: C.ylw }}>מע״מ 18%: {fmtC(Math.abs(r.actualDue) * 0.18)}</div>
+                <div style={{ fontSize: 16 }}>{fmtC(r.finalDue)}</div>
+              </> : <div style={{ fontSize: 16 }}>{fmtC(Math.abs(r.actualDue))}</div>}
+              <div style={{ fontSize: 9 }}>{txt}{r.hasVat ? " (כולל מע״מ)" : ""}</div>
             </div>;
           }}
         ]} rows={yearlyClientRows}
@@ -5941,13 +6158,17 @@ function DebtsPage() {
           { label: "שולם ישירות", render: r => <span style={{ color: C.grn }}>{fmtC(r.totalPaidDirect)}</span> },
           { label: "קוזז", render: r => <span style={{ color: C.ylw }}>{fmtC(r.netSettled)}</span> },
           { label: "נשאר לקיזוז", render: r => {
-            if (Math.abs(r.balance) < 1) return <span style={{ color: C.mut }}>מאוזן</span>;
+            if (Math.abs(r.balance) < 1) return <div style={{ background: 'transparent', color: C.mut, padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 13 }}><div style={{ fontSize: 16 }}>מאוזן</div></div>;
+            const bg = r.balance > 0 ? `${C.red}15` : `${C.grn}15`;
             const col = r.balance > 0 ? C.red : C.grn;
-            const txt = r.balance > 0 ? "אנחנו חייבים" : "הוא חייב לנו";
-            return <div style={{ color: col, fontWeight: 700 }}>
-              {fmtC(r.hasVat ? r.finalBalance : Math.abs(r.balance))}
-              {r.hasVat && <div style={{ fontSize: 10, color: C.ylw }}>כולל מע״מ</div>}
-              <div style={{ fontSize: 10, fontWeight: 400 }}>{txt}</div>
+            const txt = r.balance > 0 ? "אנחנו חייבים לו" : "הוא חייב לנו";
+            return <div style={{ background: bg, color: col, padding: "4px 8px", borderRadius: 4, fontWeight: "bold", fontSize: 13 }}>
+              {r.hasVat ? <>
+                <div style={{ fontSize: 10, color: C.dim }}>זכאות: {fmtC(Math.abs(r.balance))}</div>
+                <div style={{ fontSize: 10, color: C.ylw }}>מע״מ 18%: {fmtC(Math.abs(r.balance) * 0.18)}</div>
+                <div style={{ fontSize: 16 }}>{fmtC(r.finalBalance)}</div>
+              </> : <div style={{ fontSize: 16 }}>{fmtC(Math.abs(r.balance))}</div>}
+              <div style={{ fontSize: 9 }}>{txt}{r.hasVat ? " (כולל מע״מ)" : ""}</div>
             </div>;
           }}
         ]} rows={yearlyChatterRows}
@@ -5971,6 +6192,21 @@ function DebtsPage() {
         <label style={{ color: C.dim, fontSize: 12 }}>הערה (אופציונלי)</label>
         <input type="text" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} style={{ padding: 12, borderRadius: 8, background: C.bg, border: `1px solid ${C.bdr}`, color: C.txt, outline: "none" }} placeholder="העברה בביט / מזומן / סיבת קיזוז" />
 
+        <label style={{ color: C.dim, fontSize: 12 }}>שולם ע״י</label>
+        <select value={form.paidBy || "סוכנות"} onChange={e => setForm({ ...form, paidBy: e.target.value })} style={{ padding: 10, borderRadius: 8, background: C.bg, border: `1px solid ${C.bdr}`, color: C.txt, outline: "none", fontSize: 13 }}>
+          <option value="דור">דור</option><option value="יוראי">יוראי</option><option value="סוכנות">סוכנות</option>
+        </select>
+        <div style={{ display: "flex", gap: 16 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+            <input type="checkbox" checked={form.taxRecognized !== false} onChange={e => setForm({ ...form, taxRecognized: e.target.checked })} />
+            <span style={{ color: C.dim, fontSize: 12 }}>מוכר למס</span>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+            <input type="checkbox" checked={form.vatRecognized === true} onChange={e => setForm({ ...form, vatRecognized: e.target.checked })} />
+            <span style={{ color: C.dim, fontSize: 12 }}>מוכר למע״מ</span>
+          </label>
+        </div>
+
         <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
           <Btn style={{ flex: 1 }} variant="success" onClick={handleSave} disabled={saving}>{saving ? "⏳" : "💾 תעד המרה/קיזוז"}</Btn>
           <Btn variant="ghost" onClick={() => setModalClient(null)}>ביטול</Btn>
@@ -5993,6 +6229,21 @@ function DebtsPage() {
 
         <label style={{ color: C.dim, fontSize: 12 }}>הערה (אופציונלי)</label>
         <input type="text" value={chatterForm.notes} onChange={e => setChatterForm({ ...chatterForm, notes: e.target.value })} style={{ padding: 12, borderRadius: 8, background: C.bg, border: `1px solid ${C.bdr}`, color: C.txt, outline: "none" }} placeholder="העברה בביט / מזומן / סיבת קיזוז" />
+
+        <label style={{ color: C.dim, fontSize: 12 }}>שולם ע״י</label>
+        <select value={chatterForm.paidBy || "סוכנות"} onChange={e => setChatterForm({ ...chatterForm, paidBy: e.target.value })} style={{ padding: 10, borderRadius: 8, background: C.bg, border: `1px solid ${C.bdr}`, color: C.txt, outline: "none", fontSize: 13 }}>
+          <option value="דור">דור</option><option value="יוראי">יוראי</option><option value="סוכנות">סוכנות</option>
+        </select>
+        <div style={{ display: "flex", gap: 16 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+            <input type="checkbox" checked={chatterForm.taxRecognized !== false} onChange={e => setChatterForm({ ...chatterForm, taxRecognized: e.target.checked })} />
+            <span style={{ color: C.dim, fontSize: 12 }}>מוכר למס</span>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+            <input type="checkbox" checked={chatterForm.vatRecognized === true} onChange={e => setChatterForm({ ...chatterForm, vatRecognized: e.target.checked })} />
+            <span style={{ color: C.dim, fontSize: 12 }}>מוכר למע״מ</span>
+          </label>
+        </div>
 
         <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
           <Btn style={{ flex: 1 }} variant="success" onClick={handleChatterSave} disabled={saving}>{saving ? "⏳" : "💾 תעד קיזוז"}</Btn>
@@ -6022,8 +6273,10 @@ function ShiftsPage() {
   const [editClients, setEditClients] = useState([]);
   const [editClockIn, setEditClockIn] = useState("");
   const [editClockOut, setEditClockOut] = useState("");
+  const [logChatterFilter, setLogChatterFilter] = useState("all");
 
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
+  const allRegisteredClients = useMemo(() => (sheetUsers || []).filter(u => u.role === "client").map(u => u.name).sort(), [sheetUsers]);
 
   const DAY_SHORT = ["ר׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
 
@@ -6045,7 +6298,9 @@ function ShiftsPage() {
     setWeekStart(d.toISOString().slice(0, 10));
   };
 
+  const viewMonthInitRef = useRef(true);
   useEffect(() => {
+    if (viewMonthInitRef.current) { viewMonthInitRef.current = false; return; }
     const first = new Date(viewYear, viewMonth, 1);
     first.setDate(first.getDate() - first.getDay());
     setWeekStart(first.toISOString().slice(0, 10));
@@ -6342,6 +6597,11 @@ function ShiftsPage() {
                     {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginTop: 1 }}>{s.clients.join(", ")}</div>}
                     {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>↑{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.clockOut ? ` ↓${new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}</div>}
                   </div>; })}
+                  {(() => {
+                    const assignedClients = new Set(approved.flatMap(s => s.clients || []));
+                    const unassigned = allRegisteredClients.filter(c => !assignedClients.has(c));
+                    return unassigned.length > 0 && approved.length > 0 ? <div style={{ fontSize: 9, color: C.red, marginTop: 2, background: `${C.red}10`, borderRadius: 4, padding: "1px 4px" }} title={unassigned.join(", ")}>חוסרים: {unassigned.length}</div> : null;
+                  })()}
                   {!approved.length && <span style={{ color: C.mut, fontSize: 11 }}>+</span>}
                 </td>;
               })}
@@ -6351,22 +6611,25 @@ function ShiftsPage() {
       </div>
     </Card>
 
-    {/* Monthly Shift Log per Chatter */}
+    {/* Monthly Shift Log — Unified Table with Chatter Filter */}
     {monthlySummary.length > 0 && <Card style={{ marginTop: 20 }}>
-      <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📊 לוג משמרות — {ymiMonthName} {ymiYear}</h3>
-      {monthlySummary.map(({ chatterName, shifts: cnt, totalHours, entries }) => {
-        const avg = cnt > 0 ? Math.round((totalHours / cnt) * 10) / 10 : 0;
-        return <div key={chatterName} style={{ marginBottom: 16, border: `1px solid ${C.bdr}`, borderRadius: 8, overflow: "hidden" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: `${C.pri}15` }}>
-            <span style={{ color: C.txt, fontWeight: 700, fontSize: 14 }}>{chatterName}</span>
-            <span style={{ color: C.dim, fontSize: 12 }}>
-              {cnt} משמרות · <span style={{ color: totalHours > 0 ? C.grn : C.mut, fontWeight: 700 }}>{totalHours}</span> ש׳
-              {avg > 0 && <span> · ממוצע {avg}ש׳</span>}
-            </span>
-          </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+        <h3 style={{ color: C.pri, fontSize: 15, margin: 0 }}>📊 לוג משמרות — {ymiMonthName} {ymiYear}</h3>
+        <select value={logChatterFilter} onChange={e => setLogChatterFilter(e.target.value)} style={{ padding: "4px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }}>
+          <option value="all">כל הצ'אטרים</option>
+          {monthlySummary.map(({ chatterName }) => <option key={chatterName} value={chatterName}>{chatterName}</option>)}
+        </select>
+      </div>
+      {(() => {
+        const filtered = logChatterFilter === "all" ? monthlySummary : monthlySummary.filter(m => m.chatterName === logChatterFilter);
+        const allEntries = filtered.flatMap(({ chatterName, entries }) => entries.map(e => ({ ...e, chatterName }))).sort((a, b) => a.date > b.date ? 1 : a.date < b.date ? -1 : 0);
+        const totalShifts = filtered.reduce((s, r) => s + r.shifts, 0);
+        const totalHrs = filtered.reduce((s, r) => s + r.totalHours, 0);
+        return <>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${C.bdr}`, background: C.bg }}>
+                <th style={{ padding: "5px 10px", color: C.dim, textAlign: "right", fontWeight: 600 }}>צ'אטר</th>
                 <th style={{ padding: "5px 10px", color: C.dim, textAlign: "right", fontWeight: 600 }}>תאריך</th>
                 <th style={{ padding: "5px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>משמרת</th>
                 <th style={{ padding: "5px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>כניסה</th>
@@ -6376,12 +6639,13 @@ function ShiftsPage() {
               </tr>
             </thead>
             <tbody>
-              {entries.map(s => {
+              {allEntries.map(s => {
                 const dayDate = new Date(s.date + "T00:00:00");
                 const dayName = DAY_SHORT[dayDate.getDay()];
                 const clockInTime = s.clockIn ? new Date(s.clockIn).toTimeString().slice(0, 5) : "—";
                 const clockOutTime = s.clockOut ? new Date(s.clockOut).toTimeString().slice(0, 5) : "—";
                 return <tr key={s.id} style={{ borderBottom: `1px solid ${C.bdr}22` }}>
+                  <td style={{ padding: "6px 10px", color: C.pri, fontWeight: 600 }}>{s.chatterName}</td>
                   <td style={{ padding: "6px 10px", color: C.txt }}>{dayName} {s.date.slice(8)}/{s.date.slice(5, 7)}</td>
                   <td style={{ padding: "6px 10px", color: C.dim, textAlign: "center" }}>{s.slotLabel || ""}</td>
                   <td style={{ padding: "6px 10px", color: s.clockIn ? C.grn : C.mut, textAlign: "center" }}>{clockInTime}</td>
@@ -6392,14 +6656,14 @@ function ShiftsPage() {
               })}
             </tbody>
           </table>
-        </div>;
-      })}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderTop: `2px solid ${C.bdr}`, marginTop: 4 }}>
-        <span style={{ color: C.dim, fontWeight: 600 }}>סה״כ</span>
-        <span style={{ color: C.dim, fontSize: 13 }}>
-          {monthlySummary.reduce((s, r) => s + r.shifts, 0)} משמרות · <span style={{ color: C.grn, fontWeight: 700 }}>{monthlySummary.reduce((s, r) => s + r.totalHours, 0)}</span> ש׳
-        </span>
-      </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderTop: `2px solid ${C.bdr}`, marginTop: 4 }}>
+            <span style={{ color: C.dim, fontWeight: 600 }}>סה״כ</span>
+            <span style={{ color: C.dim, fontSize: 13 }}>
+              {totalShifts} משמרות · <span style={{ color: C.grn, fontWeight: 700 }}>{totalHrs}</span> ש׳
+            </span>
+          </div>
+        </>;
+      })()}
       <div style={{ marginTop: 10, fontSize: 11, color: C.mut }}>⟳ שעות מסונכרנות אוטומטית לפרופיל כל צ'אטר</div>
     </Card>}
 
@@ -6467,15 +6731,18 @@ function AssetsPage() {
   const { assets, addAssetCtx, updateAssetCtx, removeAssetCtx, demo } = useApp();
   const [showForm, setShowForm] = useState(false);
   const [editAsset, setEditAsset] = useState(null);
-  const [form, setForm] = useState({ name: "", category: "ציוד", purchaseDate: new Date().toISOString().slice(0, 10), cost: "", status: "פעיל", notes: "" });
+  const [activeTab, setActiveTab] = useState("ציוד");
+  const defaultForm = { name: "", category: "ציוד", purchaseDate: new Date().toISOString().slice(0, 10), cost: "", status: "פעיל", notes: "", description: "", sku: "", borrower: "" };
+  const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
   const [delConfirm, setDelConfirm] = useState(null);
+  const inpS = { width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" };
 
-  const openAdd = () => { setForm({ name: "", category: "ציוד", purchaseDate: new Date().toISOString().slice(0, 10), cost: "", status: "פעיל", notes: "" }); setEditAsset(null); setShowForm(true); };
-  const openEdit = (a) => { setForm({ name: a.name || "", category: a.category || "ציוד", purchaseDate: (a.purchaseDate || "").slice?.(0, 10) || "", cost: a.cost || "", status: a.status || "פעיל", notes: a.notes || "" }); setEditAsset(a); setShowForm(true); };
+  const openAdd = (cat) => { setForm({ ...defaultForm, category: cat }); setEditAsset(null); setShowForm(true); };
+  const openEdit = (a) => { setForm({ name: a.name || "", category: a.category || "ציוד", purchaseDate: (a.purchaseDate || "").slice?.(0, 10) || "", cost: a.cost || "", status: a.status || "פעיל", notes: a.notes || "", description: a.description || "", sku: a.sku || "", borrower: a.borrower || "" }); setEditAsset(a); setShowForm(true); };
 
   const handleSave = async () => {
-    if (!form.name.trim() || !form.cost) return alert("נא למלא שם ומחיר");
+    if (!form.name.trim()) return alert("נא למלא שם");
     setSaving(true);
     try {
       const data = { ...form, cost: +form.cost || 0 };
@@ -6490,54 +6757,83 @@ function AssetsPage() {
     try { await removeAssetCtx(a.id); setDelConfirm(null); } catch (e) { alert("שגיאה: " + e.message); }
   };
 
-  const active = assets.filter(a => a.status === "פעיל");
-  const totalValue = active.reduce((s, a) => s + (+a.cost || 0), 0);
+  const equipment = assets.filter(a => a.category === "ציוד");
+  const assetItems = assets.filter(a => a.category === "נכס");
+  const activeItems = assets.filter(a => a.status === "פעיל");
+  const totalValue = activeItems.reduce((s, a) => s + (+a.cost || 0), 0);
 
   return <div style={{ direction: "rtl", maxWidth: 1000, margin: "0 auto" }}>
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
       <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700 }}>🏗️ נכסים וציוד</h2>
-      <Btn variant="primary" onClick={openAdd}>+ הוסף נכס/ציוד</Btn>
+      <Btn variant="primary" onClick={() => openAdd(activeTab)}>+ הוסף {activeTab === "ציוד" ? "ציוד" : "נכס"}</Btn>
     </div>
 
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
       <Stat icon="📦" title="סה״כ פריטים" value={assets.length} color={C.pri} />
-      <Stat icon="✅" title="פעילים" value={active.length} color={C.grn} />
-      <Stat icon="💰" title="שווי נכסים פעילים" value={fmtC(totalValue)} color={C.ylw} />
+      <Stat icon="🔧" title="ציוד" value={equipment.length} color={C.cyan} />
+      <Stat icon="🏠" title="נכסים" value={assetItems.length} color={C.pri} />
+      <Stat icon="💰" title="שווי פעילים" value={fmtC(totalValue)} color={C.ylw} />
     </div>
 
-    <Card style={{ padding: 0 }}>
+    {/* Tab switcher */}
+    <div style={{ display: "flex", gap: 0, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.bdr}`, marginBottom: 16, width: "fit-content" }}>
+      {["ציוד", "נכס"].map(tab => <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: "8px 24px", background: activeTab === tab ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 14, fontWeight: activeTab === tab ? 700 : 400 }}>{tab === "ציוד" ? "🔧 ציוד" : "🏠 נכסים"}</button>)}
+    </div>
+
+    {activeTab === "ציוד" ? <Card style={{ padding: 0 }}>
       <DT columns={[
         { label: "שם", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
-        { label: "קטגוריה", render: r => <span style={{ color: r.category === "נכס" ? C.pri : C.cyan }}>{r.category}</span> },
-        { label: "תאריך רכישה", render: r => r.purchaseDate ? r.purchaseDate.slice(0, 10) : "—" },
+        { label: "תיאור", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.description || "—"}</span> },
+        { label: "מק״ט", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.sku || "—"}</span> },
         { label: "עלות ₪", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(+r.cost || 0)}</span> },
+        { label: "סטטוס", render: r => <span style={{ color: r.status === "פעיל" ? C.grn : r.status === "מושאל" ? C.ylw : C.red }}>{r.status}{r.status === "מושאל" && r.borrower ? ` (${r.borrower})` : ""}</span> },
+        { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> },
+        { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}>
+          <Btn size="sm" variant="outline" onClick={() => openEdit(r)}>✏️</Btn>
+          <Btn size="sm" variant="danger" onClick={() => setDelConfirm(r)}>🗑️</Btn>
+        </div> }
+      ]} rows={equipment} />
+    </Card> : <Card style={{ padding: 0 }}>
+      <DT columns={[
+        { label: "שם", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
+        { label: "תיאור", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.description || "—"}</span> },
+        { label: "שווי ₪", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(+r.cost || 0)}</span> },
+        { label: "תאריך רכישה", render: r => r.purchaseDate ? r.purchaseDate.slice(0, 10) : "—" },
         { label: "סטטוס", render: r => <span style={{ color: r.status === "פעיל" ? C.grn : r.status === "נמכר" ? C.ylw : C.red }}>{r.status}</span> },
         { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> },
         { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}>
           <Btn size="sm" variant="outline" onClick={() => openEdit(r)}>✏️</Btn>
           <Btn size="sm" variant="danger" onClick={() => setDelConfirm(r)}>🗑️</Btn>
         </div> }
-      ]} rows={assets} />
-    </Card>
+      ]} rows={assetItems} />
+    </Card>}
 
-    {showForm && <Modal open={true} onClose={() => setShowForm(false)} title={editAsset ? "✏️ עריכת נכס/ציוד" : "➕ הוספת נכס/ציוד"} width={420}>
+    {showForm && <Modal open={true} onClose={() => setShowForm(false)} title={editAsset ? "✏️ עריכה" : `➕ הוספת ${form.category}`} width={420}>
       <div style={{ direction: "rtl", display: "flex", flexDirection: "column", gap: 10 }}>
         <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>שם</label>
-          <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
+          <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inpS} /></div>
+        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>תיאור</label>
+          <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} style={inpS} placeholder="תיאור הפריט" /></div>
         <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>קטגוריה</label>
-          <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" }}>
+          <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} style={inpS}>
             <option value="ציוד">ציוד</option><option value="נכס">נכס</option>
           </select></div>
+        {form.category === "ציוד" && <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>מק״ט (SKU)</label>
+          <input value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} style={inpS} placeholder="מספר קטלוגי" /></div>}
+        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>{form.category === "נכס" ? "שווי ₪" : "עלות ₪"}</label>
+          <input type="number" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} style={inpS} /></div>
         <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>תאריך רכישה</label>
-          <input type="date" value={form.purchaseDate} onChange={e => setForm(f => ({ ...f, purchaseDate: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
-        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>עלות ₪</label>
-          <input type="number" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
+          <input type="date" value={form.purchaseDate} onChange={e => setForm(f => ({ ...f, purchaseDate: e.target.value }))} style={inpS} /></div>
         <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>סטטוס</label>
-          <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none" }}>
-            <option value="פעיל">פעיל</option><option value="נמכר">נמכר</option><option value="הושלך">הושלך</option>
+          <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={inpS}>
+            <option value="פעיל">פעיל</option>
+            {form.category === "ציוד" && <option value="מושאל">מושאל</option>}
+            <option value="נמכר">נמכר</option><option value="הושלך">הושלך</option>
           </select></div>
+        {form.category === "ציוד" && form.status === "מושאל" && <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>מושאל ל</label>
+          <input value={form.borrower} onChange={e => setForm(f => ({ ...f, borrower: e.target.value }))} style={inpS} placeholder="שם השואל" /></div>}
         <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>הערות</label>
-          <input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" }} /></div>
+          <input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={inpS} /></div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
           <Btn variant="ghost" onClick={() => setShowForm(false)}>ביטול</Btn>
           <Btn variant="primary" onClick={handleSave} disabled={saving}>{saving ? "⏳" : "💾 שמור"}</Btn>
@@ -6545,7 +6841,7 @@ function AssetsPage() {
       </div>
     </Modal>}
 
-    {delConfirm && <Modal open={true} onClose={() => setDelConfirm(null)} title="🗑️ מחיקת נכס" width={360}>
+    {delConfirm && <Modal open={true} onClose={() => setDelConfirm(null)} title="🗑️ מחיקה" width={360}>
       <div style={{ direction: "rtl", textAlign: "center" }}>
         <p style={{ color: C.txt, marginBottom: 16 }}>למחוק את <strong>{delConfirm.name}</strong>?</p>
         <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
