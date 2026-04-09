@@ -1479,7 +1479,7 @@ function DashPage() {
   const empGrossMonthly = employees.reduce((s, e) => s + e.grossAmount, 0);
   const empNIMonthly = employees.reduce((s, e) => s + e.nationalInsurance, 0);
   const empMonthly = empGrossMonthly + empNIMonthly;
-  const burnRate = mp.exp + empMonthly + fixedGap;
+  const burnRate = fixedMonthly;
   const agencyIncome = mp.inc - totalClientSalary;
   // ל.מ: sum of income records marked as isLm, fallback to manual lmVals
   const lmFromRecords = activeI.filter(r => r.isLm === true && !r.cancelled).reduce((s, r) => s + r.amountILS, 0);
@@ -1769,7 +1769,6 @@ function DashPage() {
         <div style={{ color: C.red, fontSize: 13, fontWeight: 600, marginBottom: 4 }}>🔥 שריפה חודשית</div>
         <div style={{ fontSize: 36, fontWeight: 800, color: C.red }}>{fmtC(burnRate)}</div>
         <div style={{ color: C.mut, fontSize: 12, marginTop: 6 }}>עלות ההחזקה של העסק ללא הכנסות</div>
-        {fixedMonthly > 0 && <div style={{ color: C.dim, fontSize: 11, marginTop: 4 }}>הוצאות קבועות: {fmtC(fixedMonthly)} | שכירים: {fmtC(empMonthly)}</div>}
       </Card>}
     </div> : <>
       {/* Row 1: Sales breakdown → agency income */}
@@ -1813,7 +1812,6 @@ function DashPage() {
         <div style={{ color: C.red, fontSize: 13, fontWeight: 600, marginBottom: 4 }}>🔥 שריפה חודשית</div>
         <div style={{ fontSize: 36, fontWeight: 800, color: C.red }}>{fmtC(burnRate)}</div>
         <div style={{ color: C.mut, fontSize: 12, marginTop: 6 }}>עלות ההחזקה של העסק ללא הכנסות</div>
-        {fixedMonthly > 0 && <div style={{ color: C.dim, fontSize: 11, marginTop: 4 }}>הוצאות קבועות: {fmtC(fixedMonthly)} | שכירים: {fmtC(empMonthly)}</div>}
       </Card>}
       {(() => {
         const mergedData = mbd.map((d, i) => {
