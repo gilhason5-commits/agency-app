@@ -2785,11 +2785,13 @@ function ExpPage() {
       {view === "monthly" ? <>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 16 }}>
           {(() => {
-            const chPaid = periodSets.filter(s => s.entityType === "chatter" && s.direction === "AgencyToChatter").reduce((s, r) => s + (r.amount || 0), 0);
-            const clPaid = periodSets.filter(s => s.entityType !== "chatter" && s.direction === "AgencyToClient").reduce((s, r) => s + (r.amount || 0), 0);
+            const settlementExps = data.filter(e => e.source === "auto-settlement");
+            const chPaid = settlementExps.filter(e => e.category === "קיזוז צ'אטר").reduce((s, e) => s + e.amount, 0);
+            const clPaid = settlementExps.filter(e => e.category === "קיזוז לקוח").reduce((s, e) => s + e.amount, 0);
             const manualTotal = data.filter(e => e.source === "ידני").reduce((s, e) => s + e.amount, 0);
+            const emailTotal = data.filter(e => e.source !== "ידני" && e.source !== "auto-settlement").reduce((s, e) => s + e.amount, 0);
             const fixedTotal = fixedExps.reduce((s, e) => s + toMonthly(e.amount, e.period), 0);
-            const grandTotal = manualTotal + chPaid + clPaid + fixedTotal;
+            const grandTotal = manualTotal + emailTotal + chPaid + clPaid + fixedTotal;
             return <Card style={{ flex: 1, minWidth: 200, padding: "14px 18px" }}>
               <div style={{ color: C.dim, fontSize: 12, marginBottom: 4 }}>💳 סה״כ הוצאות — {MONTHS_HE[month]}</div>
               <div style={{ fontSize: 28, fontWeight: 800, color: C.red, marginBottom: 8 }}>{fmtC(grandTotal)}</div>
@@ -2797,6 +2799,10 @@ function ExpPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
                   <span>✍️ הוצאות ידניות</span>
                   <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(manualTotal)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
+                  <span>📧 חשבוניות מהמייל</span>
+                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(emailTotal)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
                   <span>👥 שולם לצ'אטרים (קיזוזים)</span>
@@ -2829,6 +2835,12 @@ function ExpPage() {
         <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>✍️ הוצאות ידניות ({MONTHS_HE[month]})</h3>
           <DT columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "ספק/סיבה", key: "category" }, { label: "פירוט", render: r => <span>{r.name}{r.installmentTotal > 0 && <span style={{ marginRight: 6, fontSize: 10, background: `${C.ylw}33`, color: C.ylw, border: `1px solid ${C.ylw}55`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>💳 {r.installmentCurrent}/{r.installmentTotal}</span>}</span> }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "תשלום", key: "paidBy" }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={data.filter(e => e.source === "ידני").sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", fmtC(data.filter(e => e.source === "ידני").reduce((s, e) => s + e.amount, 0)), "", ""]} />
         </div>
+        {(() => {
+          const emailRows = data.filter(e => e.source !== "ידני" && e.source !== "auto-settlement").sort((a, b) => ((b.date || 0) - (a.date || 0)));
+          return emailRows.length > 0 ? <div style={{ marginTop: 28, overflowX: "auto" }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>📧 חשבוניות מהמייל ({MONTHS_HE[month]})</h3>
+            <DT columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "ספק/סיבה", key: "category" }, { label: "פירוט", key: "name" }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "מעמ", render: r => <button onClick={() => updField(r, "vatRecognized", !r.vatRecognized)} style={{ background: r.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: r.vatRecognized ? C.grn : C.red, border: `1px solid ${r.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.vatRecognized ? "כן" : "לא"}</button> }, { label: "מס", render: r => <button onClick={() => updField(r, "taxRecognized", !r.taxRecognized)} style={{ background: r.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: r.taxRecognized ? C.grn : C.red, border: `1px solid ${r.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.taxRecognized ? "כן" : "לא"}</button> }, { label: "תשלום", key: "paidBy" }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={emailRows} footer={["סה״כ", "", "", fmtC(emailRows.reduce((s, e) => s + e.amount, 0)), "", "", "", ""]} />
+          </div> : null;
+        })()}
         <Modal open={!!popCat} onClose={() => setPopCat(null)} title={`📂 ${popCat}`}>{data.filter(e => e.category === popCat).sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || "")).map(e => <div key={e.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.bdr}` }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ flex: 1 }}><div style={{ fontWeight: 600, color: C.txt, fontSize: 13 }}>{e.name}</div><div style={{ fontSize: 10, color: C.mut, marginTop: 3 }}>{fmtD(e.date)} {e.hour && `• ${e.hour}`} • {e.paidBy} • {e.source === "אוטומטי" ? "🤖" : "✍️"} {e.source}</div></div><div style={{ textAlign: "left" }}><div style={{ fontSize: 15, fontWeight: 700, color: C.red, marginBottom: 4 }}>{fmtC(e.amount)}</div>{e.source === "ידני" && <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => { setEditExp(e); setPopCat(null); }}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(e)} style={{ color: C.red }}>🗑️</Btn></div>}</div></div></div>)}</Modal>
         <Modal open={!!delExp} onClose={() => setDelExp(null)} title="🗑️ מחיקה" width={360}><p style={{ color: C.dim, fontSize: 13, marginBottom: 16 }}>למחוק "{delExp?.name}" ({fmtC(delExp?.amount)})?</p><div style={{ display: "flex", gap: 8 }}><Btn variant="danger" onClick={() => handleDelete(delExp)}>כן</Btn><Btn variant="ghost" onClick={() => setDelExp(null)}>לא</Btn></div></Modal>
       </> : <>
@@ -4463,6 +4475,13 @@ function ChatterPortal({ hideHeader } = {}) {
   const registeredClients = useMemo(() => (sheetUsers || []).filter(u => u.role === "client").map(u => u.name).sort(), [sheetUsers]);
   const myShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "approved").sort((a, b) => a.date > b.date ? 1 : -1), [shifts, chatterName]);
   const myPendingShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "pending"), [shifts, chatterName]);
+  const takenClients = useMemo(() => {
+    if (!shiftReqDate || !shiftReqSlot) return new Set();
+    const taken = new Set();
+    shifts.filter(s => s.status === "approved" && s.date === shiftReqDate && s.slotId === shiftReqSlot && s.chatterName !== chatterName)
+      .forEach(s => (s.clients || []).forEach(c => taken.add(c)));
+    return taken;
+  }, [shifts, shiftReqDate, shiftReqSlot, chatterName]);
 
   // Clock-in/out state
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -4956,6 +4975,7 @@ function ChatterPortal({ hideHeader } = {}) {
                       {cellShifts.map(s => <div key={s.id} style={{ padding: "2px 4px", borderRadius: 4, marginBottom: 2, fontSize: 10, background: s.chatterName === chatterName ? `${C.pri}30` : `${C.bdr}40`, color: s.chatterName === chatterName ? C.pri : C.dim, fontWeight: s.chatterName === chatterName ? 700 : 400 }}>
                         {s.chatterName === chatterName ? "אני" : s.chatterName}
                         {s.clockIn && !s.clockOut && <span style={{ color: C.grn }}> ●</span>}
+                        {(s.clients || []).length > 0 && <div style={{ fontSize: 8, color: C.mut, marginTop: 1 }}>{s.clients.join(", ")}</div>}
                       </div>)}
                     </td>;
                   })}
@@ -5004,7 +5024,7 @@ function ChatterPortal({ hideHeader } = {}) {
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
             <span style={{ color: C.dim, fontSize: 11 }}>לקוחות:</span>
-            {registeredClients.map(c => <button key={c} onClick={() => setShiftReqClients(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, border: `1px solid ${shiftReqClients.includes(c) ? C.pri : C.bdr}`, background: shiftReqClients.includes(c) ? `${C.pri}22` : C.card, color: shiftReqClients.includes(c) ? C.pri : C.dim, cursor: "pointer" }}>{c}</button>)}
+            {registeredClients.map(c => { const tk = takenClients.has(c), sel = shiftReqClients.includes(c); return <button key={c} onClick={() => setShiftReqClients(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, border: `1px solid ${sel ? C.pri : tk ? C.red : C.bdr}`, background: sel ? `${C.pri}22` : tk ? `${C.red}18` : C.card, color: sel ? C.pri : tk ? C.red : C.dim, opacity: tk && !sel ? 0.7 : 1, cursor: "pointer" }}>{c}{tk ? " (תפוס)" : ""}</button>; })}
           </div>
           <div>
             <Btn size="sm" variant="success" onClick={requestShift} disabled={shiftSaving || !shiftReqSlot}>{shiftSaving ? "⏳" : "שלח בקשה"}</Btn>
