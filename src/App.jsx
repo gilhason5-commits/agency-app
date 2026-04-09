@@ -2708,8 +2708,9 @@ function RecordIncomeAdmin({ onClose }) {
 // PAGE: EXPENSES
 // ═══════════════════════════════════════════════════════
 function ExpPage() {
-  const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo, rv, chatterSettings, clientSettings, settlements, customCats, addCustomCat, removeCustomCat, renameCustomCat } = useApp();
+  const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo, rv, chatterSettings, clientSettings, settlements, customCats, addCustomCat, removeCustomCat, renameCustomCat, fixedExps } = useApp();
   const allCats = customCats;
+  const toMonthly = (amount, period) => period === "monthly" ? amount : period === "quarterly" ? amount / 3 : amount / 12;
   const [showAddCat, setShowAddCat] = useState(false);
   const [newCatName, setNewCatName] = useState("");
   const [editingCat, setEditingCat] = useState(null);
@@ -2786,14 +2787,16 @@ function ExpPage() {
           {(() => {
             const chPaid = periodSets.filter(s => s.entityType === "chatter" && s.direction === "AgencyToChatter").reduce((s, r) => s + (r.amount || 0), 0);
             const clPaid = periodSets.filter(s => s.entityType !== "chatter" && s.direction === "AgencyToClient").reduce((s, r) => s + (r.amount || 0), 0);
-            const grandTotal = total + chPaid + clPaid;
+            const manualTotal = data.filter(e => e.source === "ידני").reduce((s, e) => s + e.amount, 0);
+            const fixedTotal = fixedExps.reduce((s, e) => s + toMonthly(e.amount, e.period), 0);
+            const grandTotal = manualTotal + chPaid + clPaid + fixedTotal;
             return <Card style={{ flex: 1, minWidth: 200, padding: "14px 18px" }}>
               <div style={{ color: C.dim, fontSize: 12, marginBottom: 4 }}>💳 סה״כ הוצאות — {MONTHS_HE[month]}</div>
               <div style={{ fontSize: 28, fontWeight: 800, color: C.red, marginBottom: 8 }}>{fmtC(grandTotal)}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
-                  <span>💳 הוצאות סוכנות</span>
-                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(total)}</span>
+                  <span>✍️ הוצאות ידניות</span>
+                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(manualTotal)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
                   <span>👥 שולם לצ'אטרים (קיזוזים)</span>
@@ -2802,6 +2805,10 @@ function ExpPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
                   <span>👩 שולם ללקוחות (קיזוזים)</span>
                   <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(clPaid)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
+                  <span>🔒 הוצאות קבועות</span>
+                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(fixedTotal)}</span>
                 </div>
               </div>
             </Card>;
@@ -2828,11 +2835,21 @@ function ExpPage() {
         <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><BarChart data={MONTHS_HE.map((m, i) => ({ name: MONTHS_SHORT[i], value: data.filter(e => e.date && e.date.getMonth() === i).reduce((s, e) => s + e.amount, 0) }))}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.red} radius={[4, 4, 0, 0]} name="הוצאות" /></BarChart></ResponsiveContainer></Card>
         <DT columns={[{ label: "קטגוריה", key: "category" }, ...MONTHS_HE.map((m, i) => ({ label: MONTHS_SHORT[i], render: r => r[`m${i}`] ? fmtC(r[`m${i}`]) : "—" })), { label: "סה״כ", render: r => <strong style={{ color: C.red }}>{fmtC(r.total)}</strong> }]} rows={mByCat} footer={["סה״כ", ...MONTHS_HE.map((_, i) => fmtC(mByCat.reduce((s, r) => s + (r[`m${i}`] || 0), 0))), fmtC(total)]} />
       </>}
-      <div style={{ marginTop: 28, overflowX: "auto" }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>🧾 כל החשבוניות</h3>
-        <div style={{ fontSize: 11, whiteSpace: "nowrap" }}>
-          <DT textSm columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "סוג", key: "docType" }, { label: "ספק/סיבה", key: "category", wrap: true, tdStyle: { maxWidth: 100 } }, { label: "פירוט", render: r => <span>{r.name}{r.installmentTotal > 0 && <span style={{ marginRight: 6, fontSize: 10, background: `${C.ylw}33`, color: C.ylw, border: `1px solid ${C.ylw}55`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>💳 {r.installmentCurrent}/{r.installmentTotal}</span>}</span>, wrap: true, tdStyle: { minWidth: 100, maxWidth: 280 } }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "מעמ", render: r => <button onClick={() => updField(r, "vatRecognized", !r.vatRecognized)} style={{ background: r.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: r.vatRecognized ? C.grn : C.red, border: `1px solid ${r.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.vatRecognized ? "כן" : "לא"}</button> }, { label: "מס", render: r => <button onClick={() => updField(r, "taxRecognized", !r.taxRecognized)} style={{ background: r.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: r.taxRecognized ? C.grn : C.red, border: `1px solid ${r.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.taxRecognized ? "כן" : "לא"}</button> }, { label: "תשלום", key: "paidBy" }, { label: "מזהה", key: "hour", wrap: true, tdStyle: { maxWidth: 100 } }, { label: "מסמך", render: r => r.receiptImage ? <a href={r.receiptImage} target="_blank" rel="noreferrer" style={{ color: C.pri, fontWeight: "bold" }}>5</a> : "" }, { label: "סיווג הוצאה", render: r => <select value={allCats.includes(r.classification) ? r.classification : ""} onChange={e => { if (e.target.value) updCat(r, e.target.value); }} style={{ background: C.card, color: C.txt, border: `1px solid ${C.bdr}`, borderRadius: 6, padding: "6px 4px", fontSize: 11, outline: "none", width: "100%", cursor: "pointer" }}><option value="">{r.classification || "בחר סיווג..."}</option>{allCats.filter(c => c !== r.classification).map(c => <option key={c} value={c}>{c}</option>)}</select>, tdStyle: { minWidth: 120 } }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)} style={{ color: C.pri }}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={data.filter(e => e.source !== "ידני").sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", fmtC(data.filter(e => e.source !== "ידני").reduce((s, e) => s + e.amount, 0)), "", "", "", "", "", "", ""]} />
-        </div>
-      </div>
+      {(() => {
+        const settlementRows = data.filter(e => e.source === "auto-settlement").sort((a, b) => ((b.date || 0) - (a.date || 0)));
+        return settlementRows.length > 0 ? <div style={{ marginTop: 28, overflowX: "auto" }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>⚖️ הוצאות קיזוזים ({MONTHS_HE[month]})</h3>
+          <DT columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "סוג", key: "category" }, { label: "פירוט", key: "name" }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "מעמ", render: r => <button onClick={() => updField(r, "vatRecognized", !r.vatRecognized)} style={{ background: r.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: r.vatRecognized ? C.grn : C.red, border: `1px solid ${r.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.vatRecognized ? "כן" : "לא"}</button> }, { label: "מס", render: r => <button onClick={() => updField(r, "taxRecognized", !r.taxRecognized)} style={{ background: r.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: r.taxRecognized ? C.grn : C.red, border: `1px solid ${r.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.taxRecognized ? "כן" : "לא"}</button> }, { label: "תשלום", key: "paidBy" }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)} style={{ color: C.pri }}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={settlementRows} footer={["סה״כ", "", "", fmtC(settlementRows.reduce((s, e) => s + e.amount, 0)), "", "", "", ""]} />
+        </div> : null;
+      })()}
+      {fixedExps.length > 0 && <div style={{ marginTop: 28 }}>
+        <h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>🔒 הוצאות קבועות</h3>
+        <DT columns={[
+          { label: "שם", key: "name" },
+          { label: "סכום", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> },
+          { label: "תקופה", render: r => r.period === "monthly" ? "חודשי" : r.period === "quarterly" ? "רבעוני" : "שנתי" },
+          { label: "חודשי", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(toMonthly(r.amount, r.period))}</span> }
+        ]} rows={fixedExps} footer={["סה״כ", "", "", fmtC(fixedExps.reduce((s, e) => s + toMonthly(e.amount, e.period), 0))]} />
+      </div>}
       <div style={{ marginTop: 28 }}>
         <h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>⚖️ קיזוז דור / יוראי / סוכנות</h3>
         <Card>
