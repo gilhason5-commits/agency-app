@@ -4463,6 +4463,13 @@ function ChatterPortal({ hideHeader } = {}) {
   const registeredClients = useMemo(() => (sheetUsers || []).filter(u => u.role === "client").map(u => u.name).sort(), [sheetUsers]);
   const myShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "approved").sort((a, b) => a.date > b.date ? 1 : -1), [shifts, chatterName]);
   const myPendingShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "pending"), [shifts, chatterName]);
+  const takenClients = useMemo(() => {
+    if (!shiftReqDate || !shiftReqSlot) return new Set();
+    const taken = new Set();
+    shifts.filter(s => s.status === "approved" && s.date === shiftReqDate && s.slotId === shiftReqSlot && s.chatterName !== chatterName)
+      .forEach(s => (s.clients || []).forEach(c => taken.add(c)));
+    return taken;
+  }, [shifts, shiftReqDate, shiftReqSlot, chatterName]);
 
   // Clock-in/out state
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -4956,6 +4963,7 @@ function ChatterPortal({ hideHeader } = {}) {
                       {cellShifts.map(s => <div key={s.id} style={{ padding: "2px 4px", borderRadius: 4, marginBottom: 2, fontSize: 10, background: s.chatterName === chatterName ? `${C.pri}30` : `${C.bdr}40`, color: s.chatterName === chatterName ? C.pri : C.dim, fontWeight: s.chatterName === chatterName ? 700 : 400 }}>
                         {s.chatterName === chatterName ? "אני" : s.chatterName}
                         {s.clockIn && !s.clockOut && <span style={{ color: C.grn }}> ●</span>}
+                        {(s.clients || []).length > 0 && <div style={{ fontSize: 8, color: C.mut, marginTop: 1 }}>{s.clients.join(", ")}</div>}
                       </div>)}
                     </td>;
                   })}
@@ -5004,7 +5012,7 @@ function ChatterPortal({ hideHeader } = {}) {
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
             <span style={{ color: C.dim, fontSize: 11 }}>לקוחות:</span>
-            {registeredClients.map(c => <button key={c} onClick={() => setShiftReqClients(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, border: `1px solid ${shiftReqClients.includes(c) ? C.pri : C.bdr}`, background: shiftReqClients.includes(c) ? `${C.pri}22` : C.card, color: shiftReqClients.includes(c) ? C.pri : C.dim, cursor: "pointer" }}>{c}</button>)}
+            {registeredClients.map(c => { const tk = takenClients.has(c), sel = shiftReqClients.includes(c); return <button key={c} onClick={() => setShiftReqClients(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, border: `1px solid ${sel ? C.pri : tk ? C.red : C.bdr}`, background: sel ? `${C.pri}22` : tk ? `${C.red}18` : C.card, color: sel ? C.pri : tk ? C.red : C.dim, opacity: tk && !sel ? 0.7 : 1, cursor: "pointer" }}>{c}{tk ? " (תפוס)" : ""}</button>; })}
           </div>
           <div>
             <Btn size="sm" variant="success" onClick={requestShift} disabled={shiftSaving || !shiftReqSlot}>{shiftSaving ? "⏳" : "שלח בקשה"}</Btn>
