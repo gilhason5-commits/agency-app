@@ -2785,8 +2785,9 @@ function ExpPage() {
       {view === "monthly" ? <>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 16 }}>
           {(() => {
-            const chPaid = periodSets.filter(s => s.entityType === "chatter" && s.direction === "AgencyToChatter").reduce((s, r) => s + (r.amount || 0), 0);
-            const clPaid = periodSets.filter(s => s.entityType !== "chatter" && s.direction === "AgencyToClient").reduce((s, r) => s + (r.amount || 0), 0);
+            const settlementExps = data.filter(e => e.source === "auto-settlement");
+            const chPaid = settlementExps.filter(e => e.category === "קיזוז צ'אטר").reduce((s, e) => s + e.amount, 0);
+            const clPaid = settlementExps.filter(e => e.category === "קיזוז לקוח").reduce((s, e) => s + e.amount, 0);
             const manualTotal = data.filter(e => e.source === "ידני").reduce((s, e) => s + e.amount, 0);
             const emailTotal = data.filter(e => e.source !== "ידני" && e.source !== "auto-settlement").reduce((s, e) => s + e.amount, 0);
             const fixedTotal = fixedExps.reduce((s, e) => s + toMonthly(e.amount, e.period), 0);
