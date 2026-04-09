@@ -2784,9 +2784,9 @@ function ExpPage() {
       {view === "monthly" ? <>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 16 }}>
           {(() => {
-            const chTotal = chSal.reduce((s, c) => s + c.totalWithVat, 0);
-            const clTotal = clSal.reduce((s, c) => s + c.ent, 0);
-            const grandTotal = total + chTotal + clTotal;
+            const chPaid = periodSets.filter(s => s.entityType === "chatter" && s.direction === "AgencyToChatter").reduce((s, r) => s + (r.amount || 0), 0);
+            const clPaid = periodSets.filter(s => s.entityType !== "chatter" && s.direction === "AgencyToClient").reduce((s, r) => s + (r.amount || 0), 0);
+            const grandTotal = total + chPaid + clPaid;
             return <Card style={{ flex: 1, minWidth: 200, padding: "14px 18px" }}>
               <div style={{ color: C.dim, fontSize: 12, marginBottom: 4 }}>💳 סה״כ הוצאות — {MONTHS_HE[month]}</div>
               <div style={{ fontSize: 28, fontWeight: 800, color: C.red, marginBottom: 8 }}>{fmtC(grandTotal)}</div>
@@ -2796,12 +2796,12 @@ function ExpPage() {
                   <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(total)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
-                  <span>👥 שכר צ'אטרים</span>
-                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(chTotal)}</span>
+                  <span>👥 שולם לצ'אטרים (קיזוזים)</span>
+                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(chPaid)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
-                  <span>👩 זכאות לקוחות</span>
-                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(clTotal)}</span>
+                  <span>👩 שולם ללקוחות (קיזוזים)</span>
+                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(clPaid)}</span>
                 </div>
               </div>
             </Card>;
@@ -4862,8 +4862,8 @@ function ChatterPortal({ hideHeader } = {}) {
           const isActive = s.clockIn && !s.clockOut;
           const isDone = s.clockIn && s.clockOut;
           const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-          const canClockIn = !s.clockIn && nowMin >= parseTime(s.slotStart);
-          const tooEarly = !s.clockIn && nowMin < parseTime(s.slotStart);
+          const canClockIn = !s.clockIn;
+          const earlyNote = !s.clockIn && nowMin < parseTime(s.slotStart);
           return <div key={s.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.bdr}` }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ fontSize: 16 }}>{isActive ? "🟢" : isDone ? "⚪" : "🔵"}</span>
@@ -4877,7 +4877,7 @@ function ChatterPortal({ hideHeader } = {}) {
             </div>}
             <div style={{ marginTop: 8 }}>
               {canClockIn && <Btn size="sm" variant="success" onClick={() => handleClockIn(s)} disabled={clockingId === s.id}>{clockingId === s.id ? "⏳" : "🟢 עליתי למשמרת"}</Btn>}
-              {tooEarly && <span style={{ color: C.dim, fontSize: 12 }}>המשמרת מתחילה ב-{s.slotStart}</span>}
+              {earlyNote && <span style={{ color: C.ylw, fontSize: 11, marginRight: 6 }}>המשמרת מתחילה ב-{s.slotStart}</span>}
               {isActive && <Btn size="sm" variant="danger" onClick={() => { setShowClockOutModal(s); const diff = (Date.now() - new Date(s.clockIn).getTime()) / 3600000; setHoursInput(String(Math.round(diff * 2) / 2)); }} disabled={clockingId === s.id}>🔴 ירדתי ממשמרת</Btn>}
               {isDone && <span style={{ color: C.grn, fontSize: 12, fontWeight: 600 }}>✅ סיימת משמרת זו</span>}
             </div>
@@ -6278,7 +6278,7 @@ function ShiftsPage() {
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
   const allRegisteredClients = useMemo(() => (sheetUsers || []).filter(u => u.role === "client").map(u => u.name).sort(), [sheetUsers]);
 
-  const DAY_SHORT = ["ר׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+  const DAY_SHORT = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
 
   const [weekStart, setWeekStart] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - d.getDay());
