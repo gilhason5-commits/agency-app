@@ -4984,6 +4984,55 @@ function ChatterPortal({ hideHeader } = {}) {
         </Card> : null;
       })()}
 
+      {/* Client Availability Matrix */}
+      {(() => {
+        const allApproved = shifts.filter(s => s.status === "approved");
+        const today = new Date();
+        const days = [];
+        for (let i = 0; i < 7; i++) { const dd = new Date(today); dd.setDate(today.getDate() + i); days.push(dd.toISOString().slice(0, 10)); }
+        const sSlots = [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+        const rows = [];
+        days.forEach(d => sSlots.forEach(slot => rows.push({ date: d, slot })));
+        const clientOwner = (date, slotId, client) => {
+          const sh = allApproved.find(s => s.date === date && s.slotId === slotId && (s.clients || []).includes(client));
+          return sh ? sh.chatterName : null;
+        };
+        const DAY_NAMES_SHORT = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+        return registeredClients.length > 0 && sSlots.length > 0 ? <Card style={{ marginBottom: 16, padding: 10 }}>
+          <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 4 }}>📋 זמינות לקוחות</h3>
+          <div style={{ color: C.dim, fontSize: 11, marginBottom: 10 }}>7 ימים קדימה — ירוק = פנוי, אדום = תפוס</div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+              <thead>
+                <tr>
+                  <th style={{ padding: 4, color: C.dim, textAlign: "right", borderBottom: `1px solid ${C.bdr}`, position: "sticky", right: 0, background: C.bg, zIndex: 2, minWidth: 80 }}>משמרת</th>
+                  {registeredClients.map(c => <th key={c} style={{ padding: 4, color: C.dim, textAlign: "center", borderBottom: `1px solid ${C.bdr}`, fontWeight: 500, minWidth: 60 }}>{c}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ date, slot }) => {
+                  const isToday = date === todayStr;
+                  return <tr key={`${date}-${slot.id}`}>
+                    <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 600, borderBottom: `1px solid ${C.bdr}22`, whiteSpace: "nowrap", position: "sticky", right: 0, background: isToday ? `${C.pri}15` : C.bg, zIndex: 1 }}>
+                      <div>{DAY_NAMES_SHORT[new Date(date).getDay()]} {date.slice(8)}/{date.slice(5, 7)}</div>
+                      <div style={{ fontSize: 9, color: C.dim }}>{slot.label}</div>
+                    </td>
+                    {registeredClients.map(c => {
+                      const owner = clientOwner(date, slot.id, c);
+                      const mine = owner === chatterName;
+                      const free = !owner;
+                      return <td key={c} style={{ padding: 3, textAlign: "center", borderBottom: `1px solid ${C.bdr}22`, background: free ? `${C.grn}15` : mine ? `${C.pri}30` : `${C.red}20`, color: free ? C.grn : mine ? C.pri : C.red, fontWeight: mine ? 700 : 500, fontSize: 9 }}>
+                        {free ? "✓" : mine ? "אני" : owner}
+                      </td>;
+                    })}
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card> : null;
+      })()}
+
       {/* My Shifts */}
       <Card style={{ marginBottom: 16 }}>
         <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📅 המשמרות שלי</h3>
