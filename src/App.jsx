@@ -4712,6 +4712,38 @@ function ChatterPortal({ hideHeader } = {}) {
     </div>}
 
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: w < 768 ? "16px 10px" : "24px" }}>
+      {/* Today's coverage - critical top section */}
+      {(() => {
+        const sSlots = [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
+        if (registeredClients.length === 0 || sSlots.length === 0) return null;
+        const todayApproved = shifts.filter(s => s.status === "approved" && s.date === todayStr);
+        const clientSlotOwner = (client, slotId) => {
+          const sh = todayApproved.find(s => s.slotId === slotId && (s.clients || []).includes(client));
+          return sh ? sh.chatterName : null;
+        };
+        return <Card style={{ marginBottom: 16, padding: 12, background: `${C.red}08`, border: `2px solid ${C.red}30` }}>
+          <h3 style={{ color: C.red, fontSize: 15, marginBottom: 4 }}>🔥 היום — זמינות לקוחות</h3>
+          <div style={{ color: C.dim, fontSize: 11, marginBottom: 10 }}>מי פנוי עכשיו? בלחיצה אחת ראה מה תפוס ומה פתוח</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+            {registeredClients.map(c => {
+              const slotStatuses = sSlots.map(slot => ({ slot, owner: clientSlotOwner(c, slot.id) }));
+              const freeCount = slotStatuses.filter(ss => !ss.owner).length;
+              return <div key={c} style={{ background: C.card, border: `1px solid ${freeCount === sSlots.length ? C.grn : freeCount === 0 ? C.red : C.bdr}`, borderRadius: 8, padding: 8 }}>
+                <div style={{ fontWeight: 700, color: C.txt, fontSize: 12, marginBottom: 6, textAlign: "center" }}>{c}</div>
+                {slotStatuses.map(({ slot, owner }) => {
+                  const mine = owner === chatterName;
+                  const free = !owner;
+                  return <div key={slot.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, padding: "2px 4px", borderRadius: 4, marginBottom: 2, background: free ? `${C.grn}15` : mine ? `${C.pri}25` : `${C.red}15`, color: free ? C.grn : mine ? C.pri : C.red }}>
+                    <span>{slot.label}</span>
+                    <span style={{ fontWeight: 600 }}>{free ? "✓ פנוי" : mine ? "אני" : owner}</span>
+                  </div>;
+                })}
+              </div>;
+            })}
+          </div>
+        </Card>;
+      })()}
+
       {/* Summary Cards */}
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <Stat icon="✅" title="מאושרות" value={fmtC(totalApproved)} sub={`${approved.length} עסקאות`} color={C.grn} />
@@ -5006,7 +5038,15 @@ function ChatterPortal({ hideHeader } = {}) {
               <thead>
                 <tr>
                   <th style={{ padding: 4, color: C.dim, textAlign: "right", borderBottom: `1px solid ${C.bdr}`, position: "sticky", right: 0, background: C.bg, zIndex: 2, minWidth: 80 }}>משמרת</th>
-                  {registeredClients.map(c => <th key={c} style={{ padding: 4, color: C.dim, textAlign: "center", borderBottom: `1px solid ${C.bdr}`, fontWeight: 500, minWidth: 60 }}>{c}</th>)}
+                  {registeredClients.map(c => {
+                    const freeToday = sSlots.filter(slot => !allApproved.find(s => s.date === todayStr && s.slotId === slot.id && (s.clients || []).includes(c))).length;
+                    return <th key={c} style={{ padding: 4, color: C.dim, textAlign: "center", borderBottom: `1px solid ${C.bdr}`, fontWeight: 500, minWidth: 60 }}>
+                      {c}
+                      <div style={{ fontSize: 8, color: freeToday === sSlots.length ? C.grn : freeToday === 0 ? C.red : C.dim, marginTop: 2, fontWeight: 600 }}>
+                        {freeToday > 0 ? `${freeToday} פנוי היום` : "תפוס היום"}
+                      </div>
+                    </th>;
+                  })}
                 </tr>
               </thead>
               <tbody>
