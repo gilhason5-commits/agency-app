@@ -382,7 +382,7 @@ function mapInc(row, i) {
   const rawILS = +row[5] || 0;
   const rawUSD = +row[4] || 0;
   const rate = +row[3] || 0;
-  const activeRate = rate > 0 ? rate : ExRate.get();
+  const activeRate = ExRate.get();
   const computedILS = rawILS + rawUSD * activeRate;
 
   return {
@@ -1132,12 +1132,16 @@ function useFD() {
 
   const incomeWithDynamicRate = useMemo(() => {
     return income.map(r => {
-      const rate = parseFloat(r.usdRate) > 0 ? parseFloat(r.usdRate) : liveRate;
+      // Always use the global monthly rate — uniform across all records
+      const rate = liveRate;
       // For chatter-submitted pending records, rawILS may be missing — fall back to stored amountILS
       const baseILS = r.rawILS !== undefined ? r.rawILS : (r.originalRawILS !== undefined ? r.originalRawILS : (r.amountILS || 0));
-      // Preserve stored amountILS for records that already have commission calculated
-      if (r.commissionPct > 0 && r.preCommissionILS != null) {
-        return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : r.amountILS };
+      if (r.commissionPct > 0) {
+        // Recalculate pre-commission total with current rate, then re-apply commission factor
+        const baseUSD = r.preCommissionUSD !== undefined ? r.preCommissionUSD : (r.originalRawUSD !== undefined ? r.originalRawUSD : (r.amountUSD || 0));
+        const newPreComm = baseILS + baseUSD * rate;
+        const factor = 1 - r.commissionPct / 100;
+        return { ...r, rawILS: baseILS, preCommissionILS: newPreComm, amountILS: r.cancelled ? 0 : newPreComm * factor };
       }
       const computedILS = baseILS + (r.amountUSD || 0) * rate;
       return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : computedILS };
