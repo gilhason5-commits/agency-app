@@ -2821,9 +2821,8 @@ function ExpPage() {
             const chPaid = settlementExps.filter(e => e.category === "קיזוז צ'אטר").reduce((s, e) => s + e.amount, 0);
             const clPaid = settlementExps.filter(e => e.category === "קיזוז לקוח").reduce((s, e) => s + e.amount, 0);
             const manualTotal = data.filter(e => e.source === "ידני").reduce((s, e) => s + e.amount, 0);
-            const emailTotal = data.filter(e => e.source !== "ידני" && e.source !== "auto-settlement").reduce((s, e) => s + e.amount, 0);
             const fixedTotal = fixedExps.reduce((s, e) => s + toMonthly(e.amount, e.period), 0);
-            const grandTotal = manualTotal + emailTotal + chPaid + clPaid + fixedTotal;
+            const grandTotal = manualTotal + chPaid + clPaid + fixedTotal;
             return <Card style={{ flex: 1, minWidth: 200, padding: "14px 18px" }}>
               <div style={{ color: C.dim, fontSize: 12, marginBottom: 4 }}>💳 סה״כ הוצאות — {MONTHS_HE[month]}</div>
               <div style={{ fontSize: 28, fontWeight: 800, color: C.red, marginBottom: 8 }}>{fmtC(grandTotal)}</div>
@@ -2831,10 +2830,6 @@ function ExpPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
                   <span>✍️ הוצאות ידניות</span>
                   <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(manualTotal)}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
-                  <span>📧 חשבוניות מהמייל</span>
-                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(emailTotal)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
                   <span>👥 שולם לצ'אטרים (קיזוזים)</span>
