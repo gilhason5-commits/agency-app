@@ -419,7 +419,7 @@ function mapExp(row, i) {
     year: d ? d.getFullYear() : 0,
     month: d ? d.getMonth() + 1 : 0,
     classification: row[12] || "",
-    source: row[12] || "ידני", // keep for backward compat just in case
+    source: "email",
     receiptImage: row[9] || null,
     _rowIndex: i + 2,
     docType: row[1] || "—",
@@ -4712,38 +4712,6 @@ function ChatterPortal({ hideHeader } = {}) {
     </div>}
 
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: w < 768 ? "16px 10px" : "24px" }}>
-      {/* Today's coverage - critical top section */}
-      {(() => {
-        const sSlots = [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
-        if (registeredClients.length === 0 || sSlots.length === 0) return null;
-        const todayApproved = shifts.filter(s => s.status === "approved" && s.date === todayStr);
-        const clientSlotOwner = (client, slotId) => {
-          const sh = todayApproved.find(s => s.slotId === slotId && (s.clients || []).includes(client));
-          return sh ? sh.chatterName : null;
-        };
-        return <Card style={{ marginBottom: 16, padding: 12, background: `${C.red}08`, border: `2px solid ${C.red}30` }}>
-          <h3 style={{ color: C.red, fontSize: 15, marginBottom: 4 }}>🔥 היום — זמינות לקוחות</h3>
-          <div style={{ color: C.dim, fontSize: 11, marginBottom: 10 }}>מי פנוי עכשיו? בלחיצה אחת ראה מה תפוס ומה פתוח</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
-            {registeredClients.map(c => {
-              const slotStatuses = sSlots.map(slot => ({ slot, owner: clientSlotOwner(c, slot.id) }));
-              const freeCount = slotStatuses.filter(ss => !ss.owner).length;
-              return <div key={c} style={{ background: C.card, border: `1px solid ${freeCount === sSlots.length ? C.grn : freeCount === 0 ? C.red : C.bdr}`, borderRadius: 8, padding: 8 }}>
-                <div style={{ fontWeight: 700, color: C.txt, fontSize: 12, marginBottom: 6, textAlign: "center" }}>{c}</div>
-                {slotStatuses.map(({ slot, owner }) => {
-                  const mine = owner === chatterName;
-                  const free = !owner;
-                  return <div key={slot.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, padding: "2px 4px", borderRadius: 4, marginBottom: 2, background: free ? `${C.grn}15` : mine ? `${C.pri}25` : `${C.red}15`, color: free ? C.grn : mine ? C.pri : C.red }}>
-                    <span>{slot.label}</span>
-                    <span style={{ fontWeight: 600 }}>{free ? "✓ פנוי" : mine ? "אני" : owner}</span>
-                  </div>;
-                })}
-              </div>;
-            })}
-          </div>
-        </Card>;
-      })()}
-
       {/* Summary Cards */}
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <Stat icon="✅" title="מאושרות" value={fmtC(totalApproved)} sub={`${approved.length} עסקאות`} color={C.grn} />
@@ -5010,63 +4978,6 @@ function ChatterPortal({ hideHeader } = {}) {
                     </td>;
                   })}
                 </tr>)}
-              </tbody>
-            </table>
-          </div>
-        </Card> : null;
-      })()}
-
-      {/* Client Availability Matrix */}
-      {(() => {
-        const allApproved = shifts.filter(s => s.status === "approved");
-        const today = new Date();
-        const days = [];
-        for (let i = 0; i < 7; i++) { const dd = new Date(today); dd.setDate(today.getDate() + i); days.push(dd.toISOString().slice(0, 10)); }
-        const sSlots = [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
-        const rows = [];
-        days.forEach(d => sSlots.forEach(slot => rows.push({ date: d, slot })));
-        const clientOwner = (date, slotId, client) => {
-          const sh = allApproved.find(s => s.date === date && s.slotId === slotId && (s.clients || []).includes(client));
-          return sh ? sh.chatterName : null;
-        };
-        const DAY_NAMES_SHORT = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
-        return registeredClients.length > 0 && sSlots.length > 0 ? <Card style={{ marginBottom: 16, padding: 10 }}>
-          <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 4 }}>📋 זמינות לקוחות</h3>
-          <div style={{ color: C.dim, fontSize: 11, marginBottom: 10 }}>7 ימים קדימה — ירוק = פנוי, אדום = תפוס</div>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
-              <thead>
-                <tr>
-                  <th style={{ padding: 4, color: C.dim, textAlign: "right", borderBottom: `1px solid ${C.bdr}`, position: "sticky", right: 0, background: C.bg, zIndex: 2, minWidth: 80 }}>משמרת</th>
-                  {registeredClients.map(c => {
-                    const freeToday = sSlots.filter(slot => !allApproved.find(s => s.date === todayStr && s.slotId === slot.id && (s.clients || []).includes(c))).length;
-                    return <th key={c} style={{ padding: 4, color: C.dim, textAlign: "center", borderBottom: `1px solid ${C.bdr}`, fontWeight: 500, minWidth: 60 }}>
-                      {c}
-                      <div style={{ fontSize: 8, color: freeToday === sSlots.length ? C.grn : freeToday === 0 ? C.red : C.dim, marginTop: 2, fontWeight: 600 }}>
-                        {freeToday > 0 ? `${freeToday} פנוי היום` : "תפוס היום"}
-                      </div>
-                    </th>;
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(({ date, slot }) => {
-                  const isToday = date === todayStr;
-                  return <tr key={`${date}-${slot.id}`}>
-                    <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 600, borderBottom: `1px solid ${C.bdr}22`, whiteSpace: "nowrap", position: "sticky", right: 0, background: isToday ? `${C.pri}15` : C.bg, zIndex: 1 }}>
-                      <div>{DAY_NAMES_SHORT[new Date(date).getDay()]} {date.slice(8)}/{date.slice(5, 7)}</div>
-                      <div style={{ fontSize: 9, color: C.dim }}>{slot.label}</div>
-                    </td>
-                    {registeredClients.map(c => {
-                      const owner = clientOwner(date, slot.id, c);
-                      const mine = owner === chatterName;
-                      const free = !owner;
-                      return <td key={c} style={{ padding: 3, textAlign: "center", borderBottom: `1px solid ${C.bdr}22`, background: free ? `${C.grn}15` : mine ? `${C.pri}30` : `${C.red}20`, color: free ? C.grn : mine ? C.pri : C.red, fontWeight: mine ? 700 : 500, fontSize: 9 }}>
-                        {free ? "✓" : mine ? "אני" : owner}
-                      </td>;
-                    })}
-                  </tr>;
-                })}
               </tbody>
             </table>
           </div>
@@ -6606,6 +6517,77 @@ function ShiftsPage() {
           </div>
         </Card>}
       </>;
+    })()}
+
+    {/* Chatters in the air */}
+    {(() => {
+      const todayS = new Date().toISOString().slice(0, 10);
+      const allChatters = (sheetUsers || []).filter(u => u.role === "chatter").map(u => u.name);
+      const chattersWithShiftToday = new Set(shifts.filter(s => s.status === "approved" && s.date === todayS).map(s => s.chatterName));
+      const inAir = allChatters.filter(c => !chattersWithShiftToday.has(c));
+      return allChatters.length > 0 ? <Card style={{ marginBottom: 20, background: `${C.ylw}08`, border: `2px solid ${C.ylw}30` }}>
+        <h3 style={{ color: C.ylw, fontSize: 15, marginBottom: 4 }}>👥 צ'אטרים באוויר ({inAir.length})</h3>
+        <div style={{ color: C.dim, fontSize: 11, marginBottom: 10 }}>צ'אטרים שלא סימנו משמרת להיום — זמינים להשלמת פערים</div>
+        {inAir.length > 0 ? <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {inAir.map(c => <span key={c} style={{ background: `${C.ylw}20`, color: C.ylw, border: `1px solid ${C.ylw}55`, borderRadius: 12, padding: "4px 10px", fontSize: 12, fontWeight: 600 }}>{c}</span>)}
+        </div> : <div style={{ color: C.grn, fontSize: 12, fontWeight: 600 }}>✅ כל הצ'אטרים סימנו משמרת להיום</div>}
+      </Card> : null;
+    })()}
+
+    {/* Client Availability Matrix */}
+    {(() => {
+      const todayS = new Date().toISOString().slice(0, 10);
+      const allApproved = shifts.filter(s => s.status === "approved");
+      const today = new Date();
+      const days = [];
+      for (let i = 0; i < 7; i++) { const dd = new Date(today); dd.setDate(today.getDate() + i); days.push(dd.toISOString().slice(0, 10)); }
+      const rows = [];
+      days.forEach(d => sortedSlots.forEach(slot => rows.push({ date: d, slot })));
+      const clientOwner = (date, slotId, client) => {
+        const sh = allApproved.find(s => s.date === date && s.slotId === slotId && (s.clients || []).includes(client));
+        return sh ? sh.chatterName : null;
+      };
+      const DAY_NAMES_SHORT = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+      return allRegisteredClients.length > 0 && sortedSlots.length > 0 ? <Card style={{ marginBottom: 20, padding: 10 }}>
+        <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 4 }}>📋 זמינות לקוחות</h3>
+        <div style={{ color: C.dim, fontSize: 11, marginBottom: 10 }}>7 ימים קדימה — ירוק = פנוי, אדום = תפוס</div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+            <thead>
+              <tr>
+                <th style={{ padding: 4, color: C.dim, textAlign: "right", borderBottom: `1px solid ${C.bdr}`, position: "sticky", right: 0, background: C.bg, zIndex: 2, minWidth: 80 }}>משמרת</th>
+                {allRegisteredClients.map(c => {
+                  const freeToday = sortedSlots.filter(slot => !allApproved.find(s => s.date === todayS && s.slotId === slot.id && (s.clients || []).includes(c))).length;
+                  return <th key={c} style={{ padding: 4, color: C.dim, textAlign: "center", borderBottom: `1px solid ${C.bdr}`, fontWeight: 500, minWidth: 60 }}>
+                    {c}
+                    <div style={{ fontSize: 8, color: freeToday === sortedSlots.length ? C.grn : freeToday === 0 ? C.red : C.dim, marginTop: 2, fontWeight: 600 }}>
+                      {freeToday > 0 ? `${freeToday} פנוי היום` : "תפוס היום"}
+                    </div>
+                  </th>;
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ date, slot }) => {
+                const isToday = date === todayS;
+                return <tr key={`${date}-${slot.id}`}>
+                  <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 600, borderBottom: `1px solid ${C.bdr}22`, whiteSpace: "nowrap", position: "sticky", right: 0, background: isToday ? `${C.pri}15` : C.bg, zIndex: 1 }}>
+                    <div>{DAY_NAMES_SHORT[new Date(date).getDay()]} {date.slice(8)}/{date.slice(5, 7)}</div>
+                    <div style={{ fontSize: 9, color: C.dim }}>{slot.label}</div>
+                  </td>
+                  {allRegisteredClients.map(c => {
+                    const owner = clientOwner(date, slot.id, c);
+                    const free = !owner;
+                    return <td key={c} style={{ padding: 3, textAlign: "center", borderBottom: `1px solid ${C.bdr}22`, background: free ? `${C.grn}15` : `${C.red}20`, color: free ? C.grn : C.red, fontWeight: 500, fontSize: 9 }}>
+                      {free ? "✓" : owner}
+                    </td>;
+                  })}
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card> : null;
     })()}
 
     {/* Slot Manager Toggle */}
