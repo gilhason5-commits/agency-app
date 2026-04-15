@@ -4480,21 +4480,39 @@ function ChatterPortal({ hideHeader } = {}) {
   // Shift request state
   const [shiftReqDate, setShiftReqDate] = useState(new Date().toISOString().slice(0, 10));
   const [shiftReqSlot, setShiftReqSlot] = useState("");
-  const [shiftReqPlatform, setShiftReqPlatform] = useState("");
+  const [shiftReqPlatforms, setShiftReqPlatforms] = useState([]);
   const [shiftReqClients, setShiftReqClients] = useState([]);
   const [shiftSaving, setShiftSaving] = useState(false);
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
   const shiftPlatforms = agSettings.shiftPlatforms || ["אונלי", "טלגרם", "אונלי וטלגרם"];
+  // Normalise a platform string to its base platforms (e.g. "אונלי וטלגרם" → ["אונלי","טלגרם"])
+  const platformBases = (p) => {
+    if (!p) return [];
+    if (p === "אונלי וטלגרם") return ["אונלי", "טלגרם"];
+    return [p];
+  };
   const registeredClients = useMemo(() => (sheetUsers || []).filter(u => u.role === "client").map(u => u.name).sort(), [sheetUsers]);
   const myShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "approved").sort((a, b) => a.date > b.date ? 1 : -1), [shifts, chatterName]);
   const myPendingShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "pending"), [shifts, chatterName]);
+  // takenClients: platform-aware + exclude completed (clocked-out) shifts
   const takenClients = useMemo(() => {
     if (!shiftReqDate || !shiftReqSlot) return new Set();
     const taken = new Set();
-    shifts.filter(s => s.status === "approved" && s.date === shiftReqDate && s.slotId === shiftReqSlot && s.chatterName !== chatterName)
-      .forEach(s => (s.clients || []).forEach(c => taken.add(c)));
+    const activeShifts = shifts.filter(s =>
+      s.status === "approved" && !s.clockOut &&
+      s.date === shiftReqDate && s.slotId === shiftReqSlot && s.chatterName !== chatterName
+    );
+    activeShifts.forEach(s => {
+      // If platforms selected, only mark taken when there is a platform overlap
+      if (shiftReqPlatforms.length > 0) {
+        const existingBases = platformBases(s.platform);
+        const overlap = shiftReqPlatforms.some(p => existingBases.includes(p));
+        if (!overlap) return;
+      }
+      (s.clients || []).forEach(c => taken.add(c));
+    });
     return taken;
-  }, [shifts, shiftReqDate, shiftReqSlot, chatterName]);
+  }, [shifts, shiftReqDate, shiftReqSlot, chatterName, shiftReqPlatforms]);
 
   // Clock-in/out state
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -4533,10 +4551,11 @@ function ChatterPortal({ hideHeader } = {}) {
     setShiftSaving(true);
     const slot = sortedSlots.find(s => s.id === shiftReqSlot);
     if (!slot) { setShiftSaving(false); return; }
-    const data = { date: shiftReqDate, slotId: slot.id, slotLabel: slot.label, slotStart: slot.start, slotEnd: slot.end, chatterName, status: "pending", source: "request", platform: shiftReqPlatform, clients: shiftReqClients };
+    const platformStr = shiftReqPlatforms.length === 1 ? shiftReqPlatforms[0] : shiftReqPlatforms.length > 1 ? shiftReqPlatforms.join(" ו") : "";
+    const data = { date: shiftReqDate, slotId: slot.id, slotLabel: slot.label, slotStart: slot.start, slotEnd: slot.end, chatterName, status: "pending", source: "request", platform: platformStr, clients: shiftReqClients };
     const saved = await addShiftCtx(data);
     TelegramSvc.notifyShiftRequested(saved);
-    setShiftSaving(false); setShiftReqSlot(""); setShiftReqPlatform(""); setShiftReqClients([]);
+    setShiftSaving(false); setShiftReqSlot(""); setShiftReqPlatforms([]); setShiftReqClients([]);
   };
 
   const [editTx, setEditTx] = useState(null);
@@ -4991,14 +5010,32 @@ function ChatterPortal({ hideHeader } = {}) {
               <option value="">בחר משמרת...</option>
               {sortedSlots.map(s => <option key={s.id} value={s.id}>{s.label} ({s.start}-{s.end})</option>)}
             </select>
-            <select value={shiftReqPlatform} onChange={e => setShiftReqPlatform(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }}>
-              <option value="">בחר פלטפורמה...</option>
-              {shiftPlatforms.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
           </div>
+          {/* Multi-platform toggle buttons */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+            <span style={{ color: C.dim, fontSize: 11 }}>פלטפורמה:</span>
+            {shiftPlatforms.map(p => {
+              const sel = shiftReqPlatforms.includes(p);
+              return <button key={p} onClick={() => setShiftReqPlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])} style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, border: `1px solid ${sel ? C.pri : C.bdr}`, background: sel ? `${C.pri}22` : C.card, color: sel ? C.pri : C.dim, cursor: "pointer", fontWeight: sel ? 700 : 400 }}>{p}</button>;
+            })}
+          </div>
+          {/* Clients with per-platform availability */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
             <span style={{ color: C.dim, fontSize: 11 }}>לקוחות:</span>
-            {registeredClients.map(c => { const tk = takenClients.has(c), sel = shiftReqClients.includes(c); return <button key={c} onClick={() => setShiftReqClients(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, border: `1px solid ${sel ? C.pri : tk ? C.red : C.bdr}`, background: sel ? `${C.pri}22` : tk ? `${C.red}18` : C.card, color: sel ? C.pri : tk ? C.red : C.dim, opacity: tk && !sel ? 0.7 : 1, cursor: "pointer" }}>{c}{tk ? " (תפוס)" : ""}</button>; })}
+            {registeredClients.map(c => {
+              const tk = takenClients.has(c);
+              const sel = shiftReqClients.includes(c);
+              // Per-platform availability detail when multiple platforms are selected
+              const platformDetail = shiftReqPlatforms.length > 1 ? shiftReqPlatforms.map(p => {
+                const takenOnP = shifts.some(s => s.status === "approved" && !s.clockOut && s.date === shiftReqDate && s.slotId === shiftReqSlot && s.chatterName !== chatterName && platformBases(s.platform).includes(p) && (s.clients || []).includes(c));
+                return { p, free: !takenOnP };
+              }) : null;
+              const subLabel = platformDetail ? platformDetail.map(({ p, free }) => `${p}: ${free ? "✓" : "✗"}`).join(" | ") : tk ? "תפוס" : null;
+              return <button key={c} onClick={() => !tk && setShiftReqClients(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, border: `1px solid ${sel ? C.pri : tk ? C.red : C.bdr}`, background: sel ? `${C.pri}22` : tk ? `${C.red}18` : C.card, color: sel ? C.pri : tk ? C.red : C.dim, opacity: tk && !sel ? 0.7 : 1, cursor: tk ? "default" : "pointer", textAlign: "center" }}>
+                <div>{c}</div>
+                {subLabel && <div style={{ fontSize: 9, opacity: 0.8, marginTop: 1 }}>{subLabel}</div>}
+              </button>;
+            })}
           </div>
           <div>
             <Btn size="sm" variant="success" onClick={requestShift} disabled={shiftSaving || !shiftReqSlot}>{shiftSaving ? "⏳" : "שלח בקשה"}</Btn>
