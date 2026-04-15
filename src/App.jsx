@@ -4959,6 +4959,53 @@ function ChatterPortal({ hideHeader } = {}) {
         </div>
       </Modal>}
 
+      {/* My Shifts */}
+      <Card style={{ marginBottom: 16 }}>
+        <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📅 המשמרות שלי</h3>
+        {myShifts.length === 0 && myPendingShifts.length === 0 && <div style={{ color: C.mut, fontSize: 13 }}>אין משמרות קרובות</div>}
+        {myPendingShifts.length > 0 && <div style={{ marginBottom: 10 }}>
+          {myPendingShifts.map(s => <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
+            <span style={{ color: C.ylw, fontSize: 13 }}>⏳</span>
+            <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel}</span>
+            <span style={{ color: C.ylw, fontSize: 11 }}>ממתין לאישור</span>
+          </div>)}
+        </div>}
+        {myShifts.filter(s => s.date >= todayStr).slice(0, 10).map(s => <div key={s.id} style={{ padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ fontSize: 13 }}>{s.clockIn && s.clockOut ? "⚪" : s.clockIn ? "🟢" : "✅"}</span>
+            <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel} ({s.slotStart}-{s.slotEnd})</span>
+            {s.platform && <span style={{ background: `${C.pri}22`, color: C.pri, border: `1px solid ${C.pri}44`, borderRadius: 8, padding: "1px 7px", fontSize: 11, fontWeight: 600 }}>{s.platform}</span>}
+            {s.clockIn && !s.clockOut && <span style={{ color: C.grn, fontSize: 10, fontWeight: 700 }}>במשמרת</span>}
+            {s.clockIn && s.clockOut && <span style={{ color: C.dim, fontSize: 10 }}>{s.hoursWorked}ש׳</span>}
+            {s.lateMinutes > 0 && <span style={{ color: C.ylw, fontSize: 10 }}>איחור {s.lateMinutes}׳</span>}
+          </div>
+          {s.clients?.length > 0 && <div style={{ marginRight: 24, marginTop: 2, fontSize: 11, color: C.cyan }}>לקוחות: {s.clients.join(", ")}</div>}
+        </div>)}
+
+        {/* Request shift form */}
+        {sortedSlots.length > 0 && <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <span style={{ color: C.dim, fontSize: 12 }}>בקש משמרת:</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+            <input type="date" value={shiftReqDate} onChange={e => setShiftReqDate(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }} />
+            <select value={shiftReqSlot} onChange={e => setShiftReqSlot(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }}>
+              <option value="">בחר משמרת...</option>
+              {sortedSlots.map(s => <option key={s.id} value={s.id}>{s.label} ({s.start}-{s.end})</option>)}
+            </select>
+            <select value={shiftReqPlatform} onChange={e => setShiftReqPlatform(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }}>
+              <option value="">בחר פלטפורמה...</option>
+              {shiftPlatforms.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+            <span style={{ color: C.dim, fontSize: 11 }}>לקוחות:</span>
+            {registeredClients.map(c => { const tk = takenClients.has(c), sel = shiftReqClients.includes(c); return <button key={c} onClick={() => setShiftReqClients(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, border: `1px solid ${sel ? C.pri : tk ? C.red : C.bdr}`, background: sel ? `${C.pri}22` : tk ? `${C.red}18` : C.card, color: sel ? C.pri : tk ? C.red : C.dim, opacity: tk && !sel ? 0.7 : 1, cursor: "pointer" }}>{c}{tk ? " (תפוס)" : ""}</button>; })}
+          </div>
+          <div>
+            <Btn size="sm" variant="success" onClick={requestShift} disabled={shiftSaving || !shiftReqSlot}>{shiftSaving ? "⏳" : "שלח בקשה"}</Btn>
+          </div>
+        </div>}
+      </Card>
+
       {/* Weekly Calendar - All Shifts */}
       {(() => {
         const allApproved = shifts.filter(s => s.status === "approved");
@@ -4998,52 +5045,6 @@ function ChatterPortal({ hideHeader } = {}) {
           </div>
         </Card> : null;
       })()}
-
-      {/* My Shifts */}
-      <Card style={{ marginBottom: 16 }}>
-        <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📅 המשמרות שלי</h3>
-        {myShifts.length === 0 && myPendingShifts.length === 0 && <div style={{ color: C.mut, fontSize: 13 }}>אין משמרות קרובות</div>}
-        {myPendingShifts.length > 0 && <div style={{ marginBottom: 10 }}>
-          {myPendingShifts.map(s => <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
-            <span style={{ color: C.ylw, fontSize: 13 }}>⏳</span>
-            <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel}</span>
-            <span style={{ color: C.ylw, fontSize: 11 }}>ממתין לאישור</span>
-          </div>)}
-        </div>}
-        {myShifts.filter(s => s.date >= todayStr).slice(0, 10).map(s => <div key={s.id} style={{ padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <span style={{ fontSize: 13 }}>{s.clockIn && s.clockOut ? "⚪" : s.clockIn ? "🟢" : "✅"}</span>
-            <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel} ({s.slotStart}-{s.slotEnd})</span>
-            {s.clockIn && !s.clockOut && <span style={{ color: C.grn, fontSize: 10, fontWeight: 700 }}>במשמרת</span>}
-            {s.clockIn && s.clockOut && <span style={{ color: C.dim, fontSize: 10 }}>{s.hoursWorked}ש׳</span>}
-            {s.lateMinutes > 0 && <span style={{ color: C.ylw, fontSize: 10 }}>איחור {s.lateMinutes}׳</span>}
-          </div>
-          {s.clients?.length > 0 && <div style={{ marginRight: 24, marginTop: 2, fontSize: 11, color: C.cyan }}>לקוחות: {s.clients.join(", ")}</div>}
-        </div>)}
-
-        {/* Request shift form */}
-        {sortedSlots.length > 0 && <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-          <span style={{ color: C.dim, fontSize: 12 }}>בקש משמרת:</span>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-            <input type="date" value={shiftReqDate} onChange={e => setShiftReqDate(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }} />
-            <select value={shiftReqSlot} onChange={e => setShiftReqSlot(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }}>
-              <option value="">בחר משמרת...</option>
-              {sortedSlots.map(s => <option key={s.id} value={s.id}>{s.label} ({s.start}-{s.end})</option>)}
-            </select>
-            <select value={shiftReqPlatform} onChange={e => setShiftReqPlatform(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }}>
-              <option value="">בחר פלטפורמה...</option>
-              {shiftPlatforms.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-            <span style={{ color: C.dim, fontSize: 11 }}>לקוחות:</span>
-            {registeredClients.map(c => { const tk = takenClients.has(c), sel = shiftReqClients.includes(c); return <button key={c} onClick={() => setShiftReqClients(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, border: `1px solid ${sel ? C.pri : tk ? C.red : C.bdr}`, background: sel ? `${C.pri}22` : tk ? `${C.red}18` : C.card, color: sel ? C.pri : tk ? C.red : C.dim, opacity: tk && !sel ? 0.7 : 1, cursor: "pointer" }}>{c}{tk ? " (תפוס)" : ""}</button>; })}
-          </div>
-          <div>
-            <Btn size="sm" variant="success" onClick={requestShift} disabled={shiftSaving || !shiftReqSlot}>{shiftSaving ? "⏳" : "שלח בקשה"}</Btn>
-          </div>
-        </div>}
-      </Card>
 
       {/* Per-client breakdown */}
       {byClient.length > 0 && <>
