@@ -4498,7 +4498,7 @@ function ChatterPortal({ hideHeader } = {}) {
   const [shiftReqClients, setShiftReqClients] = useState([]);
   const [shiftSaving, setShiftSaving] = useState(false);
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
-  const shiftPlatforms = agSettings.shiftPlatforms || ["אונלי", "טלגרם", "אונלי וטלגרם"];
+  const shiftPlatforms = agSettings.shiftPlatforms || ["אונלי", "טלגרם"];
   // Normalise a platform string to its base platforms (e.g. "אונלי וטלגרם" → ["אונלי","טלגרם"])
   const platformBases = (p) => {
     if (!p) return [];
@@ -6367,7 +6367,7 @@ function ShiftsPage() {
   const [slotForm, setSlotForm] = useState({ label: "", start: "", end: "" });
   const [showSlotMgr, setShowSlotMgr] = useState(false);
   const [newPlatform, setNewPlatform] = useState("");
-  const shiftPlatforms = agSettings.shiftPlatforms || ["אונלי", "טלגרם", "אונלי וטלגרם"];
+  const shiftPlatforms = agSettings.shiftPlatforms || ["אונלי", "טלגרם"];
   const [assignSlot, setAssignSlot] = useState(null); // { date, slotId }
   const [assignChatter, setAssignChatter] = useState("");
   const [assignClients, setAssignClients] = useState([]);
