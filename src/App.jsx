@@ -6795,6 +6795,7 @@ function ShiftsPage() {
                 <th style={{ padding: "5px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>יציאה</th>
                 <th style={{ padding: "5px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>שעות</th>
                 <th style={{ padding: "5px 10px", color: C.dim, textAlign: "right", fontWeight: 600 }}>לקוחות</th>
+                <th style={{ padding: "5px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>מכירות</th>
               </tr>
             </thead>
             <tbody>
@@ -6803,6 +6804,21 @@ function ShiftsPage() {
                 const dayName = DAY_SHORT[dayDate.getDay()];
                 const clockInTime = s.clockIn ? new Date(s.clockIn).toTimeString().slice(0, 5) : "—";
                 const clockOutTime = s.clockOut ? new Date(s.clockOut).toTimeString().slice(0, 5) : "—";
+                const normHour = h => {
+                  if (!h) return null;
+                  if (typeof h === "string" && h.includes("T")) return h.split("T")[1].substring(0, 5);
+                  return String(h).substring(0, 5);
+                };
+                const shiftSales = income.filter(r => {
+                  if (!r.date || r.chatterName !== s.chatterName) return false;
+                  const rd = r.date instanceof Date
+                    ? `${r.date.getFullYear()}-${String(r.date.getMonth()+1).padStart(2,"0")}-${String(r.date.getDate()).padStart(2,"0")}`
+                    : String(r.date).slice(0, 10);
+                  if (rd !== s.date) return false;
+                  const h = normHour(r.hour);
+                  if (h && s.slotStart && s.slotEnd) return h >= s.slotStart && h < s.slotEnd;
+                  return true;
+                }).reduce((sum, r) => sum + (Number(r.amountILS) || 0), 0);
                 return <tr key={s.id} style={{ borderBottom: `1px solid ${C.bdr}22` }}>
                   <td style={{ padding: "6px 10px", color: C.pri, fontWeight: 600 }}>{s.chatterName}</td>
                   <td style={{ padding: "6px 10px", color: C.txt }}>{dayName} {s.date.slice(8)}/{s.date.slice(5, 7)}</td>
@@ -6811,6 +6827,7 @@ function ShiftsPage() {
                   <td style={{ padding: "6px 10px", color: s.clockOut ? C.txt : C.mut, textAlign: "center" }}>{clockOutTime}</td>
                   <td style={{ padding: "6px 10px", textAlign: "center", color: s.hoursWorked ? C.grn : C.mut, fontWeight: 600 }}>{s.hoursWorked ? `${s.hoursWorked}ש׳` : "—"}</td>
                   <td style={{ padding: "6px 10px", color: C.dim, textAlign: "right", fontSize: 11 }}>{(s.clients || []).join(", ") || "—"}</td>
+                  <td style={{ padding: "6px 10px", textAlign: "center", color: shiftSales > 0 ? C.grn : C.mut, fontWeight: shiftSales > 0 ? 700 : 400 }}>{shiftSales > 0 ? fmtC(shiftSales) : "—"}</td>
                 </tr>;
               })}
             </tbody>
