@@ -1264,12 +1264,19 @@ function MobileNav({ current, onNav }) {
   </div>;
 }
 function TopBar() {
-  const { year, setYear, connected, demo, loading, load, loadStep, logout, shifts } = useApp();
+  const { year, setYear, connected, demo, loading, load, loadStep, logout, shifts, updateShiftCtx } = useApp();
   const w = useWin();
   const onShiftNow = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return (shifts || []).filter(s => s.date === today && s.status === "approved" && s.clockIn && !s.clockOut);
   }, [shifts]);
+  const clockOutChatter = (s) => {
+    const now = new Date();
+    const clockOut = now.toISOString();
+    const diffMs = now - new Date(s.clockIn);
+    const hoursWorked = Math.round(diffMs / 36000) / 100;
+    updateShiftCtx(s.id, { clockOut, hoursWorked });
+  };
   return <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: w < 768 ? "10px 14px" : "10px 24px", background: C.card, borderBottom: `1px solid ${C.bdr}`, direction: "rtl" }}>
     <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
       {w < 768 && <span style={{ fontSize: 16, fontWeight: 800, color: C.pri }}>🏢</span>}
@@ -1281,9 +1288,10 @@ function TopBar() {
       {onShiftNow.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ color: C.mut, fontSize: 11, whiteSpace: "nowrap" }}>צאטרים מחוברים:</span>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {onShiftNow.map(s => <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4, background: `${C.grn}18`, border: `1px solid ${C.grn}44`, borderRadius: 20, padding: "2px 8px" }}>
+          {onShiftNow.map(s => <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4, background: `${C.grn}18`, border: `1px solid ${C.grn}44`, borderRadius: 20, padding: "2px 6px 2px 8px" }}>
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.grn, display: "inline-block", flexShrink: 0 }} />
             <span style={{ color: C.txt, fontSize: 11, fontWeight: 600 }}>{s.chatterName}</span>
+            <button onClick={() => clockOutChatter(s)} title="סמן יציאה" style={{ background: "none", border: "none", cursor: "pointer", color: C.mut, fontSize: 11, lineHeight: 1, padding: "0 2px", display: "flex", alignItems: "center" }}>✕</button>
           </span>)}
         </div>
       </div>}
