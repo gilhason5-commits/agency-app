@@ -2508,16 +2508,6 @@ function EditIncomeModal({ record, onClose }) {
       </div>}
     </div>
 
-    <div style={{ display: "flex", gap: 16, marginBottom: 14 }}>
-      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-        <input type="checkbox" checked={vatLiable} onChange={e => setVatLiable(e.target.checked)} />
-        <span style={{ color: vatLiable ? C.grn : C.mut, fontSize: 13 }}>חייב מע״מ</span>
-      </label>
-      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-        <input type="checkbox" checked={isLm} onChange={e => setIsLm(e.target.checked)} />
-        <span style={{ color: isLm ? C.ylw : C.mut, fontSize: 13 }}>ל.מ (לחודש קודם)</span>
-      </label>
-    </div>
 
     {(() => {
       const commPct = resolveCommissionPct(platform, incomeType);
@@ -2714,16 +2704,6 @@ function RecordIncomeAdmin({ onClose }) {
       <div>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
         <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={{ ...inputStyle, direction: "ltr" }} />
-      </div>
-      <div style={{ gridColumn: "1 / -1", display: "flex", gap: 16 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-          <input type="checkbox" checked={form.vatLiable !== false} onChange={e => upd("vatLiable", e.target.checked)} />
-          <span style={{ color: form.vatLiable !== false ? C.grn : C.mut, fontSize: 13 }}>חייב מע״מ</span>
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-          <input type="checkbox" checked={form.isLm === true} onChange={e => upd("isLm", e.target.checked)} />
-          <span style={{ color: form.isLm === true ? C.ylw : C.mut, fontSize: 13 }}>ל.מ (לחודש קודם)</span>
-        </label>
       </div>
     </div>
 
@@ -5505,16 +5485,6 @@ function ApprovalsPage() {
             {options.map(o => <option key={o} value={o}>{o || "—"}</option>)}
           </select> : <input type={type || "text"} value={editForm[key]} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" }} />}
         </div>)}
-        <div style={{ display: "flex", gap: 16, marginTop: 4 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-            <input type="checkbox" checked={editForm.vatLiable !== false} onChange={e => setEditForm(f => ({ ...f, vatLiable: e.target.checked }))} />
-            <span style={{ color: editForm.vatLiable !== false ? C.grn : C.mut, fontSize: 13 }}>חייב מע״מ</span>
-          </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-            <input type="checkbox" checked={editForm.isLm === true} onChange={e => setEditForm(f => ({ ...f, isLm: e.target.checked }))} />
-            <span style={{ color: editForm.isLm === true ? C.ylw : C.mut, fontSize: 13 }}>ל.מ (לחודש קודם)</span>
-          </label>
-        </div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
           <Btn variant="ghost" onClick={() => setEditRow(null)}>ביטול</Btn>
           <Btn variant="primary" onClick={saveEditRow}>💾 שמור</Btn>
