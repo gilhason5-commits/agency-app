@@ -1884,37 +1884,6 @@ function DashPage() {
       </Card>;
     })()}
 
-    {/* Rankings */}
-    {(() => {
-      const data0 = view === "monthly" ? iM : iY;
-      const chatterRank = Object.entries(data0.reduce((m, r) => { if (r.chatterName) m[r.chatterName] = (m[r.chatterName] || 0) + r.amountILS; return m; }, {})).sort((a, b) => b[1] - a[1]);
-      const clientRank = Object.entries(data0.reduce((m, r) => { if (r.modelName) m[r.modelName] = (m[r.modelName] || 0) + r.amountILS; return m; }, {})).sort((a, b) => b[1] - a[1]);
-      const top3Ch = chatterRank.slice(0, 3), bot3Ch = chatterRank.slice(-3).reverse();
-      const top3Cl = clientRank.slice(0, 3), bot3Cl = clientRank.slice(-3).reverse();
-      const medals = ["🥇", "🥈", "🥉"];
-      const rankCard = (title, items, good) => (
-        <Card style={{ flex: 1, minWidth: 180 }}>
-          <h4 style={{ color: C.txt, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{title}</h4>
-          {items.map(([name, val], i) => (
-            <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: i < items.length - 1 ? `1px solid ${C.bdr}` : "none" }}>
-              <span style={{ color: C.txt, fontSize: 13 }}>{good ? medals[i] : `${i + 1}.`} {name}</span>
-              <span style={{ color: good ? C.grn : C.red, fontSize: 13, fontWeight: 600 }}>{fmtC(val)}</span>
-            </div>
-          ))}
-          {items.length === 0 && <div style={{ color: C.mut, fontSize: 12 }}>אין נתונים</div>}
-        </Card>
-      );
-      return <div style={{ marginTop: 24 }}>
-        <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>🏆 דירוגים</h3>
-        <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
-          {rankCard("🌟 צ'אטרים מובילים", top3Ch, true)}
-          {rankCard("⚠️ צ'אטרים נמוכים", bot3Ch, false)}
-          {rankCard("👑 לקוחות מובילות", top3Cl, true)}
-          {rankCard("📉 לקוחות נמוכות", bot3Cl, false)}
-        </div>
-      </div>;
-    })()}
-
     {(() => {
       const incData = view === "monthly" ? iM : iY;
       // Build multi-metric hour data
@@ -1958,6 +1927,37 @@ function DashPage() {
           {bot4.length > 0 && <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.red, marginBottom: 8 }}>📉 שעות חלשות</div>{bot4.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 7 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{i + 1}. {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.red, fontWeight: 700 }}>{fmtVal(h)}</span></div>)}</Card>}
         </div>
       </div> : null;
+    })()}
+
+    {/* Rankings */}
+    {(() => {
+      const data0 = view === "monthly" ? iM : iY;
+      const chatterRank = Object.entries(data0.reduce((m, r) => { if (r.chatterName) m[r.chatterName] = (m[r.chatterName] || 0) + r.amountILS; return m; }, {})).sort((a, b) => b[1] - a[1]);
+      const clientRank = Object.entries(data0.reduce((m, r) => { if (r.modelName) m[r.modelName] = (m[r.modelName] || 0) + r.amountILS; return m; }, {})).sort((a, b) => b[1] - a[1]);
+      const top3Ch = chatterRank.slice(0, 3), bot3Ch = chatterRank.slice(-3).reverse();
+      const top3Cl = clientRank.slice(0, 3), bot3Cl = clientRank.slice(-3).reverse();
+      const medals = ["🥇", "🥈", "🥉"];
+      const rankCard = (title, items, good) => (
+        <Card style={{ flex: 1, minWidth: 180 }}>
+          <h4 style={{ color: C.txt, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{title}</h4>
+          {items.map(([name, val], i) => (
+            <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: i < items.length - 1 ? `1px solid ${C.bdr}` : "none" }}>
+              <span style={{ color: C.txt, fontSize: 13 }}>{good ? medals[i] : `${i + 1}.`} {name}</span>
+              <span style={{ color: good ? C.grn : C.red, fontSize: 13, fontWeight: 600 }}>{fmtC(val)}</span>
+            </div>
+          ))}
+          {items.length === 0 && <div style={{ color: C.mut, fontSize: 12 }}>אין נתונים</div>}
+        </Card>
+      );
+      return <div style={{ marginTop: 24 }}>
+        <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>🏆 דירוגים</h3>
+        <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
+          {rankCard("🌟 צ'אטרים מובילים", top3Ch, true)}
+          {rankCard("⚠️ צ'אטרים נמוכים", bot3Ch, false)}
+          {rankCard("👑 לקוחות מובילות", top3Cl, true)}
+          {rankCard("📉 לקוחות נמוכות", bot3Cl, false)}
+        </div>
+      </div>;
     })()}
 
     {/* Tier Cubes */}
