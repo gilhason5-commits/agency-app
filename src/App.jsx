@@ -1489,7 +1489,11 @@ function DashPage() {
   const fixedMonthly = fixedExps.reduce((s, e) => s + toMonthly(e.amount, e.period), 0);
   // Fixed expenses not yet recorded as actual expenses this period
   const fixedAlreadyRecorded = activeE.filter(e => e.isFixed).reduce((s, e) => s + (e.amount || 0), 0);
-  const fixedGap = Math.max(0, fixedMonthly - fixedAlreadyRecorded);
+  // For yearly view, compare against the full-year expected total; otherwise use monthly
+  const fixedExpectedForView = view === "yearly"
+    ? fixedExps.reduce((s, e) => s + (e.period === "monthly" ? e.amount * 12 : e.period === "quarterly" ? e.amount * 4 : e.amount), 0)
+    : fixedMonthly;
+  const fixedGap = Math.max(0, fixedExpectedForView - fixedAlreadyRecorded);
   const empGrossMonthly = employees.reduce((s, e) => s + e.grossAmount, 0);
   const empNIMonthly = employees.reduce((s, e) => s + e.nationalInsurance, 0);
   const empMonthly = empGrossMonthly + empNIMonthly;
@@ -1521,7 +1525,8 @@ function DashPage() {
     return sum + (e.amount || 0); // full amount
   }, 0);
   const nonDeductible = activeE.filter(e => !e.taxRecognized).reduce((s, e) => s + (e.amount || 0), 0);
-  const recognizedExp = mp.exp - nonDeductible;
+  // Fixed expenses are assumed tax-recognized; add unrecorded portion to recognized total
+  const recognizedExp = mp.exp - nonDeductible + fixedGap;
   const grossProfit = agencyIncome - recognizedExp - totalChatterSalary;
   const niTotal = empNIMonthly + manualNI;
   const taxableIncome = agencyIncome - vat - taxDeductibleExpenses - niTotal - lmCurr;
@@ -2816,9 +2821,8 @@ function ExpPage() {
             const chPaid = settlementExps.filter(e => e.category === "קיזוז צ'אטר").reduce((s, e) => s + e.amount, 0);
             const clPaid = settlementExps.filter(e => e.category === "קיזוז לקוח").reduce((s, e) => s + e.amount, 0);
             const manualTotal = data.filter(e => e.source === "ידני").reduce((s, e) => s + e.amount, 0);
-            const emailTotal = data.filter(e => e.source !== "ידני" && e.source !== "auto-settlement").reduce((s, e) => s + e.amount, 0);
             const fixedTotal = fixedExps.reduce((s, e) => s + toMonthly(e.amount, e.period), 0);
-            const grandTotal = manualTotal + emailTotal + chPaid + clPaid + fixedTotal;
+            const grandTotal = manualTotal + chPaid + clPaid + fixedTotal;
             return <Card style={{ flex: 1, minWidth: 200, padding: "14px 18px" }}>
               <div style={{ color: C.dim, fontSize: 12, marginBottom: 4 }}>💳 סה״כ הוצאות — {MONTHS_HE[month]}</div>
               <div style={{ fontSize: 28, fontWeight: 800, color: C.red, marginBottom: 8 }}>{fmtC(grandTotal)}</div>
@@ -2826,10 +2830,6 @@ function ExpPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
                   <span>✍️ הוצאות ידניות</span>
                   <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(manualTotal)}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
-                  <span>📧 חשבוניות מהמייל</span>
-                  <span style={{ color: C.txt, fontWeight: 600 }}>{fmtC(emailTotal)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.dim }}>
                   <span>👥 שולם לצ'אטרים (קיזוזים)</span>
@@ -4498,7 +4498,7 @@ function ChatterPortal({ hideHeader } = {}) {
   const [shiftReqClients, setShiftReqClients] = useState([]);
   const [shiftSaving, setShiftSaving] = useState(false);
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
-  const shiftPlatforms = agSettings.shiftPlatforms || ["אונלי", "טלגרם", "אונלי וטלגרם"];
+  const shiftPlatforms = agSettings.shiftPlatforms || ["אונלי", "טלגרם"];
   // Normalise a platform string to its base platforms (e.g. "אונלי וטלגרם" → ["אונלי","טלגרם"])
   const platformBases = (p) => {
     if (!p) return [];
@@ -6367,7 +6367,7 @@ function ShiftsPage() {
   const [slotForm, setSlotForm] = useState({ label: "", start: "", end: "" });
   const [showSlotMgr, setShowSlotMgr] = useState(false);
   const [newPlatform, setNewPlatform] = useState("");
-  const shiftPlatforms = agSettings.shiftPlatforms || ["אונלי", "טלגרם", "אונלי וטלגרם"];
+  const shiftPlatforms = agSettings.shiftPlatforms || ["אונלי", "טלגרם"];
   const [assignSlot, setAssignSlot] = useState(null); // { date, slotId }
   const [assignChatter, setAssignChatter] = useState("");
   const [assignClients, setAssignClients] = useState([]);
