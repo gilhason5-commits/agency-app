@@ -6582,10 +6582,16 @@ function ShiftsPage() {
       for (let i = 0; i < 7; i++) { const dd = new Date(today); dd.setDate(today.getDate() + i); days.push(dd.toISOString().slice(0, 10)); }
       const rows = [];
       days.forEach(d => sortedSlots.forEach(slot => rows.push({ date: d, slot })));
-      const clientOwner = (date, slotId, client) => {
-        const sh = allApproved.find(s => s.date === date && s.slotId === slotId && (s.clients || []).includes(client));
+      const platformBases = (p) => !p ? [] : (p === "אונלי וטלגרם" ? ["אונלי", "טלגרם"] : [p]);
+      const clientOwnerOnPlatform = (date, slotId, client, platform) => {
+        const sh = allApproved.find(s =>
+          s.date === date && s.slotId === slotId &&
+          (s.clients || []).includes(client) &&
+          platformBases(s.platform).includes(platform)
+        );
         return sh ? sh.chatterName : null;
       };
+      const PLATFORMS = ["אונלי", "טלגרם"];
       const DAY_NAMES_SHORT = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
       return allRegisteredClients.length > 0 && sortedSlots.length > 0 ? <Card style={{ marginBottom: 20, padding: 10 }}>
         <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 4 }}>📋 זמינות לקוחות</h3>
@@ -6594,16 +6600,25 @@ function ShiftsPage() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
             <thead>
               <tr>
-                <th style={{ padding: 4, color: C.dim, textAlign: "right", borderBottom: `1px solid ${C.bdr}`, position: "sticky", right: 0, background: C.bg, zIndex: 2, minWidth: 80 }}>משמרת</th>
+                <th rowSpan={2} style={{ padding: 4, color: C.dim, textAlign: "right", borderBottom: `1px solid ${C.bdr}`, position: "sticky", right: 0, background: C.bg, zIndex: 2, minWidth: 80 }}>משמרת</th>
                 {allRegisteredClients.map(c => {
-                  const freeToday = sortedSlots.filter(slot => !allApproved.find(s => s.date === todayS && s.slotId === slot.id && (s.clients || []).includes(c))).length;
-                  return <th key={c} style={{ padding: 4, color: C.dim, textAlign: "center", borderBottom: `1px solid ${C.bdr}`, fontWeight: 500, minWidth: 60 }}>
+                  const freeToday = sortedSlots.filter(slot =>
+                    PLATFORMS.some(p => !clientOwnerOnPlatform(todayS, slot.id, c, p))
+                  ).length;
+                  return <th key={c} colSpan={2} style={{ padding: 4, color: C.dim, textAlign: "center", borderBottom: `1px solid ${C.bdr}44`, fontWeight: 500, minWidth: 120, borderLeft: `1px solid ${C.bdr}44` }}>
                     {c}
                     <div style={{ fontSize: 8, color: freeToday === sortedSlots.length ? C.grn : freeToday === 0 ? C.red : C.dim, marginTop: 2, fontWeight: 600 }}>
                       {freeToday > 0 ? `${freeToday} פנוי היום` : "תפוס היום"}
                     </div>
                   </th>;
                 })}
+              </tr>
+              <tr>
+                {allRegisteredClients.map(c => PLATFORMS.map((p, pi) => (
+                  <th key={`${c}-${p}`} style={{ padding: "2px 4px", color: C.mut, textAlign: "center", borderBottom: `1px solid ${C.bdr}`, fontWeight: 400, fontSize: 9, minWidth: 55, borderLeft: pi === 0 ? `1px solid ${C.bdr}44` : "none" }}>
+                    {p}
+                  </th>
+                )))}
               </tr>
             </thead>
             <tbody>
@@ -6614,13 +6629,13 @@ function ShiftsPage() {
                     <div>{DAY_NAMES_SHORT[new Date(date).getDay()]} {date.slice(8)}/{date.slice(5, 7)}</div>
                     <div style={{ fontSize: 9, color: C.dim }}>{slot.label}</div>
                   </td>
-                  {allRegisteredClients.map(c => {
-                    const owner = clientOwner(date, slot.id, c);
+                  {allRegisteredClients.map(c => PLATFORMS.map((p, pi) => {
+                    const owner = clientOwnerOnPlatform(date, slot.id, c, p);
                     const free = !owner;
-                    return <td key={c} style={{ padding: 3, textAlign: "center", borderBottom: `1px solid ${C.bdr}22`, background: free ? `${C.grn}15` : `${C.red}20`, color: free ? C.grn : C.red, fontWeight: 500, fontSize: 9 }}>
+                    return <td key={`${c}-${p}`} style={{ padding: 3, textAlign: "center", borderBottom: `1px solid ${C.bdr}22`, background: free ? `${C.grn}15` : `${C.red}20`, color: free ? C.grn : C.red, fontWeight: 500, fontSize: 9, borderLeft: pi === 0 ? `1px solid ${C.bdr}44` : "none" }}>
                       {free ? "✓" : owner}
                     </td>;
-                  })}
+                  }))}
                 </tr>;
               })}
             </tbody>
