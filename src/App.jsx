@@ -318,16 +318,18 @@ const API = {
 const ExRate = {
   _rate: null,
   async fetchUsdIls() {
-    const today = new Date().toISOString().slice(0, 10);
-    // Always check Firebase first — single source of truth
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const today = now.toISOString().slice(0, 10);
+    // Always check Firebase first — rate is locked for the whole month
     try {
       const ag = await fetchAgencySettings();
-      if (ag.usdRate?.day === today && ag.usdRate?.rate > 2) {
+      if (ag.usdRate?.month === currentMonth && ag.usdRate?.rate > 2) {
         this._rate = ag.usdRate.rate;
         return ag.usdRate.rate;
       }
     } catch {}
-    // No valid rate in Firebase for today — fetch from external sources
+    // No valid rate in Firebase for this month — fetch from external sources
     const sources = [
       async () => {
         const r = await fetch(`https://edge.boi.gov.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/EXR/1.0/RER_USD_ILS?startperiod=${today}&endperiod=${today}&format=sdmx-json`);
@@ -345,13 +347,13 @@ const ExRate = {
         const rate = await src();
         if (rate && rate > 2 && rate < 6) {
           this._rate = rate;
-          // Save to Firebase — all devices will use this rate today
-          saveAgencySettings({ usdRate: { rate, day: today } }).catch(() => {});
+          // Save to Firebase — all devices will use this rate until end of month
+          saveAgencySettings({ usdRate: { rate, month: currentMonth, day: today } }).catch(() => {});
           return rate;
         }
       } catch {}
     }
-    // Fallback: use yesterday's Firebase rate if available
+    // Fallback: use existing Firebase rate if available
     try {
       const ag = await fetchAgencySettings();
       if (ag.usdRate?.rate > 2) { this._rate = ag.usdRate.rate; return ag.usdRate.rate; }
@@ -380,7 +382,7 @@ function mapInc(row, i) {
   const rawILS = +row[5] || 0;
   const rawUSD = +row[4] || 0;
   const rate = +row[3] || 0;
-  const activeRate = rate > 0 ? rate : ExRate.get();
+  const activeRate = ExRate.get();
   const computedILS = rawILS + rawUSD * activeRate;
 
   return {
@@ -1130,12 +1132,16 @@ function useFD() {
 
   const incomeWithDynamicRate = useMemo(() => {
     return income.map(r => {
-      const rate = parseFloat(r.usdRate) > 0 ? parseFloat(r.usdRate) : liveRate;
+      // Always use the global monthly rate — uniform across all records
+      const rate = liveRate;
       // For chatter-submitted pending records, rawILS may be missing — fall back to stored amountILS
       const baseILS = r.rawILS !== undefined ? r.rawILS : (r.originalRawILS !== undefined ? r.originalRawILS : (r.amountILS || 0));
-      // Preserve stored amountILS for records that already have commission calculated
-      if (r.commissionPct > 0 && r.preCommissionILS != null) {
-        return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : r.amountILS };
+      if (r.commissionPct > 0) {
+        // Recalculate pre-commission total with current rate, then re-apply commission factor
+        const baseUSD = r.preCommissionUSD !== undefined ? r.preCommissionUSD : (r.originalRawUSD !== undefined ? r.originalRawUSD : (r.amountUSD || 0));
+        const newPreComm = baseILS + baseUSD * rate;
+        const factor = 1 - r.commissionPct / 100;
+        return { ...r, rawILS: baseILS, preCommissionILS: newPreComm, amountILS: r.cancelled ? 0 : newPreComm * factor };
       }
       const computedILS = baseILS + (r.amountUSD || 0) * rate;
       return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : computedILS };
@@ -1258,12 +1264,19 @@ function MobileNav({ current, onNav }) {
   </div>;
 }
 function TopBar() {
-  const { year, setYear, connected, demo, loading, load, loadStep, logout, shifts } = useApp();
+  const { year, setYear, connected, demo, loading, load, loadStep, logout, shifts, updateShiftCtx } = useApp();
   const w = useWin();
   const onShiftNow = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return (shifts || []).filter(s => s.date === today && s.status === "approved" && s.clockIn && !s.clockOut);
   }, [shifts]);
+  const clockOutChatter = (s) => {
+    const now = new Date();
+    const clockOut = now.toISOString();
+    const diffMs = now - new Date(s.clockIn);
+    const hoursWorked = Math.round(diffMs / 36000) / 100;
+    updateShiftCtx(s.id, { clockOut, hoursWorked });
+  };
   return <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: w < 768 ? "10px 14px" : "10px 24px", background: C.card, borderBottom: `1px solid ${C.bdr}`, direction: "rtl" }}>
     <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
       {w < 768 && <span style={{ fontSize: 16, fontWeight: 800, color: C.pri }}>🏢</span>}
@@ -1275,9 +1288,10 @@ function TopBar() {
       {onShiftNow.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ color: C.mut, fontSize: 11, whiteSpace: "nowrap" }}>צאטרים מחוברים:</span>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {onShiftNow.map(s => <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4, background: `${C.grn}18`, border: `1px solid ${C.grn}44`, borderRadius: 20, padding: "2px 8px" }}>
+          {onShiftNow.map(s => <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4, background: `${C.grn}18`, border: `1px solid ${C.grn}44`, borderRadius: 20, padding: "2px 6px 2px 8px" }}>
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.grn, display: "inline-block", flexShrink: 0 }} />
             <span style={{ color: C.txt, fontSize: 11, fontWeight: 600 }}>{s.chatterName}</span>
+            <button onClick={() => clockOutChatter(s)} title="סמן יציאה" style={{ background: "none", border: "none", cursor: "pointer", color: C.mut, fontSize: 11, lineHeight: 1, padding: "0 2px", display: "flex", alignItems: "center" }}>✕</button>
           </span>)}
         </div>
       </div>}
@@ -1486,7 +1500,7 @@ function DashPage() {
   const lmCurr = view === "monthly" ? (lmFromRecords > 0 ? lmFromRecords : (lmVals[year]?.[month] || 0)) : 0;
   // VAT: only on vatLiable income, using 18/118 formula (extract VAT from gross)
   const vatLiableIncome = (() => {
-    const vatRows = activeI.filter(r => r.vatLiable !== false && !r.cancelled);
+    const vatRows = activeI.filter(r => !r.cancelled);
     const vatTotal = vatRows.reduce((s, r) => s + r.amountILS, 0);
     // Deduct client entitlement on VAT-liable income
     const names = [...new Set(vatRows.map(r => r.modelName).filter(Boolean))];
@@ -1738,8 +1752,8 @@ function DashPage() {
 
       {/* Row 2: Expenses → gross profit */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-        <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
-        {nonDeductible > 0 && <Stat icon="🚫" title="הוצאות לא מוכרות" value={fmtC(nonDeductible)} color={C.red} sub="מוסיף לבסיס החייב במס" />}
+        <Stat icon="✅" title="הוצאות מוכרות" value={fmtC(recognizedExp)} color={C.red} sub="מוכרות לצרכי מס" />
+        <Stat icon="🚫" title="הוצאות לא מוכרות" value={fmtC(nonDeductible)} color={C.red} sub="מוסיף לבסיס החייב במס" />
         <Stat icon="🔄" title="כסף שעבר דרכנו" value={fmtC(moneyThroughAgency)} color={C.pri} sub={`${moneyThroughAgencyCount} עסקאות עברו דרכנו`} />
         <Stat icon="👥" title="כסף עבר דרך צ'אטרים" value={fmtC(moneyThroughChatter)} color={C.org} sub={`${moneyThroughChatterCount} עסקאות שולמו לצ'אטר`} />
         <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
@@ -1750,7 +1764,7 @@ function DashPage() {
         <div style={{ color: C.ylw, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>🧾 מסים ותשלומים חובה</div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <Stat icon="📋" title="מע״מ (18/118)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatLiableIncome)}`} />
-          <Stat icon="🏛️" title={`מס הכנסה${bizType === "חברה" ? " (23%)" : " (מדרגות)"}`} value={<span>{taxableIncome > 0 && <span style={{ display: "block", fontSize: 11, color: C.mut, fontWeight: 400, marginBottom: 2 }}>{effectiveTaxRate.toFixed(1)}% מהבסיס החייב</span>}{fmtC(incomeTax)}</span>} color={C.ylw} sub={`בסיס: ${fmtC(Math.max(0, taxableIncome))}`} />
+          <Stat icon="🏛️" title={`מס הכנסה${bizType === "חברה" ? " (23%)" : " (מדרגות)"}`} value={<span>{taxableIncome > 0 && <span style={{ display: "block", fontSize: 11, color: C.mut, fontWeight: 400, marginBottom: 2 }}>{effectiveTaxRate.toFixed(1)}% מהבסיס החייב</span>}{fmtC(incomeTax)}</span>} color={C.ylw} sub={`בסיס (אחרי מע"מ): ${fmtC(Math.max(0, taxableIncome))}`} />
           <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + ידני" : "ידני"} />
           <Stat icon="💸" title="סה״כ מסים" value={fmtC(vat + incomeTax + niTotal)} color={C.red} sub="מע״מ + מס + ב.ל" />
         </div>
@@ -1781,8 +1795,8 @@ function DashPage() {
 
       {/* Row 2: Expenses → gross profit */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-        <Stat icon="💳" title="הוצאות שוטפות" value={fmtC(mp.exp)} color={C.red} />
-        {nonDeductible > 0 && <Stat icon="🚫" title="הוצאות לא מוכרות" value={fmtC(nonDeductible)} color={C.red} sub="מוסיף לבסיס החייב במס" />}
+        <Stat icon="✅" title="הוצאות מוכרות" value={fmtC(recognizedExp)} color={C.red} sub="מוכרות לצרכי מס" />
+        <Stat icon="🚫" title="הוצאות לא מוכרות" value={fmtC(nonDeductible)} color={C.red} sub="מוסיף לבסיס החייב במס" />
         <Stat icon="🔄" title="כסף שעבר דרכנו" value={fmtC(moneyThroughAgency)} color={C.pri} sub={`${moneyThroughAgencyCount} עסקאות עברו דרכנו`} />
         <Stat icon="👥" title="כסף עבר דרך צ'אטרים" value={fmtC(moneyThroughChatter)} color={C.org} sub={`${moneyThroughChatterCount} עסקאות שולמו לצ'אטר`} />
         <Stat icon="📊" title="צפי רווח ברוטו" value={fmtC(grossProfit)} color={grossProfit >= 0 ? C.grn : C.red} sub="לפני מסים" />
@@ -1793,7 +1807,7 @@ function DashPage() {
         <div style={{ color: C.ylw, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>🧾 מסים ותשלומים חובה</div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <Stat icon="📋" title="מע״מ (18/118)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatLiableIncome)}`} />
-          <Stat icon="🏛️" title={`מס הכנסה${bizType === "חברה" ? " (23%)" : " (מדרגות)"}`} value={<span>{taxableIncome > 0 && <span style={{ display: "block", fontSize: 11, color: C.mut, fontWeight: 400, marginBottom: 2 }}>{effectiveTaxRate.toFixed(1)}% מהבסיס החייב</span>}{fmtC(incomeTax)}</span>} color={C.ylw} sub={`בסיס: ${fmtC(Math.max(0, taxableIncome))}`} />
+          <Stat icon="🏛️" title={`מס הכנסה${bizType === "חברה" ? " (23%)" : " (מדרגות)"}`} value={<span>{taxableIncome > 0 && <span style={{ display: "block", fontSize: 11, color: C.mut, fontWeight: 400, marginBottom: 2 }}>{effectiveTaxRate.toFixed(1)}% מהבסיס החייב</span>}{fmtC(incomeTax)}</span>} color={C.ylw} sub={`בסיס (אחרי מע"מ): ${fmtC(Math.max(0, taxableIncome))}`} />
           <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + ידני" : "ידני"} />
           <Stat icon="💸" title="סה״כ מסים" value={fmtC(vat + incomeTax + niTotal)} color={C.red} sub="מע״מ + מס + ב.ל" />
         </div>
@@ -1857,31 +1871,91 @@ function DashPage() {
 
     {/* Hourly sales chart */}
     {(() => {
-      const hourlyTotal = (() => {
-        const map = {};
-        for (let h = 0; h < 24; h++) map[h] = { hour: h, total: 0 };
-        activeI.forEach(r => {
-          let hStr = r.hour;
-          if (!hStr) return;
-          if (typeof hStr === "string" && hStr.includes("1899-") && hStr.includes("T")) hStr = hStr.split("T")[1].substring(0, 5);
-          const hNum = parseInt(hStr, 10);
-          if (isNaN(hNum) || hNum < 0 || hNum > 23) return;
-          map[hNum].total += r.amountILS;
-        });
-        return Object.values(map).sort((a, b) => a.hour - b.hour);
-      })();
+      const map = {};
+      for (let h = 0; h < 24; h++) map[h] = { hour: h, total: 0, count: 0, buyers: new Set() };
+      activeI.forEach(r => {
+        let hStr = r.hour;
+        if (!hStr) return;
+        if (typeof hStr === "string" && hStr.includes("1899-") && hStr.includes("T")) hStr = hStr.split("T")[1].substring(0, 5);
+        const hNum = parseInt(hStr, 10);
+        if (isNaN(hNum) || hNum < 0 || hNum > 23) return;
+        map[hNum].total += r.amountILS;
+        map[hNum].count += 1;
+        if (r.buyerId || r.buyerName) map[hNum].buyers.add(r.buyerId || r.buyerName);
+      });
+      const vals = Object.values(map);
+      const maxRev = Math.max(...vals.map(d => d.total), 1);
+      const maxCnt = Math.max(...vals.map(d => d.count), 1);
+      const maxBuy = Math.max(...vals.map(d => d.buyers.size), 1);
+      const hourlyTotal = vals.map(d => ({
+        hour: d.hour,
+        total: d.total,
+        count: d.count,
+        buyers: d.buyers.size,
+        combined: (d.total / maxRev * 0.4 + d.count / maxCnt * 0.3 + d.buyers.size / maxBuy * 0.3) * maxRev,
+      })).sort((a, b) => a.hour - b.hour);
       return activeI.length > 0 && <Card style={{ marginBottom: 16 }}>
         <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📈 מכירות לפי שעה ביום</div>
-        <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={220}>
-          <LineChart data={hourlyTotal} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+        <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={260}>
+          <LineChart data={hourlyTotal} margin={{ top: 5, right: 50, bottom: 5, left: 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
             <XAxis dataKey="hour" tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `${v}:00`} />
-            <YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => fmtC(v)} />
-            <Tooltip formatter={v => fmtC(v)} labelFormatter={v => `שעה ${v}:00`} />
-            <Line type="monotone" dataKey="total" stroke={C.pri} strokeWidth={2} dot={{ r: 3 }} name="מכירות" connectNulls />
+            <YAxis yAxisId="left" tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} />
+            <YAxis yAxisId="right" orientation="right" tick={{ fill: C.dim, fontSize: 10 }} />
+            <Tooltip labelFormatter={v => `שעה ${v}:00`} formatter={(v, name) => name === "רווחיות" || name === "משולב" ? fmtC(v) : v} />
+            <Legend wrapperStyle={{ fontSize: 11, color: C.dim }} />
+            <Line yAxisId="left" type="monotone" dataKey="total" stroke={C.pri} strokeWidth={2} dot={false} name="רווחיות" connectNulls />
+            <Line yAxisId="left" type="monotone" dataKey="combined" stroke={C.ylw} strokeWidth={1.5} dot={false} name="משולב" strokeDasharray="4 2" connectNulls />
+            <Line yAxisId="right" type="monotone" dataKey="count" stroke={C.grn} strokeWidth={1.5} dot={false} name="נפח" connectNulls />
+            <Line yAxisId="right" type="monotone" dataKey="buyers" stroke={C.org} strokeWidth={1.5} dot={false} name="קונים" connectNulls />
           </LineChart>
         </ResponsiveContainer></div>
       </Card>;
+    })()}
+
+    {(() => {
+      const incData = view === "monthly" ? iM : iY;
+      // Build multi-metric hour data
+      const hourData = {};
+      for (let h = 0; h < 24; h++) hourData[h] = { revenue: 0, count: 0, buyers: new Set() };
+      incData.forEach(r => {
+        let hStr = r.hour;
+        if (!hStr) return;
+        if (typeof hStr === "string" && hStr.includes("1899-") && hStr.includes("T")) hStr = hStr.split("T")[1].substring(0, 5);
+        const hNum = parseInt(hStr, 10);
+        if (isNaN(hNum) || hNum < 0 || hNum > 23) return;
+        hourData[hNum].revenue += r.amountILS;
+        hourData[hNum].count += 1;
+        if (r.buyerId || r.buyerName) hourData[hNum].buyers.add(r.buyerId || r.buyerName);
+      });
+      const maxRev = Math.max(...Object.values(hourData).map(d => d.revenue), 1);
+      const maxCnt = Math.max(...Object.values(hourData).map(d => d.count), 1);
+      const maxBuy = Math.max(...Object.values(hourData).map(d => d.buyers.size), 1);
+      const hours = Object.entries(hourData).map(([h, d]) => {
+        const val = hourFilter === "profitable" ? d.revenue
+          : hourFilter === "buyers" ? d.buyers.size
+          : hourFilter === "volume" ? d.count
+          : (d.revenue / maxRev * 0.4 + d.count / maxCnt * 0.3 + d.buyers.size / maxBuy * 0.3) * maxRev;
+        return { hour: +h, total: val, revenue: d.revenue, count: d.count, buyerCount: d.buyers.size };
+      }).filter(h => h.revenue > 0 || h.count > 0).sort((a, b) => b.total - a.total);
+      const top4 = hours.slice(0, 8);
+      const bot4 = hours.length > 8 ? hours.slice(-8).reverse() : [];
+      const fmtH = h => `${String(h).padStart(2, "0")}:00`;
+      const medals = ["🥇", "🥈", "🥉", "4.", "5.", "6.", "7.", "8."];
+      const fmtVal = h => hourFilter === "profitable" ? fmtC(h.total) : hourFilter === "buyers" ? `${h.buyerCount} קונים` : hourFilter === "volume" ? `${h.count} עסקאות` : fmtC(h.total);
+      const filterOpts = [{ key: "profitable", label: "רווחיות" }, { key: "buyers", label: "קונים" }, { key: "volume", label: "נפח" }, { key: "combined", label: "משולב" }];
+      return top4.length > 0 ? <div style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, margin: 0 }}>⏰ שעות פעילות</h3>
+          <div style={{ display: "flex", gap: 0, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.bdr}` }}>
+            {filterOpts.map(f => <button key={f.key} onClick={() => setHourFilter(f.key)} style={{ padding: "5px 12px", background: hourFilter === f.key ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 11, fontWeight: hourFilter === f.key ? 700 : 400 }}>{f.label}</button>)}
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr" : "1fr 1fr", gap: 12 }}>
+          <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.grn, marginBottom: 8 }}>🔥 שעות חזקות</div>{top4.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 7 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{medals[i]} {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.grn, fontWeight: 700 }}>{fmtVal(h)}</span></div>)}</Card>
+          {bot4.length > 0 && <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.red, marginBottom: 8 }}>📉 שעות חלשות</div>{bot4.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 7 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{i + 1}. {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.red, fontWeight: 700 }}>{fmtVal(h)}</span></div>)}</Card>}
+        </div>
+      </div> : null;
     })()}
 
     {/* Rankings */}
@@ -1913,51 +1987,6 @@ function DashPage() {
           {rankCard("📉 לקוחות נמוכות", bot3Cl, false)}
         </div>
       </div>;
-    })()}
-
-    {(() => {
-      const incData = view === "monthly" ? iM : iY;
-      // Build multi-metric hour data
-      const hourData = {};
-      for (let h = 0; h < 24; h++) hourData[h] = { revenue: 0, count: 0, buyers: new Set() };
-      incData.forEach(r => {
-        let hStr = r.hour;
-        if (!hStr) return;
-        if (typeof hStr === "string" && hStr.includes("1899-") && hStr.includes("T")) hStr = hStr.split("T")[1].substring(0, 5);
-        const hNum = parseInt(hStr, 10);
-        if (isNaN(hNum) || hNum < 0 || hNum > 23) return;
-        hourData[hNum].revenue += r.amountILS;
-        hourData[hNum].count += 1;
-        if (r.buyerId || r.buyerName) hourData[hNum].buyers.add(r.buyerId || r.buyerName);
-      });
-      const maxRev = Math.max(...Object.values(hourData).map(d => d.revenue), 1);
-      const maxCnt = Math.max(...Object.values(hourData).map(d => d.count), 1);
-      const maxBuy = Math.max(...Object.values(hourData).map(d => d.buyers.size), 1);
-      const hours = Object.entries(hourData).map(([h, d]) => {
-        const val = hourFilter === "profitable" ? d.revenue
-          : hourFilter === "buyers" ? d.buyers.size
-          : hourFilter === "volume" ? d.count
-          : (d.revenue / maxRev * 0.4 + d.count / maxCnt * 0.3 + d.buyers.size / maxBuy * 0.3) * maxRev;
-        return { hour: +h, total: val, revenue: d.revenue, count: d.count, buyerCount: d.buyers.size };
-      }).filter(h => h.revenue > 0 || h.count > 0).sort((a, b) => b.total - a.total);
-      const top4 = hours.slice(0, 4);
-      const bot4 = hours.length > 4 ? hours.slice(-4).reverse() : [];
-      const fmtH = h => `${String(h).padStart(2, "0")}:00`;
-      const medals = ["🥇", "🥈", "🥉", "4."];
-      const fmtVal = h => hourFilter === "profitable" ? fmtC(h.total) : hourFilter === "buyers" ? `${h.buyerCount} קונים` : hourFilter === "volume" ? `${h.count} עסקאות` : fmtC(h.total);
-      const filterOpts = [{ key: "profitable", label: "רווחיות" }, { key: "buyers", label: "קונים" }, { key: "volume", label: "נפח" }, { key: "combined", label: "משולב" }];
-      return top4.length > 0 ? <div style={{ marginTop: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-          <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, margin: 0 }}>⏰ שעות פעילות</h3>
-          <div style={{ display: "flex", gap: 0, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.bdr}` }}>
-            {filterOpts.map(f => <button key={f.key} onClick={() => setHourFilter(f.key)} style={{ padding: "5px 12px", background: hourFilter === f.key ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 11, fontWeight: hourFilter === f.key ? 700 : 400 }}>{f.label}</button>)}
-          </div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr" : "1fr 1fr", gap: 12 }}>
-          <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.grn, marginBottom: 8 }}>🔥 שעות חזקות</div>{top4.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 3 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{medals[i]} {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.grn, fontWeight: 700 }}>{fmtVal(h)}</span></div>)}</Card>
-          {bot4.length > 0 && <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.red, marginBottom: 8 }}>📉 שעות חלשות</div>{bot4.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 3 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{i + 1}. {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.red, fontWeight: 700 }}>{fmtVal(h)}</span></div>)}</Card>}
-        </div>
-      </div> : null;
     })()}
 
     {/* Tier Cubes */}
@@ -2132,7 +2161,7 @@ function IncPage() {
       {view === "monthly" && <div style={{ marginBottom: 8 }}><Sel label="ציר X:" value={xAxis} onChange={setXAxis} options={[{ value: "date", label: "תאריך" }, { value: "chatter", label: "צ'אטר" }, { value: "client", label: "לקוחה" }, { value: "type", label: "סוג הכנסה" }, { value: "platform", label: "פלטפורמה" }]} /></div>}
       <ResponsiveContainer width="100%" height={220}><BarChart data={chartData} margin={{ left: 50, bottom: 20 }}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} interval={0} angle={chartData.length > 15 ? -45 : 0} textAnchor={chartData.length > 15 ? "end" : "middle"} height={chartData.length > 15 ? 60 : 30} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 4, 0, 0]} name="הכנסות" /></BarChart></ResponsiveContainer>
     </Card>
-    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "ID קונה", render: r => r.buyerId || "—" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "סימון", render: r => <span style={{ fontSize: 10 }}>{r.vatLiable === false ? <span style={{ color: C.red, marginLeft: 2 }} title="פטור מע״מ">!מע״מ</span> : ""}{r.isLm ? <span style={{ color: C.ylw, marginLeft: 2 }} title="ל.מ">ל.מ</span> : ""}</span> }, { label: "הערה", render: r => { if (!r.notes) return ""; const words = r.notes.trim().split(/\s+/); if (words.length <= 3) return <span style={{ fontSize: 11, color: C.dim }}>{r.notes}</span>; return <span onClick={() => setNoteView(r.notes)} style={{ fontSize: 11, color: C.pri, cursor: "pointer", whiteSpace: "nowrap" }} title="לחץ לצפייה בהערה המלאה">{words.slice(0, 3).join(" ")}...</span>; } }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", totalPreCommUSD > 0 ? fmtUSD(totalPreCommUSD) : "", totalPreCommILS > 0 ? fmtC(totalPreCommILS) : "", fmtUSD(totalUSD), fmtC(grandTotal), "", "", "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
+    {view === "monthly" ? <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "ID קונה", render: r => r.buyerId || "—" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "הערה", render: r => { if (!r.notes) return ""; const words = r.notes.trim().split(/\s+/); if (words.length <= 3) return <span style={{ fontSize: 11, color: C.dim }}>{r.notes}</span>; return <span onClick={() => setNoteView(r.notes)} style={{ fontSize: 11, color: C.pri, cursor: "pointer", whiteSpace: "nowrap" }} title="לחץ לצפייה בהערה המלאה">{words.slice(0, 3).join(" ")}...</span>; } }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", totalPreCommUSD > 0 ? fmtUSD(totalPreCommUSD) : "", totalPreCommILS > 0 ? fmtC(totalPreCommILS) : "", fmtUSD(totalUSD), fmtC(grandTotal), "", "", ""]} /> : <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
 
     {/* Per-client entitlement summary */}
     {(() => {
@@ -4465,21 +4494,39 @@ function ChatterPortal({ hideHeader } = {}) {
   // Shift request state
   const [shiftReqDate, setShiftReqDate] = useState(new Date().toISOString().slice(0, 10));
   const [shiftReqSlot, setShiftReqSlot] = useState("");
-  const [shiftReqPlatform, setShiftReqPlatform] = useState("");
+  const [shiftReqPlatforms, setShiftReqPlatforms] = useState([]);
   const [shiftReqClients, setShiftReqClients] = useState([]);
   const [shiftSaving, setShiftSaving] = useState(false);
   const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
   const shiftPlatforms = agSettings.shiftPlatforms || ["אונלי", "טלגרם", "אונלי וטלגרם"];
+  // Normalise a platform string to its base platforms (e.g. "אונלי וטלגרם" → ["אונלי","טלגרם"])
+  const platformBases = (p) => {
+    if (!p) return [];
+    if (p === "אונלי וטלגרם") return ["אונלי", "טלגרם"];
+    return [p];
+  };
   const registeredClients = useMemo(() => (sheetUsers || []).filter(u => u.role === "client").map(u => u.name).sort(), [sheetUsers]);
   const myShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "approved").sort((a, b) => a.date > b.date ? 1 : -1), [shifts, chatterName]);
   const myPendingShifts = useMemo(() => shifts.filter(s => s.chatterName === chatterName && s.status === "pending"), [shifts, chatterName]);
+  // takenClients: platform-aware + exclude completed (clocked-out) shifts
   const takenClients = useMemo(() => {
     if (!shiftReqDate || !shiftReqSlot) return new Set();
     const taken = new Set();
-    shifts.filter(s => s.status === "approved" && s.date === shiftReqDate && s.slotId === shiftReqSlot && s.chatterName !== chatterName)
-      .forEach(s => (s.clients || []).forEach(c => taken.add(c)));
+    const activeShifts = shifts.filter(s =>
+      s.status === "approved" && !s.clockOut &&
+      s.date === shiftReqDate && s.slotId === shiftReqSlot && s.chatterName !== chatterName
+    );
+    activeShifts.forEach(s => {
+      // If platforms selected, only mark taken when there is a platform overlap
+      if (shiftReqPlatforms.length > 0) {
+        const existingBases = platformBases(s.platform);
+        const overlap = shiftReqPlatforms.some(p => existingBases.includes(p));
+        if (!overlap) return;
+      }
+      (s.clients || []).forEach(c => taken.add(c));
+    });
     return taken;
-  }, [shifts, shiftReqDate, shiftReqSlot, chatterName]);
+  }, [shifts, shiftReqDate, shiftReqSlot, chatterName, shiftReqPlatforms]);
 
   // Clock-in/out state
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -4518,10 +4565,11 @@ function ChatterPortal({ hideHeader } = {}) {
     setShiftSaving(true);
     const slot = sortedSlots.find(s => s.id === shiftReqSlot);
     if (!slot) { setShiftSaving(false); return; }
-    const data = { date: shiftReqDate, slotId: slot.id, slotLabel: slot.label, slotStart: slot.start, slotEnd: slot.end, chatterName, status: "pending", source: "request", platform: shiftReqPlatform, clients: shiftReqClients };
+    const platformStr = shiftReqPlatforms.length === 1 ? shiftReqPlatforms[0] : shiftReqPlatforms.length > 1 ? shiftReqPlatforms.join(" ו") : "";
+    const data = { date: shiftReqDate, slotId: slot.id, slotLabel: slot.label, slotStart: slot.start, slotEnd: slot.end, chatterName, status: "pending", source: "request", platform: platformStr, clients: shiftReqClients };
     const saved = await addShiftCtx(data);
     TelegramSvc.notifyShiftRequested(saved);
-    setShiftSaving(false); setShiftReqSlot(""); setShiftReqPlatform(""); setShiftReqClients([]);
+    setShiftSaving(false); setShiftReqSlot(""); setShiftReqPlatforms([]); setShiftReqClients([]);
   };
 
   const [editTx, setEditTx] = useState(null);
@@ -4944,6 +4992,71 @@ function ChatterPortal({ hideHeader } = {}) {
         </div>
       </Modal>}
 
+      {/* My Shifts */}
+      <Card style={{ marginBottom: 16 }}>
+        <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📅 המשמרות שלי</h3>
+        {myShifts.length === 0 && myPendingShifts.length === 0 && <div style={{ color: C.mut, fontSize: 13 }}>אין משמרות קרובות</div>}
+        {myPendingShifts.length > 0 && <div style={{ marginBottom: 10 }}>
+          {myPendingShifts.map(s => <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
+            <span style={{ color: C.ylw, fontSize: 13 }}>⏳</span>
+            <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel}</span>
+            <span style={{ color: C.ylw, fontSize: 11 }}>ממתין לאישור</span>
+          </div>)}
+        </div>}
+        {myShifts.filter(s => s.date >= todayStr).slice(0, 10).map(s => <div key={s.id} style={{ padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={{ fontSize: 13 }}>{s.clockIn && s.clockOut ? "⚪" : s.clockIn ? "🟢" : "✅"}</span>
+            <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel} ({s.slotStart}-{s.slotEnd})</span>
+            {s.platform && <span style={{ background: `${C.pri}22`, color: C.pri, border: `1px solid ${C.pri}44`, borderRadius: 8, padding: "1px 7px", fontSize: 11, fontWeight: 600 }}>{s.platform}</span>}
+            {s.clockIn && !s.clockOut && <span style={{ color: C.grn, fontSize: 10, fontWeight: 700 }}>במשמרת</span>}
+            {s.clockIn && s.clockOut && <span style={{ color: C.dim, fontSize: 10 }}>{s.hoursWorked}ש׳</span>}
+            {s.lateMinutes > 0 && <span style={{ color: C.ylw, fontSize: 10 }}>איחור {s.lateMinutes}׳</span>}
+          </div>
+          {s.clients?.length > 0 && <div style={{ marginRight: 24, marginTop: 2, fontSize: 11, color: C.cyan }}>לקוחות: {s.clients.join(", ")}</div>}
+        </div>)}
+
+        {/* Request shift form */}
+        {sortedSlots.length > 0 && <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <span style={{ color: C.dim, fontSize: 12 }}>בקש משמרת:</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+            <input type="date" value={shiftReqDate} onChange={e => setShiftReqDate(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }} />
+            <select value={shiftReqSlot} onChange={e => setShiftReqSlot(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }}>
+              <option value="">בחר משמרת...</option>
+              {sortedSlots.map(s => <option key={s.id} value={s.id}>{s.label} ({s.start}-{s.end})</option>)}
+            </select>
+          </div>
+          {/* Multi-platform toggle buttons */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+            <span style={{ color: C.dim, fontSize: 11 }}>פלטפורמה:</span>
+            {shiftPlatforms.map(p => {
+              const sel = shiftReqPlatforms.includes(p);
+              return <button key={p} onClick={() => setShiftReqPlatforms(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])} style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, border: `1px solid ${sel ? C.pri : C.bdr}`, background: sel ? `${C.pri}22` : C.card, color: sel ? C.pri : C.dim, cursor: "pointer", fontWeight: sel ? 700 : 400 }}>{p}</button>;
+            })}
+          </div>
+          {/* Clients with per-platform availability */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+            <span style={{ color: C.dim, fontSize: 11 }}>לקוחות:</span>
+            {registeredClients.map(c => {
+              const tk = takenClients.has(c);
+              const sel = shiftReqClients.includes(c);
+              // Per-platform availability detail when multiple platforms are selected
+              const platformDetail = shiftReqPlatforms.length > 1 ? shiftReqPlatforms.map(p => {
+                const takenOnP = shifts.some(s => s.status === "approved" && !s.clockOut && s.date === shiftReqDate && s.slotId === shiftReqSlot && s.chatterName !== chatterName && platformBases(s.platform).includes(p) && (s.clients || []).includes(c));
+                return { p, free: !takenOnP };
+              }) : null;
+              const subLabel = platformDetail ? platformDetail.map(({ p, free }) => `${p}: ${free ? "✓" : "✗"}`).join(" | ") : tk ? "תפוס" : null;
+              return <button key={c} onClick={() => !tk && setShiftReqClients(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, border: `1px solid ${sel ? C.pri : tk ? C.red : C.bdr}`, background: sel ? `${C.pri}22` : tk ? `${C.red}18` : C.card, color: sel ? C.pri : tk ? C.red : C.dim, opacity: tk && !sel ? 0.7 : 1, cursor: tk ? "default" : "pointer", textAlign: "center" }}>
+                <div>{c}</div>
+                {subLabel && <div style={{ fontSize: 9, opacity: 0.8, marginTop: 1 }}>{subLabel}</div>}
+              </button>;
+            })}
+          </div>
+          <div>
+            <Btn size="sm" variant="success" onClick={requestShift} disabled={shiftSaving || !shiftReqSlot}>{shiftSaving ? "⏳" : "שלח בקשה"}</Btn>
+          </div>
+        </div>}
+      </Card>
+
       {/* Weekly Calendar - All Shifts */}
       {(() => {
         const allApproved = shifts.filter(s => s.status === "approved");
@@ -4983,52 +5096,6 @@ function ChatterPortal({ hideHeader } = {}) {
           </div>
         </Card> : null;
       })()}
-
-      {/* My Shifts */}
-      <Card style={{ marginBottom: 16 }}>
-        <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📅 המשמרות שלי</h3>
-        {myShifts.length === 0 && myPendingShifts.length === 0 && <div style={{ color: C.mut, fontSize: 13 }}>אין משמרות קרובות</div>}
-        {myPendingShifts.length > 0 && <div style={{ marginBottom: 10 }}>
-          {myPendingShifts.map(s => <div key={s.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
-            <span style={{ color: C.ylw, fontSize: 13 }}>⏳</span>
-            <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel}</span>
-            <span style={{ color: C.ylw, fontSize: 11 }}>ממתין לאישור</span>
-          </div>)}
-        </div>}
-        {myShifts.filter(s => s.date >= todayStr).slice(0, 10).map(s => <div key={s.id} style={{ padding: "6px 0", borderBottom: `1px solid ${C.bdr}` }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <span style={{ fontSize: 13 }}>{s.clockIn && s.clockOut ? "⚪" : s.clockIn ? "🟢" : "✅"}</span>
-            <span style={{ color: C.txt, fontSize: 13 }}>{s.date} — {s.slotLabel} ({s.slotStart}-{s.slotEnd})</span>
-            {s.clockIn && !s.clockOut && <span style={{ color: C.grn, fontSize: 10, fontWeight: 700 }}>במשמרת</span>}
-            {s.clockIn && s.clockOut && <span style={{ color: C.dim, fontSize: 10 }}>{s.hoursWorked}ש׳</span>}
-            {s.lateMinutes > 0 && <span style={{ color: C.ylw, fontSize: 10 }}>איחור {s.lateMinutes}׳</span>}
-          </div>
-          {s.clients?.length > 0 && <div style={{ marginRight: 24, marginTop: 2, fontSize: 11, color: C.cyan }}>לקוחות: {s.clients.join(", ")}</div>}
-        </div>)}
-
-        {/* Request shift form */}
-        {sortedSlots.length > 0 && <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-          <span style={{ color: C.dim, fontSize: 12 }}>בקש משמרת:</span>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-            <input type="date" value={shiftReqDate} onChange={e => setShiftReqDate(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }} />
-            <select value={shiftReqSlot} onChange={e => setShiftReqSlot(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }}>
-              <option value="">בחר משמרת...</option>
-              {sortedSlots.map(s => <option key={s.id} value={s.id}>{s.label} ({s.start}-{s.end})</option>)}
-            </select>
-            <select value={shiftReqPlatform} onChange={e => setShiftReqPlatform(e.target.value)} style={{ padding: "6px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13 }}>
-              <option value="">בחר פלטפורמה...</option>
-              {shiftPlatforms.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-            <span style={{ color: C.dim, fontSize: 11 }}>לקוחות:</span>
-            {registeredClients.map(c => { const tk = takenClients.has(c), sel = shiftReqClients.includes(c); return <button key={c} onClick={() => setShiftReqClients(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])} style={{ padding: "4px 10px", borderRadius: 12, fontSize: 11, border: `1px solid ${sel ? C.pri : tk ? C.red : C.bdr}`, background: sel ? `${C.pri}22` : tk ? `${C.red}18` : C.card, color: sel ? C.pri : tk ? C.red : C.dim, opacity: tk && !sel ? 0.7 : 1, cursor: "pointer" }}>{c}{tk ? " (תפוס)" : ""}</button>; })}
-          </div>
-          <div>
-            <Btn size="sm" variant="success" onClick={requestShift} disabled={shiftSaving || !shiftReqSlot}>{shiftSaving ? "⏳" : "שלח בקשה"}</Btn>
-          </div>
-        </div>}
-      </Card>
 
       {/* Per-client breakdown */}
       {byClient.length > 0 && <>
@@ -6728,7 +6795,7 @@ function ShiftsPage() {
       </div>
       {(() => {
         const filtered = logChatterFilter === "all" ? monthlySummary : monthlySummary.filter(m => m.chatterName === logChatterFilter);
-        const allEntries = filtered.flatMap(({ chatterName, entries }) => entries.map(e => ({ ...e, chatterName }))).sort((a, b) => a.date > b.date ? 1 : a.date < b.date ? -1 : 0);
+        const allEntries = filtered.flatMap(({ chatterName, entries }) => entries.map(e => ({ ...e, chatterName }))).sort((a, b) => a.date > b.date ? -1 : a.date < b.date ? 1 : 0);
         const totalShifts = filtered.reduce((s, r) => s + r.shifts, 0);
         const totalHrs = filtered.reduce((s, r) => s + r.totalHours, 0);
         return <>
@@ -6742,6 +6809,7 @@ function ShiftsPage() {
                 <th style={{ padding: "5px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>יציאה</th>
                 <th style={{ padding: "5px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>שעות</th>
                 <th style={{ padding: "5px 10px", color: C.dim, textAlign: "right", fontWeight: 600 }}>לקוחות</th>
+                <th style={{ padding: "5px 10px", color: C.dim, textAlign: "center", fontWeight: 600 }}>מכירות</th>
               </tr>
             </thead>
             <tbody>
@@ -6750,6 +6818,21 @@ function ShiftsPage() {
                 const dayName = DAY_SHORT[dayDate.getDay()];
                 const clockInTime = s.clockIn ? new Date(s.clockIn).toTimeString().slice(0, 5) : "—";
                 const clockOutTime = s.clockOut ? new Date(s.clockOut).toTimeString().slice(0, 5) : "—";
+                const normHour = h => {
+                  if (!h) return null;
+                  if (typeof h === "string" && h.includes("T")) return h.split("T")[1].substring(0, 5);
+                  return String(h).substring(0, 5);
+                };
+                const shiftSales = income.filter(r => {
+                  if (!r.date || r.chatterName !== s.chatterName) return false;
+                  const rd = r.date instanceof Date
+                    ? `${r.date.getFullYear()}-${String(r.date.getMonth()+1).padStart(2,"0")}-${String(r.date.getDate()).padStart(2,"0")}`
+                    : String(r.date).slice(0, 10);
+                  if (rd !== s.date) return false;
+                  const h = normHour(r.hour);
+                  if (h && s.slotStart && s.slotEnd) return h >= s.slotStart && h < s.slotEnd;
+                  return true;
+                }).reduce((sum, r) => sum + (Number(r.amountILS) || 0), 0);
                 return <tr key={s.id} style={{ borderBottom: `1px solid ${C.bdr}22` }}>
                   <td style={{ padding: "6px 10px", color: C.pri, fontWeight: 600 }}>{s.chatterName}</td>
                   <td style={{ padding: "6px 10px", color: C.txt }}>{dayName} {s.date.slice(8)}/{s.date.slice(5, 7)}</td>
@@ -6758,6 +6841,7 @@ function ShiftsPage() {
                   <td style={{ padding: "6px 10px", color: s.clockOut ? C.txt : C.mut, textAlign: "center" }}>{clockOutTime}</td>
                   <td style={{ padding: "6px 10px", textAlign: "center", color: s.hoursWorked ? C.grn : C.mut, fontWeight: 600 }}>{s.hoursWorked ? `${s.hoursWorked}ש׳` : "—"}</td>
                   <td style={{ padding: "6px 10px", color: C.dim, textAlign: "right", fontSize: 11 }}>{(s.clients || []).join(", ") || "—"}</td>
+                  <td style={{ padding: "6px 10px", textAlign: "center", color: shiftSales > 0 ? C.grn : C.mut, fontWeight: shiftSales > 0 ? 700 : 400 }}>{shiftSales > 0 ? fmtC(shiftSales) : "—"}</td>
                 </tr>;
               })}
             </tbody>
