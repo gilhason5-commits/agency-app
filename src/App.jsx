@@ -1489,7 +1489,11 @@ function DashPage() {
   const fixedMonthly = fixedExps.reduce((s, e) => s + toMonthly(e.amount, e.period), 0);
   // Fixed expenses not yet recorded as actual expenses this period
   const fixedAlreadyRecorded = activeE.filter(e => e.isFixed).reduce((s, e) => s + (e.amount || 0), 0);
-  const fixedGap = Math.max(0, fixedMonthly - fixedAlreadyRecorded);
+  // For yearly view, compare against the full-year expected total; otherwise use monthly
+  const fixedExpectedForView = view === "yearly"
+    ? fixedExps.reduce((s, e) => s + (e.period === "monthly" ? e.amount * 12 : e.period === "quarterly" ? e.amount * 4 : e.amount), 0)
+    : fixedMonthly;
+  const fixedGap = Math.max(0, fixedExpectedForView - fixedAlreadyRecorded);
   const empGrossMonthly = employees.reduce((s, e) => s + e.grossAmount, 0);
   const empNIMonthly = employees.reduce((s, e) => s + e.nationalInsurance, 0);
   const empMonthly = empGrossMonthly + empNIMonthly;
@@ -1521,7 +1525,8 @@ function DashPage() {
     return sum + (e.amount || 0); // full amount
   }, 0);
   const nonDeductible = activeE.filter(e => !e.taxRecognized).reduce((s, e) => s + (e.amount || 0), 0);
-  const recognizedExp = mp.exp - nonDeductible;
+  // Fixed expenses are assumed tax-recognized; add unrecorded portion to recognized total
+  const recognizedExp = mp.exp - nonDeductible + fixedGap;
   const grossProfit = agencyIncome - recognizedExp - totalChatterSalary;
   const niTotal = empNIMonthly + manualNI;
   const taxableIncome = agencyIncome - vat - taxDeductibleExpenses - niTotal - lmCurr;
