@@ -318,16 +318,18 @@ const API = {
 const ExRate = {
   _rate: null,
   async fetchUsdIls() {
-    const today = new Date().toISOString().slice(0, 10);
-    // Always check Firebase first — single source of truth
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const today = now.toISOString().slice(0, 10);
+    // Always check Firebase first — rate is locked for the whole month
     try {
       const ag = await fetchAgencySettings();
-      if (ag.usdRate?.day === today && ag.usdRate?.rate > 2) {
+      if (ag.usdRate?.month === currentMonth && ag.usdRate?.rate > 2) {
         this._rate = ag.usdRate.rate;
         return ag.usdRate.rate;
       }
     } catch {}
-    // No valid rate in Firebase for today — fetch from external sources
+    // No valid rate in Firebase for this month — fetch from external sources
     const sources = [
       async () => {
         const r = await fetch(`https://edge.boi.gov.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/EXR/1.0/RER_USD_ILS?startperiod=${today}&endperiod=${today}&format=sdmx-json`);
@@ -345,13 +347,13 @@ const ExRate = {
         const rate = await src();
         if (rate && rate > 2 && rate < 6) {
           this._rate = rate;
-          // Save to Firebase — all devices will use this rate today
-          saveAgencySettings({ usdRate: { rate, day: today } }).catch(() => {});
+          // Save to Firebase — all devices will use this rate until end of month
+          saveAgencySettings({ usdRate: { rate, month: currentMonth, day: today } }).catch(() => {});
           return rate;
         }
       } catch {}
     }
-    // Fallback: use yesterday's Firebase rate if available
+    // Fallback: use existing Firebase rate if available
     try {
       const ag = await fetchAgencySettings();
       if (ag.usdRate?.rate > 2) { this._rate = ag.usdRate.rate; return ag.usdRate.rate; }
