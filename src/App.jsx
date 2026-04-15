@@ -1940,10 +1940,10 @@ function DashPage() {
           : (d.revenue / maxRev * 0.4 + d.count / maxCnt * 0.3 + d.buyers.size / maxBuy * 0.3) * maxRev;
         return { hour: +h, total: val, revenue: d.revenue, count: d.count, buyerCount: d.buyers.size };
       }).filter(h => h.revenue > 0 || h.count > 0).sort((a, b) => b.total - a.total);
-      const top4 = hours.slice(0, 4);
-      const bot4 = hours.length > 4 ? hours.slice(-4).reverse() : [];
+      const top4 = hours.slice(0, 8);
+      const bot4 = hours.length > 8 ? hours.slice(-8).reverse() : [];
       const fmtH = h => `${String(h).padStart(2, "0")}:00`;
-      const medals = ["🥇", "🥈", "🥉", "4."];
+      const medals = ["🥇", "🥈", "🥉", "4.", "5.", "6.", "7.", "8."];
       const fmtVal = h => hourFilter === "profitable" ? fmtC(h.total) : hourFilter === "buyers" ? `${h.buyerCount} קונים` : hourFilter === "volume" ? `${h.count} עסקאות` : fmtC(h.total);
       const filterOpts = [{ key: "profitable", label: "רווחיות" }, { key: "buyers", label: "קונים" }, { key: "volume", label: "נפח" }, { key: "combined", label: "משולב" }];
       return top4.length > 0 ? <div style={{ marginTop: 16 }}>
@@ -1954,8 +1954,8 @@ function DashPage() {
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr" : "1fr 1fr", gap: 12 }}>
-          <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.grn, marginBottom: 8 }}>🔥 שעות חזקות</div>{top4.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 3 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{medals[i]} {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.grn, fontWeight: 700 }}>{fmtVal(h)}</span></div>)}</Card>
-          {bot4.length > 0 && <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.red, marginBottom: 8 }}>📉 שעות חלשות</div>{bot4.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 3 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{i + 1}. {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.red, fontWeight: 700 }}>{fmtVal(h)}</span></div>)}</Card>}
+          <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.grn, marginBottom: 8 }}>🔥 שעות חזקות</div>{top4.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 7 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{medals[i]} {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.grn, fontWeight: 700 }}>{fmtVal(h)}</span></div>)}</Card>
+          {bot4.length > 0 && <Card><div style={{ fontSize: 14, fontWeight: 700, color: C.red, marginBottom: 8 }}>📉 שעות חלשות</div>{bot4.map((h, i) => <div key={h.hour} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 7 ? `1px solid ${C.bdr}` : "none" }}><span style={{ color: C.txt }}>{i + 1}. {fmtH(h.hour)} - {fmtH(h.hour + 1)}</span><span style={{ color: C.red, fontWeight: 700 }}>{fmtVal(h)}</span></div>)}</Card>}
         </div>
       </div> : null;
     })()}
