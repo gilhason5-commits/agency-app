@@ -1857,28 +1857,43 @@ function DashPage() {
 
     {/* Hourly sales chart */}
     {(() => {
-      const hourlyTotal = (() => {
-        const map = {};
-        for (let h = 0; h < 24; h++) map[h] = { hour: h, total: 0 };
-        activeI.forEach(r => {
-          let hStr = r.hour;
-          if (!hStr) return;
-          if (typeof hStr === "string" && hStr.includes("1899-") && hStr.includes("T")) hStr = hStr.split("T")[1].substring(0, 5);
-          const hNum = parseInt(hStr, 10);
-          if (isNaN(hNum) || hNum < 0 || hNum > 23) return;
-          map[hNum].total += r.amountILS;
-        });
-        return Object.values(map).sort((a, b) => a.hour - b.hour);
-      })();
+      const map = {};
+      for (let h = 0; h < 24; h++) map[h] = { hour: h, total: 0, count: 0, buyers: new Set() };
+      activeI.forEach(r => {
+        let hStr = r.hour;
+        if (!hStr) return;
+        if (typeof hStr === "string" && hStr.includes("1899-") && hStr.includes("T")) hStr = hStr.split("T")[1].substring(0, 5);
+        const hNum = parseInt(hStr, 10);
+        if (isNaN(hNum) || hNum < 0 || hNum > 23) return;
+        map[hNum].total += r.amountILS;
+        map[hNum].count += 1;
+        if (r.buyerId || r.buyerName) map[hNum].buyers.add(r.buyerId || r.buyerName);
+      });
+      const vals = Object.values(map);
+      const maxRev = Math.max(...vals.map(d => d.total), 1);
+      const maxCnt = Math.max(...vals.map(d => d.count), 1);
+      const maxBuy = Math.max(...vals.map(d => d.buyers.size), 1);
+      const hourlyTotal = vals.map(d => ({
+        hour: d.hour,
+        total: d.total,
+        count: d.count,
+        buyers: d.buyers.size,
+        combined: (d.total / maxRev * 0.4 + d.count / maxCnt * 0.3 + d.buyers.size / maxBuy * 0.3) * maxRev,
+      })).sort((a, b) => a.hour - b.hour);
       return activeI.length > 0 && <Card style={{ marginBottom: 16 }}>
         <div style={{ color: C.dim, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>📈 מכירות לפי שעה ביום</div>
-        <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={220}>
-          <LineChart data={hourlyTotal} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
+        <div style={{ direction: "ltr" }}><ResponsiveContainer width="100%" height={260}>
+          <LineChart data={hourlyTotal} margin={{ top: 5, right: 50, bottom: 5, left: 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
             <XAxis dataKey="hour" tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `${v}:00`} />
-            <YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => fmtC(v)} />
-            <Tooltip formatter={v => fmtC(v)} labelFormatter={v => `שעה ${v}:00`} />
-            <Line type="monotone" dataKey="total" stroke={C.pri} strokeWidth={2} dot={{ r: 3 }} name="מכירות" connectNulls />
+            <YAxis yAxisId="left" tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v/1000).toFixed(0)}k`} />
+            <YAxis yAxisId="right" orientation="right" tick={{ fill: C.dim, fontSize: 10 }} />
+            <Tooltip labelFormatter={v => `שעה ${v}:00`} formatter={(v, name) => name === "רווחיות" || name === "משולב" ? fmtC(v) : v} />
+            <Legend wrapperStyle={{ fontSize: 11, color: C.dim }} />
+            <Line yAxisId="left" type="monotone" dataKey="total" stroke={C.pri} strokeWidth={2} dot={false} name="רווחיות" connectNulls />
+            <Line yAxisId="left" type="monotone" dataKey="combined" stroke={C.ylw} strokeWidth={1.5} dot={false} name="משולב" strokeDasharray="4 2" connectNulls />
+            <Line yAxisId="right" type="monotone" dataKey="count" stroke={C.grn} strokeWidth={1.5} dot={false} name="נפח" connectNulls />
+            <Line yAxisId="right" type="monotone" dataKey="buyers" stroke={C.org} strokeWidth={1.5} dot={false} name="קונים" connectNulls />
           </LineChart>
         </ResponsiveContainer></div>
       </Card>;
