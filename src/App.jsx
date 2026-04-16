@@ -2508,16 +2508,6 @@ function EditIncomeModal({ record, onClose }) {
       </div>}
     </div>
 
-    <div style={{ display: "flex", gap: 16, marginBottom: 14 }}>
-      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-        <input type="checkbox" checked={vatLiable} onChange={e => setVatLiable(e.target.checked)} />
-        <span style={{ color: vatLiable ? C.grn : C.mut, fontSize: 13 }}>חייב מע״מ</span>
-      </label>
-      <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-        <input type="checkbox" checked={isLm} onChange={e => setIsLm(e.target.checked)} />
-        <span style={{ color: isLm ? C.ylw : C.mut, fontSize: 13 }}>ל.מ (לחודש קודם)</span>
-      </label>
-    </div>
 
     {(() => {
       const commPct = resolveCommissionPct(platform, incomeType);
@@ -2715,16 +2705,6 @@ function RecordIncomeAdmin({ onClose }) {
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>שעה</label>
         <input type="time" value={form.hour} onChange={e => upd("hour", e.target.value)} style={{ ...inputStyle, direction: "ltr" }} />
       </div>
-      <div style={{ gridColumn: "1 / -1", display: "flex", gap: 16 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-          <input type="checkbox" checked={form.vatLiable !== false} onChange={e => upd("vatLiable", e.target.checked)} />
-          <span style={{ color: form.vatLiable !== false ? C.grn : C.mut, fontSize: 13 }}>חייב מע״מ</span>
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-          <input type="checkbox" checked={form.isLm === true} onChange={e => upd("isLm", e.target.checked)} />
-          <span style={{ color: form.isLm === true ? C.ylw : C.mut, fontSize: 13 }}>ל.מ (לחודש קודם)</span>
-        </label>
-      </div>
     </div>
 
     {err && <div style={{ color: C.red, fontSize: 12, marginTop: 8 }}>{err}</div>}
@@ -2740,7 +2720,7 @@ function RecordIncomeAdmin({ onClose }) {
 // PAGE: EXPENSES
 // ═══════════════════════════════════════════════════════
 function ExpPage() {
-  const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo, rv, chatterSettings, clientSettings, settlements, customCats, addCustomCat, removeCustomCat, renameCustomCat, fixedExps } = useApp();
+  const { year, month, setMonth, view, setView, setPage, expenses, setExpenses, demo, rv, chatterSettings, clientSettings, settlements, customCats, addCustomCat, removeCustomCat, renameCustomCat, fixedExps, updateFixedExp } = useApp();
   const allCats = customCats;
   const toMonthly = (amount, period) => period === "monthly" ? amount : period === "quarterly" ? amount / 3 : amount / 12;
   const [showAddCat, setShowAddCat] = useState(false);
@@ -2860,7 +2840,7 @@ function ExpPage() {
           </Card>}
         </div>
         <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>✍️ הוצאות ידניות ({MONTHS_HE[month]})</h3>
-          <DT columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "ספק/סיבה", key: "category" }, { label: "פירוט", render: r => <span>{r.name}{r.installmentTotal > 0 && <span style={{ marginRight: 6, fontSize: 10, background: `${C.ylw}33`, color: C.ylw, border: `1px solid ${C.ylw}55`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>💳 {r.installmentCurrent}/{r.installmentTotal}</span>}</span> }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "תשלום", key: "paidBy" }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={data.filter(e => e.source === "ידני").sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", fmtC(data.filter(e => e.source === "ידני").reduce((s, e) => s + e.amount, 0)), "", ""]} />
+          <DT columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "ספק/סיבה", key: "category" }, { label: "פירוט", render: r => <span>{r.name}{r.installmentTotal > 0 && <span style={{ marginRight: 6, fontSize: 10, background: `${C.ylw}33`, color: C.ylw, border: `1px solid ${C.ylw}55`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>💳 {r.installmentCurrent}/{r.installmentTotal}</span>}</span> }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "מעמ", render: r => <button onClick={() => updField(r, "vatRecognized", !r.vatRecognized)} style={{ background: r.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: r.vatRecognized ? C.grn : C.red, border: `1px solid ${r.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.vatRecognized ? "כן" : "לא"}</button> }, { label: "מס", render: r => <button onClick={() => updField(r, "taxRecognized", !r.taxRecognized)} style={{ background: r.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: r.taxRecognized ? C.grn : C.red, border: `1px solid ${r.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.taxRecognized ? "כן" : "לא"}</button> }, { label: "תשלום", key: "paidBy" }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={data.filter(e => e.source === "ידני").sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", fmtC(data.filter(e => e.source === "ידני").reduce((s, e) => s + e.amount, 0)), "", "", "", ""]} />
         </div>
         {(() => {
           const emailRows = data.filter(e => e.source !== "ידני" && e.source !== "auto-settlement").sort((a, b) => ((b.date || 0) - (a.date || 0)));
@@ -2886,8 +2866,10 @@ function ExpPage() {
           { label: "שם", key: "name" },
           { label: "סכום", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> },
           { label: "תקופה", render: r => r.period === "monthly" ? "חודשי" : r.period === "quarterly" ? "רבעוני" : "שנתי" },
-          { label: "חודשי", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(toMonthly(r.amount, r.period))}</span> }
-        ]} rows={fixedExps} footer={["סה״כ", "", "", fmtC(fixedExps.reduce((s, e) => s + toMonthly(e.amount, e.period), 0))]} />
+          { label: "חודשי", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(toMonthly(r.amount, r.period))}</span> },
+          { label: "מעמ", render: r => <button onClick={() => updateFixedExp(r.id, { vatRecognized: !r.vatRecognized })} style={{ background: r.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: r.vatRecognized ? C.grn : C.red, border: `1px solid ${r.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.vatRecognized ? "כן" : "לא"}</button> },
+          { label: "מס", render: r => <button onClick={() => updateFixedExp(r.id, { taxRecognized: !r.taxRecognized })} style={{ background: r.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: r.taxRecognized ? C.grn : C.red, border: `1px solid ${r.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.taxRecognized ? "כן" : "לא"}</button> }
+        ]} rows={fixedExps} footer={["סה״כ", "", "", fmtC(fixedExps.reduce((s, e) => s + toMonthly(e.amount, e.period), 0)), "", ""]} />
       </div>}
       <div style={{ marginTop: 28 }}>
         <h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>⚖️ קיזוז דור / יוראי / סוכנות</h3>
@@ -5503,16 +5485,6 @@ function ApprovalsPage() {
             {options.map(o => <option key={o} value={o}>{o || "—"}</option>)}
           </select> : <input type={type || "text"} value={editForm[key]} onChange={e => setEditForm(f => ({ ...f, [key]: e.target.value }))} style={{ width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" }} />}
         </div>)}
-        <div style={{ display: "flex", gap: 16, marginTop: 4 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-            <input type="checkbox" checked={editForm.vatLiable !== false} onChange={e => setEditForm(f => ({ ...f, vatLiable: e.target.checked }))} />
-            <span style={{ color: editForm.vatLiable !== false ? C.grn : C.mut, fontSize: 13 }}>חייב מע״מ</span>
-          </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-            <input type="checkbox" checked={editForm.isLm === true} onChange={e => setEditForm(f => ({ ...f, isLm: e.target.checked }))} />
-            <span style={{ color: editForm.isLm === true ? C.ylw : C.mut, fontSize: 13 }}>ל.מ (לחודש קודם)</span>
-          </label>
-        </div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
           <Btn variant="ghost" onClick={() => setEditRow(null)}>ביטול</Btn>
           <Btn variant="primary" onClick={saveEditRow}>💾 שמור</Btn>
@@ -6610,10 +6582,16 @@ function ShiftsPage() {
       for (let i = 0; i < 7; i++) { const dd = new Date(today); dd.setDate(today.getDate() + i); days.push(dd.toISOString().slice(0, 10)); }
       const rows = [];
       days.forEach(d => sortedSlots.forEach(slot => rows.push({ date: d, slot })));
-      const clientOwner = (date, slotId, client) => {
-        const sh = allApproved.find(s => s.date === date && s.slotId === slotId && (s.clients || []).includes(client));
+      const platformBases = (p) => !p ? [] : (p === "אונלי וטלגרם" ? ["אונלי", "טלגרם"] : [p]);
+      const clientOwnerOnPlatform = (date, slotId, client, platform) => {
+        const sh = allApproved.find(s =>
+          s.date === date && s.slotId === slotId &&
+          (s.clients || []).includes(client) &&
+          platformBases(s.platform).includes(platform)
+        );
         return sh ? sh.chatterName : null;
       };
+      const PLATFORMS = ["אונלי", "טלגרם"];
       const DAY_NAMES_SHORT = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
       return allRegisteredClients.length > 0 && sortedSlots.length > 0 ? <Card style={{ marginBottom: 20, padding: 10 }}>
         <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 4 }}>📋 זמינות לקוחות</h3>
@@ -6622,16 +6600,25 @@ function ShiftsPage() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
             <thead>
               <tr>
-                <th style={{ padding: 4, color: C.dim, textAlign: "right", borderBottom: `1px solid ${C.bdr}`, position: "sticky", right: 0, background: C.bg, zIndex: 2, minWidth: 80 }}>משמרת</th>
+                <th rowSpan={2} style={{ padding: 4, color: C.dim, textAlign: "right", borderBottom: `1px solid ${C.bdr}`, position: "sticky", right: 0, background: C.bg, zIndex: 2, minWidth: 80 }}>משמרת</th>
                 {allRegisteredClients.map(c => {
-                  const freeToday = sortedSlots.filter(slot => !allApproved.find(s => s.date === todayS && s.slotId === slot.id && (s.clients || []).includes(c))).length;
-                  return <th key={c} style={{ padding: 4, color: C.dim, textAlign: "center", borderBottom: `1px solid ${C.bdr}`, fontWeight: 500, minWidth: 60 }}>
+                  const freeToday = sortedSlots.filter(slot =>
+                    PLATFORMS.some(p => !clientOwnerOnPlatform(todayS, slot.id, c, p))
+                  ).length;
+                  return <th key={c} colSpan={2} style={{ padding: 4, color: C.dim, textAlign: "center", borderBottom: `1px solid ${C.bdr}44`, fontWeight: 500, minWidth: 120, borderLeft: `1px solid ${C.bdr}44` }}>
                     {c}
                     <div style={{ fontSize: 8, color: freeToday === sortedSlots.length ? C.grn : freeToday === 0 ? C.red : C.dim, marginTop: 2, fontWeight: 600 }}>
                       {freeToday > 0 ? `${freeToday} פנוי היום` : "תפוס היום"}
                     </div>
                   </th>;
                 })}
+              </tr>
+              <tr>
+                {allRegisteredClients.map(c => PLATFORMS.map((p, pi) => (
+                  <th key={`${c}-${p}`} style={{ padding: "2px 4px", color: C.mut, textAlign: "center", borderBottom: `1px solid ${C.bdr}`, fontWeight: 400, fontSize: 9, minWidth: 55, borderLeft: pi === 0 ? `1px solid ${C.bdr}44` : "none" }}>
+                    {p}
+                  </th>
+                )))}
               </tr>
             </thead>
             <tbody>
@@ -6642,13 +6629,13 @@ function ShiftsPage() {
                     <div>{DAY_NAMES_SHORT[new Date(date).getDay()]} {date.slice(8)}/{date.slice(5, 7)}</div>
                     <div style={{ fontSize: 9, color: C.dim }}>{slot.label}</div>
                   </td>
-                  {allRegisteredClients.map(c => {
-                    const owner = clientOwner(date, slot.id, c);
+                  {allRegisteredClients.map(c => PLATFORMS.map((p, pi) => {
+                    const owner = clientOwnerOnPlatform(date, slot.id, c, p);
                     const free = !owner;
-                    return <td key={c} style={{ padding: 3, textAlign: "center", borderBottom: `1px solid ${C.bdr}22`, background: free ? `${C.grn}15` : `${C.red}20`, color: free ? C.grn : C.red, fontWeight: 500, fontSize: 9 }}>
+                    return <td key={`${c}-${p}`} style={{ padding: 3, textAlign: "center", borderBottom: `1px solid ${C.bdr}22`, background: free ? `${C.grn}15` : `${C.red}20`, color: free ? C.grn : C.red, fontWeight: 500, fontSize: 9, borderLeft: pi === 0 ? `1px solid ${C.bdr}44` : "none" }}>
                       {free ? "✓" : owner}
                     </td>;
-                  })}
+                  }))}
                 </tr>;
               })}
             </tbody>
