@@ -7039,9 +7039,18 @@ function BuyersPage() {
   const [sortKey, setSortKey] = useState("count");
   const [sortDir, setSortDir] = useState(-1);
   const [buyersView, setBuyersView] = useState("yearly"); // "yearly" | "monthly"
+  const [platformFilter, setPlatformFilter] = useState("all");
 
   // Data source based on view
   const dataSource = buyersView === "monthly" ? iM : iY;
+
+  const effectiveSource = useMemo(() => {
+    if (platformFilter === "all") return dataSource;
+    return dataSource.filter(r => {
+      const p = r.platform || "";
+      return p === platformFilter || p === "אונלי וטלגרם";
+    });
+  }, [dataSource, platformFilter]);
 
   // Resolve best name for a buyerId: the name with the most transactions
   const resolveName = useCallback((records, id) => {
@@ -7059,7 +7068,7 @@ function BuyersPage() {
   // All buyers aggregated by buyerId
   const allBuyers = useMemo(() => {
     const map = {};
-    dataSource.forEach(r => {
+    effectiveSource.forEach(r => {
       const id = r.buyerId?.trim();
       if (!id || r.cancelled) return;
       if (!map[id]) map[id] = { buyerId: id, total: 0, count: 0, models: new Set(), lastDate: null, firstDate: null };
@@ -7072,8 +7081,8 @@ function BuyersPage() {
         if (!map[id].firstDate || d < map[id].firstDate) map[id].firstDate = d;
       }
     });
-    return Object.values(map).map(b => ({ ...b, name: resolveName(dataSource, b.buyerId), models: [...b.models] }));
-  }, [dataSource, resolveName]);
+    return Object.values(map).map(b => ({ ...b, name: resolveName(effectiveSource, b.buyerId), models: [...b.models] }));
+  }, [effectiveSource, resolveName]);
 
   // Current month buyers by buyerId
   const currentBuyers = useMemo(() => new Set(iM.filter(r => r.buyerId?.trim() && !r.cancelled).map(r => r.buyerId.trim())), [iM]);
@@ -7095,12 +7104,12 @@ function BuyersPage() {
   const retentionRate = prevMonthBuyers.size > 0 ? Math.round((retained.length / prevMonthBuyers.size) * 100) : 0;
 
   // Models list
-  const modelNames = useMemo(() => [...new Set(dataSource.map(r => r.modelName).filter(Boolean))].sort(), [dataSource]);
+  const modelNames = useMemo(() => [...new Set(effectiveSource.map(r => r.modelName).filter(Boolean))].sort(), [effectiveSource]);
 
   // Per-model breakdown
   const perModel = useMemo(() => {
     const map = {};
-    dataSource.forEach(r => {
+    effectiveSource.forEach(r => {
       const id = r.buyerId?.trim();
       if (!id || r.cancelled || !r.modelName) return;
       if (!map[r.modelName]) map[r.modelName] = { model: r.modelName, buyers: new Set(), revenue: 0 };
@@ -7116,20 +7125,20 @@ function BuyersPage() {
       sharedBuyers: [...m.buyers].filter(b => buyerModelCount[b] > 1).length,
       revenue: m.revenue
     }));
-  }, [dataSource]);
+  }, [effectiveSource]);
 
   // Shared buyers detail
   const sharedBuyersDetail = useMemo(() => {
     const buyerModels = {};
-    dataSource.forEach(r => {
+    effectiveSource.forEach(r => {
       const id = r.buyerId?.trim();
       if (!id || r.cancelled) return;
       if (!buyerModels[id]) buyerModels[id] = { buyerId: id, models: new Set(), total: 0 };
       if (r.modelName) buyerModels[id].models.add(r.modelName);
       buyerModels[id].total += r.amountILS || 0;
     });
-    return Object.values(buyerModels).filter(b => b.models.size > 1).map(b => ({ ...b, name: resolveName(dataSource, b.buyerId), models: [...b.models] }));
-  }, [dataSource, resolveName]);
+    return Object.values(buyerModels).filter(b => b.models.size > 1).map(b => ({ ...b, name: resolveName(effectiveSource, b.buyerId), models: [...b.models] }));
+  }, [effectiveSource, resolveName]);
 
   // Monthly trend for chart
   const monthlyTrend = useMemo(() => {
@@ -7185,6 +7194,13 @@ function BuyersPage() {
       {buyersView === "monthly" && <select value={month} onChange={e => setMonth(+e.target.value)} style={inputStyle}>
         {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
       </select>}
+      <div style={{ display: "flex", background: C.card, borderRadius: 8, padding: 3, border: `1px solid ${C.bdr}` }}>
+        {["all", "אונלי", "טלגרם"].map(p => (
+          <button key={p} onClick={() => setPlatformFilter(p)} style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 13, fontWeight: platformFilter === p ? 700 : 400, background: platformFilter === p ? C.pri : "transparent", color: platformFilter === p ? "#fff" : C.dim }}>
+            {p === "all" ? "הכל" : p}
+          </button>
+        ))}
+      </div>
     </div>
 
     {/* Per-Model Breakdown */}
