@@ -1459,7 +1459,6 @@ function DashPage() {
   }, [agSettings]);
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); saveAgencySettings({ lmVals: updated }).catch(() => {}); };
   const _dashOpenMonth = useState(null);
-  const [dashCenter, setDashCenter] = useState(month);
   const [hourFilter, setHourFilter] = useState("profitable");
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
@@ -1674,17 +1673,8 @@ function DashPage() {
         </ComposedChart>
       </ResponsiveContainer>
     </Card>
-    {(() => {
-      const visibleIdxs = [dashCenter - 1, dashCenter, dashCenter + 1].filter(i => i >= 0 && i < 12);
-      return <div style={{ marginBottom: 24 }}>
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginBottom: 10 }}>
-          <button onClick={() => setDashCenter(Math.max(0, dashCenter - 1))} disabled={dashCenter <= 0} style={{ background: "none", border: "none", cursor: dashCenter > 0 ? "pointer" : "default", color: dashCenter > 0 ? C.pri : C.mut, fontSize: 20, padding: "4px 8px" }}>→</button>
-          <span style={{ color: C.dim, fontSize: 13, fontWeight: 600 }}>{MONTHS_HE[dashCenter]} {year}</span>
-          <button onClick={() => setDashCenter(Math.min(11, dashCenter + 1))} disabled={dashCenter >= 11} style={{ background: "none", border: "none", cursor: dashCenter < 11 ? "pointer" : "default", color: dashCenter < 11 ? C.pri : C.mut, fontSize: 20, padding: "4px 8px" }}>←</button>
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
-          {visibleIdxs.map(i => {
-            const d = mbd[i];
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginBottom: 24 }}>
+          {mbd.map(d => {
             const isCurrent = d.idx === month;
             const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
             const currentDaily = d.inc / daysPassed;
@@ -1727,9 +1717,7 @@ function DashPage() {
               </div>
             </Card>;
           })}
-        </div>
-      </div>;
-    })()}
+    </div>
     <FB><ViewFilter /></FB>
     {view === "monthly" ? <div>
       {/* Business type toggle + ל.מ */}
