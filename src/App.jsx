@@ -1674,7 +1674,7 @@ function DashPage() {
       </ResponsiveContainer>
     </Card>
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginBottom: 24 }}>
-          {mbd.map(d => {
+          {mbd.filter(d => d.idx === month).map(d => {
             const isCurrent = d.idx === month;
             const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
             const currentDaily = d.inc / daysPassed;
