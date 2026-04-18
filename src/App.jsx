@@ -3561,9 +3561,10 @@ function TgtPage() {
   const { year, month, liveRate, chatterTargets, saveChatterTarget, income } = useApp();
   const { iY, iM } = useFD();
   const [selMonth, setSelMonth] = useState(null);
-  const [editTarget, setEditTarget] = useState(null); // { name, t1, t2, t3 }
+  const [editTarget, setEditTarget] = useState(null);
   const [savingTarget, setSavingTarget] = useState(false);
   const [tgtCenter, setTgtCenter] = useState(month);
+  const [tgtFilter, setTgtFilter] = useState("all");
 
   const mbd = useMemo(() => {
     let lastDays = 31, lastInc = 0;
@@ -3584,14 +3585,20 @@ function TgtPage() {
     const curDays = new Date(year, selMonth + 1, 0).getDate();
     const prevDays = selMonth > 0 ? new Date(year, selMonth, 0).getDate() : 31;
 
-    const buildEntityTargets = (keyFn) => {
-      const prevMap = {}, curMap = {};
+    const buildEntityTargets = (keyFn, trackBuyers) => {
+      const prevMap = {}, curMap = {}, buyerMap = {};
       iY.forEach(r => {
         const key = keyFn(r);
         if (!key) return;
         const mi = r.date.getMonth();
         if (mi === prevIdx && prevIdx >= 0) prevMap[key] = (prevMap[key] || 0) + r.amountILS;
-        if (mi === selMonth) curMap[key] = (curMap[key] || 0) + r.amountILS;
+        if (mi === selMonth) {
+          curMap[key] = (curMap[key] || 0) + r.amountILS;
+          if (trackBuyers && r.buyerId?.trim() && !r.cancelled) {
+            if (!buyerMap[key]) buyerMap[key] = new Set();
+            buyerMap[key].add(r.buyerId.trim());
+          }
+        }
       });
       const allKeys = prevIdx >= 0 ? Object.keys(prevMap).sort() : Object.keys(curMap).sort();
       return allKeys.map(name => {
@@ -3601,13 +3608,16 @@ function TgtPage() {
         const isCurrent = selMonth === month;
         const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : curDays;
         const daily = curInc / daysPassed;
-        return { name, prevInc, curInc, daily, daysPassed, ...t, days: curDays };
+        const buyerCount = buyerMap[name]?.size || 0;
+        const avgBuyersPerDay = buyerCount / daysPassed;
+        const arpu = buyerCount > 0 ? curInc / buyerCount : 0;
+        return { name, prevInc, curInc, daily, daysPassed, ...t, days: curDays, buyerCount, avgBuyersPerDay, arpu };
       }).sort((a, b) => b.curInc - a.curInc);
     };
 
     return {
-      chatters: buildEntityTargets(r => r.chatterName),
-      clients: buildEntityTargets(r => r.modelName)
+      chatters: buildEntityTargets(r => r.chatterName, false),
+      clients: buildEntityTargets(r => r.modelName, true)
     };
   }, [iY, selMonth, year, month]);
 
@@ -3636,6 +3646,9 @@ function TgtPage() {
               {e.prevInc > 0 && <> | חודש קודם: <strong>{fmtC(e.prevInc)}</strong></>}
               {custom && <span style={{ color: C.ylw, marginRight: 4 }}> ✎ יעד ידני</span>}
             </div>
+            {!isChatter && e.buyerCount > 0 && <div style={{ fontSize: 11, color: C.dim, marginBottom: 6, background: `${C.pri}10`, borderRadius: 6, padding: "4px 8px" }}>
+              קונים: <strong style={{ color: C.txt }}>{e.buyerCount}</strong> ({e.avgBuyersPerDay.toFixed(1)}/יום) | ממוצע לקונה: <strong style={{ color: C.pri }}>{fmtC(e.arpu)}</strong>
+            </div>}
             <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
               {[{ label: "+5%", val: t1, hit: hit1 }, { label: "+10%", val: t2, hit: hit2 }, { label: "+15%", val: t3, hit: hit3 }].map(t => (
                 <div key={t.label} style={{
@@ -3845,8 +3858,13 @@ function TgtPage() {
     {/* Drill-down Modal */}
     <Modal open={selMonth !== null} onClose={() => setSelMonth(null)} title={`📊 פירוט יעדים — ${selMonth !== null ? MONTHS_HE[selMonth] : ""}`} width={700}>
       {selMonth !== null && <>
-        {renderMiniCards("יעדים לפי צ'אטר", "👤", entityTargets.chatters, true)}
-        {renderMiniCards("יעדים לפי לקוחה", "👑", entityTargets.clients, false)}
+        <div style={{ display: "flex", gap: 0, borderRadius: 8, overflow: "hidden", border: `1px solid ${C.bdr}`, marginBottom: 16 }}>
+          {[{ key: "all", label: "הכל" }, { key: "chatters", label: "👤 צ'אטרים" }, { key: "clients", label: "👑 לקוחות" }].map(f => (
+            <button key={f.key} onClick={() => setTgtFilter(f.key)} style={{ flex: 1, padding: "7px 12px", background: tgtFilter === f.key ? C.pri : C.card, border: "none", color: C.txt, cursor: "pointer", fontSize: 13, fontWeight: tgtFilter === f.key ? 700 : 400 }}>{f.label}</button>
+          ))}
+        </div>
+        {tgtFilter !== "clients" && renderMiniCards("יעדים לפי צ'אטר", "👤", entityTargets.chatters, true)}
+        {tgtFilter !== "chatters" && renderMiniCards("יעדים לפי לקוחה", "👑", entityTargets.clients, false)}
         {entityTargets.chatters.length === 0 && entityTargets.clients.length === 0 && (
           <div style={{ color: C.mut, textAlign: "center", padding: 20 }}>אין נתונים לחודש זה</div>
         )}
@@ -6613,6 +6631,18 @@ function ShiftsPage() {
   return <div style={{ direction: "rtl", maxWidth: 1200, margin: "0 auto" }}>
     <h2 style={{ color: C.txt, fontSize: 22, fontWeight: 700, marginBottom: 16 }}>📅 משמרות</h2>
 
+    {/* Pending Requests — top of page */}
+    {pendingShifts.length > 0 && <Card style={{ marginBottom: 20, borderColor: C.warn }}>
+      <h3 style={{ color: "#fff", fontSize: 15, marginBottom: 12 }}>⏳ בקשות ממתינות ({pendingShifts.length})</h3>
+      {pendingShifts.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.bdr}`, flexWrap: "wrap" }}>
+        <span style={{ color: C.txt, fontSize: 14, flex: 1 }}>{s.chatterName} — {s.slotLabel} — {s.date}{s.platform ? ` — ${s.platform}` : ""}</span>
+        {s.clients?.length > 0 && <span style={{ color: C.cyan, fontSize: 11 }}>לקוחות: {s.clients.join(", ")}</span>}
+        <Btn size="sm" variant="outline" onClick={() => { setAssignSlot({ date: s.date, slotId: s.slotId, editingShiftId: s.id }); setAssignChatter(s.chatterName); setAssignClients(s.clients || []); }}>✏️</Btn>
+        <Btn size="sm" variant="success" onClick={() => approve(s)}>אשר</Btn>
+        <Btn size="sm" variant="danger" onClick={() => reject(s)}>דחה</Btn>
+      </div>)}
+    </Card>}
+
     {/* Stats */}
     {(() => {
       const todayS = new Date().toISOString().slice(0, 10);
@@ -6661,27 +6691,41 @@ function ShiftsPage() {
     {(() => {
       const todayS = new Date().toISOString().slice(0, 10);
       const todayApproved = shifts.filter(s => s.status === "approved" && s.date === todayS);
-      const clientSlotOwner = (client, slotId) => {
-        const sh = todayApproved.find(s => s.slotId === slotId && (s.clients || []).includes(client));
+      const PLATFORMS = ["אונלי", "טלגרם"];
+      const platformBases = (p) => !p ? [] : (p === "אונלי וטלגרם" ? ["אונלי", "טלגרם"] : [p]);
+      const ownerForPlatform = (client, slotId, platform) => {
+        const sh = todayApproved.find(s => s.slotId === slotId && (s.clients || []).includes(client) && platformBases(s.platform).includes(platform));
         return sh ? sh.chatterName : null;
       };
       if (!allRegisteredClients.length || !sortedSlots.length) return null;
       return <Card style={{ marginBottom: 20, padding: 12, background: `${C.red}08`, border: `2px solid ${C.red}30` }}>
         <h3 style={{ color: C.red, fontSize: 15, marginBottom: 4 }}>🔥 היום — זמינות לקוחות</h3>
         <div style={{ color: C.dim, fontSize: 11, marginBottom: 10 }}>מי פנוי עכשיו? בלחיצה אחת ראה מה תפוס ומה פתוח</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
           {allRegisteredClients.map(c => {
-            const slotStatuses = sortedSlots.map(slot => ({ slot, owner: clientSlotOwner(c, slot.id) }));
-            const freeCount = slotStatuses.filter(ss => !ss.owner).length;
-            return <div key={c} style={{ background: C.card, border: `1px solid ${freeCount === sortedSlots.length ? C.grn : freeCount === 0 ? C.red : C.bdr}`, borderRadius: 8, padding: 8 }}>
+            const slotStatuses = sortedSlots.map(slot => {
+              const perPlatform = PLATFORMS.map(p => ({ platform: p, owner: ownerForPlatform(c, slot.id, p) }));
+              return { slot, perPlatform };
+            });
+            const totalCells = slotStatuses.length * PLATFORMS.length;
+            const freeCells = slotStatuses.reduce((n, s) => n + s.perPlatform.filter(pp => !pp.owner).length, 0);
+            return <div key={c} style={{ background: C.card, border: `1px solid ${freeCells === totalCells ? C.grn : freeCells === 0 ? C.red : C.bdr}`, borderRadius: 8, padding: 8 }}>
               <div style={{ fontWeight: 700, color: C.txt, fontSize: 12, marginBottom: 6, textAlign: "center" }}>{c}</div>
-              {slotStatuses.map(({ slot, owner }) => {
-                const free = !owner;
-                return <div key={slot.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, padding: "2px 4px", borderRadius: 4, marginBottom: 2, background: free ? `${C.grn}15` : `${C.red}15`, color: free ? C.grn : C.red }}>
-                  <span>{slot.label}</span>
-                  <span style={{ fontWeight: 600 }}>{free ? "✓ פנוי" : owner}</span>
-                </div>;
-              })}
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(36px, auto) 1fr 1fr", gap: 2, fontSize: 9, marginBottom: 3, color: C.dim }}>
+                <div></div>
+                {PLATFORMS.map(p => <div key={p} style={{ textAlign: "center", fontWeight: 600 }}>{p}</div>)}
+              </div>
+              {slotStatuses.map(({ slot, perPlatform }) => (
+                <div key={slot.id} style={{ display: "grid", gridTemplateColumns: "minmax(36px, auto) 1fr 1fr", gap: 2, fontSize: 10, marginBottom: 2, alignItems: "stretch" }}>
+                  <div style={{ color: C.dim, padding: "2px 4px" }}>{slot.label}</div>
+                  {perPlatform.map(({ platform, owner }) => {
+                    const free = !owner;
+                    return <div key={platform} style={{ padding: "2px 4px", borderRadius: 4, background: free ? `${C.grn}15` : `${C.red}15`, color: free ? C.grn : C.red, textAlign: "center", fontWeight: 600 }}>
+                      {free ? "✓" : owner}
+                    </div>;
+                  })}
+                </div>
+              ))}
             </div>;
           })}
         </div>
@@ -6817,17 +6861,6 @@ function ShiftsPage() {
       </div>)}
     </Card>}
 
-    {/* Pending Requests */}
-    {pendingShifts.length > 0 && <Card style={{ marginBottom: 20, borderColor: C.warn }}>
-      <h3 style={{ color: "#fff", fontSize: 15, marginBottom: 12 }}>⏳ בקשות ממתינות ({pendingShifts.length})</h3>
-      {pendingShifts.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.bdr}`, flexWrap: "wrap" }}>
-        <span style={{ color: C.txt, fontSize: 14, flex: 1 }}>{s.chatterName} — {s.slotLabel} — {s.date}{s.platform ? ` — ${s.platform}` : ""}</span>
-        {s.clients?.length > 0 && <span style={{ color: C.cyan, fontSize: 11 }}>לקוחות: {s.clients.join(", ")}</span>}
-        <Btn size="sm" variant="outline" onClick={() => { setAssignSlot({ date: s.date, slotId: s.slotId, editingShiftId: s.id }); setAssignChatter(s.chatterName); setAssignClients(s.clients || []); }}>✏️</Btn>
-        <Btn size="sm" variant="success" onClick={() => approve(s)}>אשר</Btn>
-        <Btn size="sm" variant="danger" onClick={() => reject(s)}>דחה</Btn>
-      </div>)}
-    </Card>}
 
     {/* Weekly Calendar */}
     <Card>
