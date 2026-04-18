@@ -1459,6 +1459,7 @@ function DashPage() {
   }, [agSettings]);
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); saveAgencySettings({ lmVals: updated }).catch(() => {}); };
   const _dashOpenMonth = useState(null);
+  const [dashCenter, setDashCenter] = useState(month);
   const [hourFilter, setHourFilter] = useState("profitable");
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
@@ -1674,26 +1675,30 @@ function DashPage() {
       </ResponsiveContainer>
     </Card>
     {(() => {
-      const [openMonth, setOpenMonth] = _dashOpenMonth;
-      const isYearly = view === "yearly";
-      return <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
-        {mbd.filter((_, i) => isYearly ? i <= month : i === month).map(d => {
-          const isCurrent = d.idx === month;
-          const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
-          const currentDaily = d.inc / daysPassed;
-          const hit = currentDaily >= (d.tgt1 / d.days);
-          const isOpen = isYearly ? true : (openMonth === null ? isCurrent : openMonth === d.idx);
-          return <Card key={d.idx} onClick={() => !isYearly && setOpenMonth(isOpen && !isCurrent ? null : (isOpen ? null : d.idx))} style={{
-            minWidth: isOpen ? 260 : 120, textAlign: "center", cursor: isYearly ? "default" : "pointer",
-            borderColor: hit ? `${C.grn}44` : `${C.red}44`, padding: "8px 10px",
-            background: isOpen ? `${C.pri}15` : isCurrent ? `${C.pri}08` : C.card,
-            border: isOpen ? `2px solid ${C.pri}` : undefined, transition: "all .15s"
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: isOpen ? 10 : 0 }}>
-              <span style={{ fontSize: isOpen ? 14 : 10, fontWeight: isOpen ? 700 : 400, color: isOpen ? C.pri : C.dim }}>{d.ms}{isCurrent ? " (נוכחי)" : ""} {!isYearly && (isOpen ? "▼" : "▶")}</span>
-              <span style={{ fontSize: isOpen ? 13 : 14, fontWeight: 700, color: hit ? C.grn : C.red }}>{fmtC(currentDaily)} <span style={{ fontSize: 10, fontWeight: 400, color: C.mut }}>/יום</span></span>
-            </div>
-            {isOpen && <>
+      const visibleIdxs = [dashCenter - 1, dashCenter, dashCenter + 1].filter(i => i >= 0 && i < 12);
+      return <div style={{ marginBottom: 24 }}>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginBottom: 10 }}>
+          <button onClick={() => setDashCenter(Math.max(0, dashCenter - 1))} disabled={dashCenter <= 0} style={{ background: "none", border: "none", cursor: dashCenter > 0 ? "pointer" : "default", color: dashCenter > 0 ? C.pri : C.mut, fontSize: 20, padding: "4px 8px" }}>→</button>
+          <span style={{ color: C.dim, fontSize: 13, fontWeight: 600 }}>{MONTHS_HE[dashCenter]} {year}</span>
+          <button onClick={() => setDashCenter(Math.min(11, dashCenter + 1))} disabled={dashCenter >= 11} style={{ background: "none", border: "none", cursor: dashCenter < 11 ? "pointer" : "default", color: dashCenter < 11 ? C.pri : C.mut, fontSize: 20, padding: "4px 8px" }}>←</button>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+          {visibleIdxs.map(i => {
+            const d = mbd[i];
+            const isCurrent = d.idx === month;
+            const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
+            const currentDaily = d.inc / daysPassed;
+            const hit = currentDaily >= (d.tgt1 / d.days);
+            return <Card key={d.idx} style={{
+              flex: "1 1 260px", maxWidth: 340, textAlign: "center",
+              borderColor: hit ? `${C.grn}44` : `${C.red}44`, padding: "8px 10px",
+              background: isCurrent ? `${C.pri}15` : C.card,
+              border: isCurrent ? `2px solid ${C.pri}` : undefined, transition: "all .15s"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: isCurrent ? C.pri : C.dim }}>{d.ms}{isCurrent ? " (נוכחי)" : ""}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: hit ? C.grn : C.red }}>{fmtC(currentDaily)} <span style={{ fontSize: 10, fontWeight: 400, color: C.mut }}>/יום</span></span>
+              </div>
               <div style={{ padding: "10px", background: `${C.bg}55`, borderRadius: 8, marginBottom: 10, textAlign: "right" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
                   <span style={{ color: C.dim }}>הכנסות בפועל:</span>
@@ -1720,9 +1725,9 @@ function DashPage() {
                   </div>
                 ))}
               </div>
-            </>}
-          </Card>;
-        })}
+            </Card>;
+          })}
+        </div>
       </div>;
     })()}
     <FB><ViewFilter /></FB>
@@ -3565,8 +3570,8 @@ function ClientPage({ forceSel, onBack } = {}) {
 // PAGE: TARGETS
 // ═══════════════════════════════════════════════════════
 function TgtPage() {
-  const { year, month, liveRate, chatterTargets, saveChatterTarget } = useApp();
-  const { iY } = useFD();
+  const { year, month, liveRate, chatterTargets, saveChatterTarget, income } = useApp();
+  const { iY, iM } = useFD();
   const [selMonth, setSelMonth] = useState(null);
   const [editTarget, setEditTarget] = useState(null); // { name, t1, t2, t3 }
   const [savingTarget, setSavingTarget] = useState(false);
@@ -3685,6 +3690,105 @@ function TgtPage() {
         </select>
       </div>
     </div>
+
+    {(() => {
+      const curInc = mbd[month]?.inc || 0;
+      const curTarget = mbd[month]?.tgt1 || 0;
+      const gap = Math.max(0, curTarget - curInc);
+      const daysInMonth = mbd[month]?.days || 30;
+
+      const curBuyerSet = new Set(iM.filter(r => r.buyerId?.trim() && !r.cancelled).map(r => r.buyerId.trim()));
+      const curBuyerCount = curBuyerSet.size;
+      const curARPU = curBuyerCount > 0 ? curInc / curBuyerCount : 0;
+
+      const hist = [-3, -2, -1].map(offset => {
+        const mi = ((month + offset) % 12 + 12) % 12;
+        const yi = month + offset < 0 ? year - 1 : year;
+        const recs = income.filter(r => !r.cancelled && r.buyerId?.trim() && r.date &&
+          r.date.getFullYear() === yi && r.date.getMonth() === mi);
+        const buyers = new Set(recs.map(r => r.buyerId.trim())).size;
+        const inc = recs.reduce((s, r) => s + (r.amountILS || 0), 0);
+        return { buyers, arpu: buyers > 0 ? inc / buyers : 0 };
+      });
+      const avgHistBuyers = hist.reduce((s, h) => s + h.buyers, 0) / 3;
+      const avgHistARPU = hist.reduce((s, h) => s + h.arpu, 0) / 3;
+
+      const buyerTrendOk = avgHistBuyers === 0 || curBuyerCount >= avgHistBuyers * 0.9;
+      const arpuTrendOk = avgHistARPU === 0 || curARPU >= avgHistARPU * 0.9;
+      const incTrendOk = curTarget === 0 || curInc >= curTarget * 0.9;
+
+      const extraBuyersNeeded = curARPU > 0 ? Math.ceil(gap / curARPU) : "—";
+      const arpuIncreaseNeeded = curBuyerCount > 0 ? gap / curBuyerCount : 0;
+      const recUpsell = buyerTrendOk && gap > 0;
+
+      const pulseData = [-5, -4, -3, -2, -1, 0].map(offset => {
+        const mi = ((month + offset) % 12 + 12) % 12;
+        const yi = month + offset < 0 ? year - 1 : year;
+        const recs = income.filter(r => !r.cancelled && r.date &&
+          r.date.getFullYear() === yi && r.date.getMonth() === mi);
+        const allBuyerIds = new Set(recs.filter(r => r.buyerId?.trim()).map(r => r.buyerId.trim()));
+        const prevMi = ((mi - 1 + 12) % 12);
+        const prevYi = mi === 0 ? yi - 1 : yi;
+        const prevIds = new Set(income.filter(r => !r.cancelled && r.buyerId?.trim() && r.date &&
+          r.date.getFullYear() === prevYi && r.date.getMonth() === prevMi).map(r => r.buyerId.trim()));
+        const newBuyerIds = [...allBuyerIds].filter(id => !prevIds.has(id));
+        const retBuyerIds = [...allBuyerIds].filter(id => prevIds.has(id));
+        const newBInc = recs.filter(r => r.buyerId?.trim() && newBuyerIds.includes(r.buyerId.trim())).reduce((s, r) => s + (r.amountILS || 0), 0);
+        const retBInc = recs.filter(r => r.buyerId?.trim() && retBuyerIds.includes(r.buyerId.trim())).reduce((s, r) => s + (r.amountILS || 0), 0);
+        const totalInc = recs.reduce((s, r) => s + (r.amountILS || 0), 0);
+        const arpu = allBuyerIds.size > 0 ? Math.round(totalInc / allBuyerIds.size) : 0;
+        return { name: MONTHS_SHORT[mi], newBInc, retBInc, arpu, target: mbd[mi]?.tgt1 || 0 };
+      });
+
+      const lights = [
+        { label: "לקוחות", value: curBuyerCount, sub: `ממוצע היסטורי: ${Math.round(avgHistBuyers)}`, ok: buyerTrendOk },
+        { label: "ARPU", value: fmtC(curARPU), sub: `ממוצע היסטורי: ${fmtC(avgHistARPU)}`, ok: arpuTrendOk },
+        { label: "הכנסה vs יעד", value: fmtC(curInc), sub: `יעד: ${fmtC(curTarget)}`, ok: incTrendOk },
+      ];
+
+      return <Card style={{ marginBottom: 24 }}>
+        <div style={{ background: gap <= 0 ? `${C.grn}15` : recUpsell ? `${C.pri}15` : `${C.ylw}15`, border: `1px solid ${gap <= 0 ? C.grn : recUpsell ? C.pri : C.ylw}44`, borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
+          <div style={{ fontSize: 13, color: C.dim, marginBottom: 4 }}>🧭 מצפן צמיחה</div>
+          {gap <= 0
+            ? <div style={{ fontSize: 16, fontWeight: 700, color: C.grn }}>🎉 הגעת ליעד החודשי! המשך כך.</div>
+            : <div style={{ fontSize: 14, fontWeight: 600, color: C.txt }}>
+                חסר לך <span style={{ color: C.red, fontWeight: 800 }}>{fmtC(gap)}</span> ליעד.{" "}
+                {recUpsell
+                  ? <>הצעה: <strong style={{ color: C.pri }}>הגדל עסקה ממוצעת ב-{fmtC(arpuIncreaseNeeded)}</strong> — או הבא עוד <strong style={{ color: C.ylw }}>{extraBuyersNeeded} לקוחות</strong>.</>
+                  : <>הצעה: <strong style={{ color: C.ylw }}>הגדל תנועה — הבא עוד {extraBuyersNeeded} לקוחות</strong> — או הגדל עסקה ב-<strong style={{ color: C.pri }}>{fmtC(arpuIncreaseNeeded)}</strong>.</>
+                }
+              </div>
+          }
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+          {lights.map(l => (
+            <div key={l.label} style={{ flex: 1, minWidth: 120, background: l.ok ? `${C.grn}10` : `${C.red}10`, border: `1px solid ${l.ok ? C.grn : C.red}44`, borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: C.dim, marginBottom: 2 }}>{l.label}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: l.ok ? C.grn : C.red }}>
+                <span style={{ marginLeft: 6 }}>{l.ok ? "●" : "●"}</span>{l.value}
+              </div>
+              <div style={{ fontSize: 10, color: C.dim }}>{l.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ fontSize: 12, color: C.dim, marginBottom: 6, fontWeight: 600 }}>פולס צמיחה — 6 חודשים אחרונים</div>
+        <ResponsiveContainer width="100%" height={220}>
+          <ComposedChart data={pulseData} margin={{ top: 4, right: 40, left: 0, bottom: 4 }}>
+            <XAxis dataKey="name" tick={{ fontSize: 11, fill: C.dim }} />
+            <YAxis yAxisId="left" tick={{ fontSize: 11, fill: C.dim }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} />
+            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: C.dim }} tickFormatter={v => `₪${v.toLocaleString()}`} />
+            <Tooltip formatter={(v, n) => [`₪${Number(v).toLocaleString()}`, n]} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Bar yAxisId="left" dataKey="newBInc" stackId="a" fill={C.grn} name="חדשים (₪)" />
+            <Bar yAxisId="left" dataKey="retBInc" stackId="a" fill={C.cyan} name="חוזרים (₪)" />
+            <Line yAxisId="left" dataKey="target" stroke={C.red} strokeDasharray="4 2" name="יעד" dot={false} strokeWidth={2} />
+            <Line yAxisId="right" dataKey="arpu" stroke={C.ylw} name="ARPU" dot={false} strokeWidth={2} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </Card>;
+    })()}
 
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 16, marginBottom: 24 }}>
       {mbd.map(d => {
