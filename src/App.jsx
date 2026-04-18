@@ -3575,6 +3575,7 @@ function TgtPage() {
   const [selMonth, setSelMonth] = useState(null);
   const [editTarget, setEditTarget] = useState(null); // { name, t1, t2, t3 }
   const [savingTarget, setSavingTarget] = useState(false);
+  const [tgtCenter, setTgtCenter] = useState(month);
 
   const mbd = useMemo(() => {
     let lastDays = 31, lastInc = 0;
@@ -3790,8 +3791,14 @@ function TgtPage() {
       </Card>;
     })()}
 
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+      <button onClick={() => setTgtCenter(c => Math.min(11, c + 1))} disabled={tgtCenter >= 11} style={{ background: "none", border: `1px solid ${C.bdr}`, borderRadius: 8, padding: "4px 14px", color: tgtCenter >= 11 ? C.mut : C.txt, cursor: tgtCenter >= 11 ? "default" : "pointer", fontSize: 16 }}>←</button>
+      <span style={{ fontSize: 13, color: C.dim }}>{MONTHS_HE[Math.max(0, tgtCenter - 1)]} · <strong style={{ color: C.txt }}>{MONTHS_HE[tgtCenter]}</strong> · {MONTHS_HE[Math.min(11, tgtCenter + 1)]}</span>
+      <button onClick={() => setTgtCenter(c => Math.max(0, c - 1))} disabled={tgtCenter <= 0} style={{ background: "none", border: `1px solid ${C.bdr}`, borderRadius: 8, padding: "4px 14px", color: tgtCenter <= 0 ? C.mut : C.txt, cursor: tgtCenter <= 0 ? "default" : "pointer", fontSize: 16 }}>→</button>
+    </div>
+
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 16, marginBottom: 24 }}>
-      {mbd.map(d => {
+      {mbd.filter(d => [tgtCenter - 1, tgtCenter, tgtCenter + 1].filter(i => i >= 0 && i < 12).includes(d.idx)).map(d => {
         const isCurrent = d.idx === month;
         const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
         const currentDaily = d.inc / daysPassed;
