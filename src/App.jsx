@@ -1459,6 +1459,7 @@ function DashPage() {
   }, [agSettings]);
   const saveLm = (idx, val) => { const updated = { ...lmVals, [year]: { ...(lmVals[year] || {}), [idx]: val } }; setLmVals(updated); saveAgencySettings({ lmVals: updated }).catch(() => {}); };
   const _dashOpenMonth = useState(null);
+  const [dashCenter, setDashCenter] = useState(month);
   const [hourFilter, setHourFilter] = useState("profitable");
   const activeI = view === "range" ? iRange : view === "monthly" ? iM : iY;
   const activeE = view === "range" ? eRange : view === "monthly" ? eM : eY;
@@ -1674,26 +1675,30 @@ function DashPage() {
       </ResponsiveContainer>
     </Card>
     {(() => {
-      const [openMonth, setOpenMonth] = _dashOpenMonth;
-      const isYearly = view === "yearly";
-      return <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
-        {mbd.filter((_, i) => isYearly ? i <= month : i === month).map(d => {
-          const isCurrent = d.idx === month;
-          const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
-          const currentDaily = d.inc / daysPassed;
-          const hit = currentDaily >= (d.tgt1 / d.days);
-          const isOpen = isYearly ? true : (openMonth === null ? isCurrent : openMonth === d.idx);
-          return <Card key={d.idx} onClick={() => !isYearly && setOpenMonth(isOpen && !isCurrent ? null : (isOpen ? null : d.idx))} style={{
-            minWidth: isOpen ? 260 : 120, textAlign: "center", cursor: isYearly ? "default" : "pointer",
-            borderColor: hit ? `${C.grn}44` : `${C.red}44`, padding: "8px 10px",
-            background: isOpen ? `${C.pri}15` : isCurrent ? `${C.pri}08` : C.card,
-            border: isOpen ? `2px solid ${C.pri}` : undefined, transition: "all .15s"
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: isOpen ? 10 : 0 }}>
-              <span style={{ fontSize: isOpen ? 14 : 10, fontWeight: isOpen ? 700 : 400, color: isOpen ? C.pri : C.dim }}>{d.ms}{isCurrent ? " (נוכחי)" : ""} {!isYearly && (isOpen ? "▼" : "▶")}</span>
-              <span style={{ fontSize: isOpen ? 13 : 14, fontWeight: 700, color: hit ? C.grn : C.red }}>{fmtC(currentDaily)} <span style={{ fontSize: 10, fontWeight: 400, color: C.mut }}>/יום</span></span>
-            </div>
-            {isOpen && <>
+      const visibleIdxs = [dashCenter - 1, dashCenter, dashCenter + 1].filter(i => i >= 0 && i < 12);
+      return <div style={{ marginBottom: 24 }}>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginBottom: 10 }}>
+          <button onClick={() => setDashCenter(Math.max(0, dashCenter - 1))} disabled={dashCenter <= 0} style={{ background: "none", border: "none", cursor: dashCenter > 0 ? "pointer" : "default", color: dashCenter > 0 ? C.pri : C.mut, fontSize: 20, padding: "4px 8px" }}>→</button>
+          <span style={{ color: C.dim, fontSize: 13, fontWeight: 600 }}>{MONTHS_HE[dashCenter]} {year}</span>
+          <button onClick={() => setDashCenter(Math.min(11, dashCenter + 1))} disabled={dashCenter >= 11} style={{ background: "none", border: "none", cursor: dashCenter < 11 ? "pointer" : "default", color: dashCenter < 11 ? C.pri : C.mut, fontSize: 20, padding: "4px 8px" }}>←</button>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+          {visibleIdxs.map(i => {
+            const d = mbd[i];
+            const isCurrent = d.idx === month;
+            const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
+            const currentDaily = d.inc / daysPassed;
+            const hit = currentDaily >= (d.tgt1 / d.days);
+            return <Card key={d.idx} style={{
+              flex: "1 1 260px", maxWidth: 340, textAlign: "center",
+              borderColor: hit ? `${C.grn}44` : `${C.red}44`, padding: "8px 10px",
+              background: isCurrent ? `${C.pri}15` : C.card,
+              border: isCurrent ? `2px solid ${C.pri}` : undefined, transition: "all .15s"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: isCurrent ? C.pri : C.dim }}>{d.ms}{isCurrent ? " (נוכחי)" : ""}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: hit ? C.grn : C.red }}>{fmtC(currentDaily)} <span style={{ fontSize: 10, fontWeight: 400, color: C.mut }}>/יום</span></span>
+              </div>
               <div style={{ padding: "10px", background: `${C.bg}55`, borderRadius: 8, marginBottom: 10, textAlign: "right" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
                   <span style={{ color: C.dim }}>הכנסות בפועל:</span>
@@ -1720,9 +1725,9 @@ function DashPage() {
                   </div>
                 ))}
               </div>
-            </>}
-          </Card>;
-        })}
+            </Card>;
+          })}
+        </div>
       </div>;
     })()}
     <FB><ViewFilter /></FB>
