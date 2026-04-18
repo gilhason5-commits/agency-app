@@ -6558,6 +6558,37 @@ function ShiftsPage() {
       </>;
     })()}
 
+    {/* Today — Client Availability Cards */}
+    {(() => {
+      const todayS = new Date().toISOString().slice(0, 10);
+      const todayApproved = shifts.filter(s => s.status === "approved" && s.date === todayS);
+      const clientSlotOwner = (client, slotId) => {
+        const sh = todayApproved.find(s => s.slotId === slotId && (s.clients || []).includes(client));
+        return sh ? sh.chatterName : null;
+      };
+      if (!allRegisteredClients.length || !sortedSlots.length) return null;
+      return <Card style={{ marginBottom: 20, padding: 12, background: `${C.red}08`, border: `2px solid ${C.red}30` }}>
+        <h3 style={{ color: C.red, fontSize: 15, marginBottom: 4 }}>🔥 היום — זמינות לקוחות</h3>
+        <div style={{ color: C.dim, fontSize: 11, marginBottom: 10 }}>מי פנוי עכשיו? בלחיצה אחת ראה מה תפוס ומה פתוח</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+          {allRegisteredClients.map(c => {
+            const slotStatuses = sortedSlots.map(slot => ({ slot, owner: clientSlotOwner(c, slot.id) }));
+            const freeCount = slotStatuses.filter(ss => !ss.owner).length;
+            return <div key={c} style={{ background: C.card, border: `1px solid ${freeCount === sortedSlots.length ? C.grn : freeCount === 0 ? C.red : C.bdr}`, borderRadius: 8, padding: 8 }}>
+              <div style={{ fontWeight: 700, color: C.txt, fontSize: 12, marginBottom: 6, textAlign: "center" }}>{c}</div>
+              {slotStatuses.map(({ slot, owner }) => {
+                const free = !owner;
+                return <div key={slot.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, padding: "2px 4px", borderRadius: 4, marginBottom: 2, background: free ? `${C.grn}15` : `${C.red}15`, color: free ? C.grn : C.red }}>
+                  <span>{slot.label}</span>
+                  <span style={{ fontWeight: 600 }}>{free ? "✓ פנוי" : owner}</span>
+                </div>;
+              })}
+            </div>;
+          })}
+        </div>
+      </Card>;
+    })()}
+
     {/* Chatters in the air */}
     {(() => {
       const todayS = new Date().toISOString().slice(0, 10);
