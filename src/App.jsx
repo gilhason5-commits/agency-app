@@ -6709,30 +6709,23 @@ function ShiftsPage() {
             });
             const totalCells = slotStatuses.length * PLATFORMS.length;
             const freeCells = slotStatuses.reduce((n, s) => n + s.perPlatform.filter(pp => !pp.owner).length, 0);
-            const hasPlatformSplit = slotStatuses.some(s => {
-              const owners = s.perPlatform.map(pp => pp.owner);
-              return owners[0] !== owners[1] && owners.some(Boolean);
-            });
             return <div key={c} style={{ background: C.card, border: `1px solid ${freeCells === totalCells ? C.grn : freeCells === 0 ? C.red : C.bdr}`, borderRadius: 8, padding: 8 }}>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, marginBottom: 6 }}>
-                <div style={{ fontWeight: 700, color: C.txt, fontSize: 12 }}>{c}</div>
-                {hasPlatformSplit && <div style={{ display: "flex", gap: 4 }}>
-                  {PLATFORMS.map(p => <span key={p} style={{ background: C.bg, border: `1px solid ${C.bdr}`, color: C.dim, fontSize: 8, padding: "1px 6px", borderRadius: 8, fontWeight: 600 }}>{p}</span>)}
-                </div>}
+              <div style={{ fontWeight: 700, color: C.txt, fontSize: 12, marginBottom: 6, textAlign: "center" }}>{c}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(36px, auto) 1fr 1fr", gap: 2, fontSize: 9, marginBottom: 3, color: C.dim }}>
+                <div></div>
+                {PLATFORMS.map(p => <div key={p} style={{ textAlign: "center", fontWeight: 600 }}>{p}</div>)}
               </div>
-              {slotStatuses.map(({ slot, perPlatform }) => {
-                const [o1, o2] = perPlatform.map(pp => pp.owner);
-                const allFree = !o1 && !o2;
-                const allTaken = o1 && o2;
-                const sameOwner = allTaken && o1 === o2;
-                const label = allFree ? "✓ פנוי" : sameOwner ? o1 : perPlatform.map(pp => pp.owner || "פנוי").join(" / ");
-                const bg = allFree ? `${C.grn}15` : allTaken ? `${C.red}15` : `${C.ylw}15`;
-                const color = allFree ? C.grn : allTaken ? C.red : C.ylw;
-                return <div key={slot.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, padding: "2px 4px", borderRadius: 4, marginBottom: 2, background: bg, color }}>
-                  <span>{slot.label}</span>
-                  <span style={{ fontWeight: 600 }}>{label}</span>
-                </div>;
-              })}
+              {slotStatuses.map(({ slot, perPlatform }) => (
+                <div key={slot.id} style={{ display: "grid", gridTemplateColumns: "minmax(36px, auto) 1fr 1fr", gap: 2, fontSize: 10, marginBottom: 2, alignItems: "stretch" }}>
+                  <div style={{ color: C.dim, padding: "2px 4px" }}>{slot.label}</div>
+                  {perPlatform.map(({ platform, owner }) => {
+                    const free = !owner;
+                    return <div key={platform} style={{ padding: "2px 4px", borderRadius: 4, background: free ? `${C.grn}15` : `${C.red}15`, color: free ? C.grn : C.red, textAlign: "center", fontWeight: 600 }}>
+                      {free ? "✓" : owner}
+                    </div>;
+                  })}
+                </div>
+              ))}
             </div>;
           })}
         </div>
