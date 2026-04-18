@@ -6631,6 +6631,18 @@ function ShiftsPage() {
   return <div style={{ direction: "rtl", maxWidth: 1200, margin: "0 auto" }}>
     <h2 style={{ color: C.txt, fontSize: 22, fontWeight: 700, marginBottom: 16 }}>📅 משמרות</h2>
 
+    {/* Pending Requests — top of page */}
+    {pendingShifts.length > 0 && <Card style={{ marginBottom: 20, borderColor: C.warn }}>
+      <h3 style={{ color: "#fff", fontSize: 15, marginBottom: 12 }}>⏳ בקשות ממתינות ({pendingShifts.length})</h3>
+      {pendingShifts.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.bdr}`, flexWrap: "wrap" }}>
+        <span style={{ color: C.txt, fontSize: 14, flex: 1 }}>{s.chatterName} — {s.slotLabel} — {s.date}{s.platform ? ` — ${s.platform}` : ""}</span>
+        {s.clients?.length > 0 && <span style={{ color: C.cyan, fontSize: 11 }}>לקוחות: {s.clients.join(", ")}</span>}
+        <Btn size="sm" variant="outline" onClick={() => { setAssignSlot({ date: s.date, slotId: s.slotId, editingShiftId: s.id }); setAssignChatter(s.chatterName); setAssignClients(s.clients || []); }}>✏️</Btn>
+        <Btn size="sm" variant="success" onClick={() => approve(s)}>אשר</Btn>
+        <Btn size="sm" variant="danger" onClick={() => reject(s)}>דחה</Btn>
+      </div>)}
+    </Card>}
+
     {/* Stats */}
     {(() => {
       const todayS = new Date().toISOString().slice(0, 10);
@@ -6679,25 +6691,46 @@ function ShiftsPage() {
     {(() => {
       const todayS = new Date().toISOString().slice(0, 10);
       const todayApproved = shifts.filter(s => s.status === "approved" && s.date === todayS);
-      const clientSlotOwner = (client, slotId) => {
-        const sh = todayApproved.find(s => s.slotId === slotId && (s.clients || []).includes(client));
+      const PLATFORMS = ["אונלי", "טלגרם"];
+      const platformBases = (p) => !p ? [] : (p === "אונלי וטלגרם" ? ["אונלי", "טלגרם"] : [p]);
+      const ownerForPlatform = (client, slotId, platform) => {
+        const sh = todayApproved.find(s => s.slotId === slotId && (s.clients || []).includes(client) && platformBases(s.platform).includes(platform));
         return sh ? sh.chatterName : null;
       };
       if (!allRegisteredClients.length || !sortedSlots.length) return null;
       return <Card style={{ marginBottom: 20, padding: 12, background: `${C.red}08`, border: `2px solid ${C.red}30` }}>
         <h3 style={{ color: C.red, fontSize: 15, marginBottom: 4 }}>🔥 היום — זמינות לקוחות</h3>
         <div style={{ color: C.dim, fontSize: 11, marginBottom: 10 }}>מי פנוי עכשיו? בלחיצה אחת ראה מה תפוס ומה פתוח</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 8 }}>
           {allRegisteredClients.map(c => {
-            const slotStatuses = sortedSlots.map(slot => ({ slot, owner: clientSlotOwner(c, slot.id) }));
-            const freeCount = slotStatuses.filter(ss => !ss.owner).length;
-            return <div key={c} style={{ background: C.card, border: `1px solid ${freeCount === sortedSlots.length ? C.grn : freeCount === 0 ? C.red : C.bdr}`, borderRadius: 8, padding: 8 }}>
-              <div style={{ fontWeight: 700, color: C.txt, fontSize: 12, marginBottom: 6, textAlign: "center" }}>{c}</div>
-              {slotStatuses.map(({ slot, owner }) => {
-                const free = !owner;
-                return <div key={slot.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, padding: "2px 4px", borderRadius: 4, marginBottom: 2, background: free ? `${C.grn}15` : `${C.red}15`, color: free ? C.grn : C.red }}>
+            const slotStatuses = sortedSlots.map(slot => {
+              const perPlatform = PLATFORMS.map(p => ({ platform: p, owner: ownerForPlatform(c, slot.id, p) }));
+              return { slot, perPlatform };
+            });
+            const totalCells = slotStatuses.length * PLATFORMS.length;
+            const freeCells = slotStatuses.reduce((n, s) => n + s.perPlatform.filter(pp => !pp.owner).length, 0);
+            const hasPlatformSplit = slotStatuses.some(s => {
+              const owners = s.perPlatform.map(pp => pp.owner);
+              return owners[0] !== owners[1] && owners.some(Boolean);
+            });
+            return <div key={c} style={{ background: C.card, border: `1px solid ${freeCells === totalCells ? C.grn : freeCells === 0 ? C.red : C.bdr}`, borderRadius: 8, padding: 8 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, marginBottom: 6 }}>
+                <div style={{ fontWeight: 700, color: C.txt, fontSize: 12 }}>{c}</div>
+                {hasPlatformSplit && <div style={{ display: "flex", gap: 4 }}>
+                  {PLATFORMS.map(p => <span key={p} style={{ background: C.bg, border: `1px solid ${C.bdr}`, color: C.dim, fontSize: 8, padding: "1px 6px", borderRadius: 8, fontWeight: 600 }}>{p}</span>)}
+                </div>}
+              </div>
+              {slotStatuses.map(({ slot, perPlatform }) => {
+                const [o1, o2] = perPlatform.map(pp => pp.owner);
+                const allFree = !o1 && !o2;
+                const allTaken = o1 && o2;
+                const sameOwner = allTaken && o1 === o2;
+                const label = allFree ? "✓ פנוי" : sameOwner ? o1 : perPlatform.map(pp => pp.owner || "פנוי").join(" / ");
+                const bg = allFree ? `${C.grn}15` : allTaken ? `${C.red}15` : `${C.ylw}15`;
+                const color = allFree ? C.grn : allTaken ? C.red : C.ylw;
+                return <div key={slot.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, padding: "2px 4px", borderRadius: 4, marginBottom: 2, background: bg, color }}>
                   <span>{slot.label}</span>
-                  <span style={{ fontWeight: 600 }}>{free ? "✓ פנוי" : owner}</span>
+                  <span style={{ fontWeight: 600 }}>{label}</span>
                 </div>;
               })}
             </div>;
@@ -6835,17 +6868,6 @@ function ShiftsPage() {
       </div>)}
     </Card>}
 
-    {/* Pending Requests */}
-    {pendingShifts.length > 0 && <Card style={{ marginBottom: 20, borderColor: C.warn }}>
-      <h3 style={{ color: "#fff", fontSize: 15, marginBottom: 12 }}>⏳ בקשות ממתינות ({pendingShifts.length})</h3>
-      {pendingShifts.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.bdr}`, flexWrap: "wrap" }}>
-        <span style={{ color: C.txt, fontSize: 14, flex: 1 }}>{s.chatterName} — {s.slotLabel} — {s.date}{s.platform ? ` — ${s.platform}` : ""}</span>
-        {s.clients?.length > 0 && <span style={{ color: C.cyan, fontSize: 11 }}>לקוחות: {s.clients.join(", ")}</span>}
-        <Btn size="sm" variant="outline" onClick={() => { setAssignSlot({ date: s.date, slotId: s.slotId, editingShiftId: s.id }); setAssignChatter(s.chatterName); setAssignClients(s.clients || []); }}>✏️</Btn>
-        <Btn size="sm" variant="success" onClick={() => approve(s)}>אשר</Btn>
-        <Btn size="sm" variant="danger" onClick={() => reject(s)}>דחה</Btn>
-      </div>)}
-    </Card>}
 
     {/* Weekly Calendar */}
     <Card>
