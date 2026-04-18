@@ -1673,7 +1673,7 @@ function DashPage() {
         </ComposedChart>
       </ResponsiveContainer>
     </Card>
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginBottom: 24 }}>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-start", marginBottom: 24 }}>
           {mbd.filter(d => d.idx === month).map(d => {
             const isCurrent = d.idx === month;
             const daysPassed = isCurrent ? Math.max(1, new Date().getDate()) : d.days;
