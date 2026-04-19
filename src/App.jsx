@@ -3031,6 +3031,12 @@ function ChatterPage({ forceSel, onBack } = {}) {
     setEditHours(false);
   };
 
+  const [niVal, setNiVal] = useState("");
+  useEffect(() => { setNiVal(String(cfg.monthlyNI?.[ymi] ?? "")); }, [sel, ymi]);
+  const saveNI = async (val) => {
+    await saveChatterSetting(sel, { monthlyNI: { ...(cfg.monthlyNI || {}), [ymi]: +val || 0 } });
+  };
+
   const inpS = { width: "100%", padding: "10px 12px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 14, outline: "none", boxSizing: "border-box" };
 
   return <div style={{ direction: "rtl" }}>
@@ -3140,6 +3146,17 @@ function ChatterPage({ forceSel, onBack } = {}) {
                 <button type="button" onClick={saveHours} disabled={saving} style={{ padding: "8px 14px", background: C.grn, border: "none", borderRadius: 8, color: "#fff", fontSize: 18, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "..." : "✓"}</button>
               </div>
             </Card>
+            {sal.salaryType !== "sales" && <Card style={{ flex: 1, minWidth: 140 }}>
+              <div style={{ color: C.dim, fontSize: 12, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><span style={{ fontSize: 16 }}>🏥</span>ביטוח לאומי — {MONTHS_HE[month]}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="number" min="0" value={niVal}
+                  onChange={e => setNiVal(e.target.value)}
+                  style={{ flex: 1, padding: "8px 12px", background: "#1e293b", border: `2px solid ${C.bdr}`, borderRadius: 8, color: "#f1f5f9", fontSize: 26, fontWeight: 700, outline: "none", textAlign: "center", minWidth: 0 }}
+                />
+                <button type="button" onClick={() => saveNI(niVal)} disabled={saving} style={{ padding: "8px 14px", background: C.grn, border: "none", borderRadius: 8, color: "#fff", fontSize: 18, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.6 : 1 }}>{saving ? "..." : "✓"}</button>
+              </div>
+            </Card>}
             {(() => {
               const hours = parseFloat(hoursVal) || 0;
               const netProfit = tot - sal.total;
@@ -3163,6 +3180,7 @@ function ChatterPage({ forceSel, onBack } = {}) {
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Stat icon="💵" title="שכר מגיע לצ'אטר" value={fmtC(sal.total)} color={C.pri} />
             <Stat icon="✅" title="שולם ישירות לצ'אטר" value={fmtC(paidDirect)} color={C.grn} />
+            {sal.salaryType !== "sales" && (+niVal > 0) && <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(+niVal)} color={C.ylw} sub={MONTHS_HE[month]} />}
             {vatChatter ? <>
               <Stat icon={balance > 0 ? "🔴" : balance < 0 ? "🟢" : "⚪"} title={balance > 0 ? "יתרה לפני מע״מ" : balance < 0 ? "יתרה לפני מע״מ" : "מאוזן"} value={fmtC(Math.abs(balance))} color={balance > 0 ? C.red : balance < 0 ? C.grn : C.mut} />
               <Stat icon="🧾" title="מע״מ 18%" value={fmtC(vatAmt)} color={C.ylw} />
@@ -4675,7 +4693,7 @@ function ChatterPortal({ hideHeader } = {}) {
         const overlap = shiftReqPlatforms.some(p => existingBases.includes(p));
         if (!overlap) return;
       }
-      (s.clients || []).forEach(c => taken.add(c));
+      (s.clients || []).forEach(c => taken.add(typeof c === "string" ? c : c.name));
     });
     return taken;
   }, [shifts, shiftReqDate, shiftReqSlot, chatterName, shiftReqPlatforms]);
@@ -5119,7 +5137,7 @@ function ChatterPortal({ hideHeader } = {}) {
               <span style={{ fontSize: 16 }}>{isActive ? "🟢" : isDone ? "⚪" : "🔵"}</span>
               <span style={{ color: C.txt, fontSize: 13, fontWeight: 600 }}>{s.slotLabel} ({s.slotStart}-{s.slotEnd})</span>
               {s.lateMinutes > 0 && <span style={{ color: C.ylw, fontSize: 11, background: `${C.ylw}22`, padding: "2px 8px", borderRadius: 8 }}>איחור {s.lateMinutes} דק׳</span>}
-              {s.clients?.length > 0 && <span style={{ fontSize: 11, color: C.cyan }}>| {s.clients.join(", ")}</span>}
+              {s.clients?.length > 0 && <span style={{ fontSize: 11, color: C.cyan }}>| {s.clients.map(c=>typeof c==="string"?c:c.name).join(", ")}</span>}
             </div>
             {s.clockIn && <div style={{ marginRight: 28, marginTop: 4, fontSize: 11, color: C.dim }}>
               כניסה: {new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}
@@ -5180,7 +5198,7 @@ function ChatterPortal({ hideHeader } = {}) {
             {s.clockIn && s.clockOut && <span style={{ color: C.dim, fontSize: 10 }}>{s.hoursWorked}ש׳</span>}
             {s.lateMinutes > 0 && <span style={{ color: C.ylw, fontSize: 10 }}>איחור {s.lateMinutes}׳</span>}
           </div>
-          {s.clients?.length > 0 && <div style={{ marginRight: 24, marginTop: 2, fontSize: 11, color: C.cyan }}>לקוחות: {s.clients.join(", ")}</div>}
+          {s.clients?.length > 0 && <div style={{ marginRight: 24, marginTop: 2, fontSize: 11, color: C.cyan }}>לקוחות: {s.clients.map(c=>typeof c==="string"?c:c.name).join(", ")}</div>}
         </div>)}
 
         {/* Request shift form */}
@@ -5209,7 +5227,7 @@ function ChatterPortal({ hideHeader } = {}) {
               const sel = shiftReqClients.includes(c);
               // Per-platform availability detail when multiple platforms are selected
               const platformDetail = shiftReqPlatforms.length > 1 ? shiftReqPlatforms.map(p => {
-                const takenOnP = shifts.some(s => s.status === "approved" && !s.clockOut && s.date === shiftReqDate && s.slotId === shiftReqSlot && s.chatterName !== chatterName && platformBases(s.platform).includes(p) && (s.clients || []).includes(c));
+                const takenOnP = shifts.some(s => s.status === "approved" && !s.clockOut && s.date === shiftReqDate && s.slotId === shiftReqSlot && s.chatterName !== chatterName && platformBases(s.platform).includes(p) && (s.clients || []).some(x => (typeof x === "string" ? x : x.name) === c));
                 return { p, free: !takenOnP };
               }) : null;
               const subLabel = platformDetail ? platformDetail.map(({ p, free }) => `${p}: ${free ? "✓" : "✗"}`).join(" | ") : tk ? "תפוס" : null;
@@ -5254,7 +5272,7 @@ function ChatterPortal({ hideHeader } = {}) {
                       {cellShifts.map(s => <div key={s.id} style={{ padding: "2px 4px", borderRadius: 4, marginBottom: 2, fontSize: 10, background: s.chatterName === chatterName ? `${C.pri}30` : `${C.bdr}40`, color: s.chatterName === chatterName ? C.pri : C.dim, fontWeight: s.chatterName === chatterName ? 700 : 400 }}>
                         {s.chatterName === chatterName ? "אני" : s.chatterName}
                         {s.clockIn && !s.clockOut && <span style={{ color: C.grn }}> ●</span>}
-                        {(s.clients || []).length > 0 && <div style={{ fontSize: 8, color: C.mut, marginTop: 1 }}>{s.clients.join(", ")}</div>}
+                        {(s.clients || []).length > 0 && <div style={{ fontSize: 8, color: C.mut, marginTop: 1 }}>{s.clients.map(c=>typeof c==="string"?c:c.name).join(", ")}</div>}
                       </div>)}
                     </td>;
                   })}
@@ -6666,8 +6684,15 @@ function ShiftsPage() {
     setAssignSlot(null); setAssignChatter(""); setAssignClients([]);
   };
 
+  const normClients = (arr) => (arr || []).map(c => typeof c === "string" ? { name: c, platform: "" } : c);
+  const clientName = (c) => typeof c === "string" ? c : (c?.name || "");
+  const clientPlatform = (c) => typeof c === "string" ? "" : (c?.platform || "");
+  const hasClient = (list, name) => list.some(c => clientName(c) === name);
   const toggleClient = (list, setList, name) => {
-    setList(prev => prev.includes(name) ? prev.filter(c => c !== name) : [...prev, name]);
+    setList(prev => hasClient(prev, name) ? prev.filter(c => clientName(c) !== name) : [...prev, { name, platform: "" }]);
+  };
+  const setClientPlatform = (list, setList, name, platform) => {
+    setList(prev => prev.map(c => clientName(c) === name ? { name, platform } : c));
   };
 
   const calcHoursFromTimes = (inStr, outStr) => {
@@ -6678,7 +6703,7 @@ function ShiftsPage() {
 
   const openEdit = (s) => {
     setEditShift(s);
-    setEditClients(s.clients || []);
+    setEditClients(normClients(s.clients));
     setEditClockIn(s.clockIn ? new Date(s.clockIn).toTimeString().slice(0, 5) : "");
     setEditClockOut(s.clockOut ? new Date(s.clockOut).toTimeString().slice(0, 5) : "");
   };
@@ -6705,8 +6730,8 @@ function ShiftsPage() {
       <h3 style={{ color: "#fff", fontSize: 15, marginBottom: 12 }}>⏳ בקשות ממתינות ({pendingShifts.length})</h3>
       {pendingShifts.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.bdr}`, flexWrap: "wrap" }}>
         <span style={{ color: C.txt, fontSize: 14, flex: 1 }}>{s.chatterName} — {s.slotLabel} — {s.date}{s.platform ? ` — ${s.platform}` : ""}</span>
-        {s.clients?.length > 0 && <span style={{ color: C.cyan, fontSize: 11 }}>לקוחות: {s.clients.join(", ")}</span>}
-        <Btn size="sm" variant="outline" onClick={() => { setAssignSlot({ date: s.date, slotId: s.slotId, editingShiftId: s.id }); setAssignChatter(s.chatterName); setAssignClients(s.clients || []); }}>✏️</Btn>
+        {s.clients?.length > 0 && <span style={{ color: C.cyan, fontSize: 11 }}>לקוחות: {s.clients.map(c=>typeof c==="string"?c:c.name).join(", ")}</span>}
+        <Btn size="sm" variant="outline" onClick={() => { setAssignSlot({ date: s.date, slotId: s.slotId, editingShiftId: s.id }); setAssignChatter(s.chatterName); setAssignClients(normClients(s.clients)); }}>✏️</Btn>
         <Btn size="sm" variant="success" onClick={() => approve(s)}>אשר</Btn>
         <Btn size="sm" variant="danger" onClick={() => reject(s)}>דחה</Btn>
       </div>)}
@@ -6748,7 +6773,7 @@ function ShiftsPage() {
                   {isDone && <> · יציאה: {new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} · {s.hoursWorked} שעות</>}
                 </div>}
                 {!s.clockIn && <div style={{ fontSize: 11, color: C.red, marginRight: 26 }}>לא דיווח/ה כניסה</div>}
-                {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginRight: 26, marginTop: 2 }}>לקוחות: {s.clients.join(", ")}</div>}
+                {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginRight: 26, marginTop: 2 }}>לקוחות: {s.clients.map(c=>typeof c==="string"?c:c.name).join(", ")}</div>}
               </div>;
             })}
           </div>
@@ -6763,7 +6788,14 @@ function ShiftsPage() {
       const PLATFORMS = ["אונלי", "טלגרם"];
       const platformBases = (p) => !p ? [] : (p === "אונלי וטלגרם" ? ["אונלי", "טלגרם"] : [p]);
       const ownerForPlatform = (client, slotId, platform) => {
-        const sh = todayApproved.find(s => s.slotId === slotId && (s.clients || []).includes(client) && platformBases(s.platform).includes(platform));
+        const sh = todayApproved.find(s => {
+          if (s.slotId !== slotId) return false;
+          const hasC = (s.clients || []).some(c => clientName(c) === client);
+          if (!hasC) return false;
+          // If shift has no platform set, it covers all platforms
+          const pBases = platformBases(s.platform);
+          return pBases.length === 0 || pBases.includes(platform);
+        });
         return sh ? sh.chatterName : null;
       };
       if (!allRegisteredClients.length || !sortedSlots.length) return null;
@@ -6827,11 +6859,13 @@ function ShiftsPage() {
       days.forEach(d => sortedSlots.forEach(slot => rows.push({ date: d, slot })));
       const platformBases = (p) => !p ? [] : (p === "אונלי וטלגרם" ? ["אונלי", "טלגרם"] : [p]);
       const clientOwnerOnPlatform = (date, slotId, client, platform) => {
-        const sh = allApproved.find(s =>
-          s.date === date && s.slotId === slotId &&
-          (s.clients || []).includes(client) &&
-          platformBases(s.platform).includes(platform)
-        );
+        const sh = allApproved.find(s => {
+          if (s.date !== date || s.slotId !== slotId) return false;
+          const hasC = (s.clients || []).some(c => (typeof c === "string" ? c : c.name) === client);
+          if (!hasC) return false;
+          const pBases = platformBases(s.platform);
+          return pBases.length === 0 || pBases.includes(platform);
+        });
         return sh ? sh.chatterName : null;
       };
       const PLATFORMS = ["אונלי", "טלגרם"];
@@ -6986,11 +7020,11 @@ function ShiftsPage() {
                       </span>
                     </div>
                     {s.platform && <div style={{ fontSize: 9, color: C.ylw, marginTop: 1 }}>{s.platform}</div>}
-                    {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginTop: 1 }}>{s.clients.join(", ")}</div>}
+                    {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginTop: 1 }}>{s.clients.map(c=>typeof c==="string"?c:c.name).join(", ")}</div>}
                     {s.clockIn && <div style={{ fontSize: 9, color: C.dim, marginTop: 1 }}>↑{new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}{s.clockOut ? ` ↓${new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}` : ""}{s.hoursWorked ? ` · ${s.hoursWorked}ש׳` : ""}</div>}
                   </div>; })}
                   {(() => {
-                    const assignedClients = new Set(approved.flatMap(s => s.clients || []));
+                    const assignedClients = new Set(approved.flatMap(s => (s.clients || []).map(c => typeof c === "string" ? c : c.name)));
                     const unassigned = allRegisteredClients.filter(c => !assignedClients.has(c));
                     return unassigned.length > 0 && approved.length > 0 ? <div style={{ fontSize: 9, color: C.red, marginTop: 2, background: `${C.red}10`, borderRadius: 4, padding: "1px 4px" }} title={unassigned.join(", ")}>חוסרים: {unassigned.length}</div> : null;
                   })()}
@@ -7059,7 +7093,7 @@ function ShiftsPage() {
                   <td style={{ padding: "6px 10px", color: s.clockIn ? C.grn : C.mut, textAlign: "center" }}>{clockInTime}</td>
                   <td style={{ padding: "6px 10px", color: s.clockOut ? C.txt : C.mut, textAlign: "center" }}>{clockOutTime}</td>
                   <td style={{ padding: "6px 10px", textAlign: "center", color: s.hoursWorked ? C.grn : C.mut, fontWeight: 600 }}>{s.hoursWorked ? `${s.hoursWorked}ש׳` : "—"}</td>
-                  <td style={{ padding: "6px 10px", color: C.dim, textAlign: "right", fontSize: 11 }}>{(s.clients || []).join(", ") || "—"}</td>
+                  <td style={{ padding: "6px 10px", color: C.dim, textAlign: "right", fontSize: 11 }}>{((s.clients||[]).map(c=>typeof c==="string"?c:c.name)).join(", ") || "—"}</td>
                   <td style={{ padding: "6px 10px", textAlign: "center", color: shiftSales > 0 ? C.grn : C.mut, fontWeight: shiftSales > 0 ? 700 : 400 }}>{shiftSales > 0 ? fmtC(shiftSales) : "—"}</td>
                 </tr>;
               })}
@@ -7088,8 +7122,17 @@ function ShiftsPage() {
         </select>
         <div>
           <div style={{ color: C.dim, fontSize: 12, marginBottom: 6 }}>הקצה לקוחות:</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {clientNames.map(c => <button key={c} onClick={() => toggleClient(assignClients, setAssignClients, c)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${assignClients.includes(c) ? C.pri : C.bdr}`, background: assignClients.includes(c) ? `${C.pri}33` : C.bg, color: assignClients.includes(c) ? C.pri : C.dim, cursor: "pointer", fontSize: 12 }}>{c}</button>)}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {clientNames.map(c => {
+              const sel = hasClient(assignClients, c);
+              const plat = sel ? clientPlatform(assignClients.find(x => clientName(x) === c)) : "";
+              return <div key={c}>
+                <button onClick={() => toggleClient(assignClients, setAssignClients, c)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${sel ? C.pri : C.bdr}`, background: sel ? `${C.pri}33` : C.bg, color: sel ? C.pri : C.dim, cursor: "pointer", fontSize: 12 }}>{c}</button>
+                {sel && <span style={{ marginRight: 8 }}>
+                  {["אונלי", "טלגרם"].map(p => <button key={p} onClick={() => setClientPlatform(assignClients, setAssignClients, c, plat === p ? "" : p)} style={{ marginRight: 4, padding: "2px 8px", borderRadius: 5, border: `1px solid ${plat === p ? C.cyan : C.bdr}`, background: plat === p ? `${C.cyan}33` : C.bg, color: plat === p ? C.cyan : C.dim, cursor: "pointer", fontSize: 11 }}>{p}</button>)}
+                </span>}
+              </div>;
+            })}
           </div>
         </div>
         <Btn variant="success" onClick={manualAssign} disabled={!assignChatter}>שבץ</Btn>
@@ -7122,8 +7165,17 @@ function ShiftsPage() {
         {/* Clients */}
         <div>
           <div style={{ color: C.txt, fontSize: 13, fontWeight: 600, marginBottom: 8 }}>👩 לקוחות למשמרת</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {clientNames.map(c => <button key={c} onClick={() => toggleClient(editClients, setEditClients, c)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${editClients.includes(c) ? C.pri : C.bdr}`, background: editClients.includes(c) ? `${C.pri}33` : C.bg, color: editClients.includes(c) ? C.pri : C.dim, cursor: "pointer", fontSize: 12 }}>{c}</button>)}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {clientNames.map(c => {
+              const sel = hasClient(editClients, c);
+              const plat = sel ? clientPlatform(editClients.find(x => clientName(x) === c)) : "";
+              return <div key={c}>
+                <button onClick={() => toggleClient(editClients, setEditClients, c)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${sel ? C.pri : C.bdr}`, background: sel ? `${C.pri}33` : C.bg, color: sel ? C.pri : C.dim, cursor: "pointer", fontSize: 12 }}>{c}</button>
+                {sel && <span style={{ marginRight: 8 }}>
+                  {["אונלי", "טלגרם"].map(p => <button key={p} onClick={() => setClientPlatform(editClients, setEditClients, c, plat === p ? "" : p)} style={{ marginRight: 4, padding: "2px 8px", borderRadius: 5, border: `1px solid ${plat === p ? C.cyan : C.bdr}`, background: plat === p ? `${C.cyan}33` : C.bg, color: plat === p ? C.cyan : C.dim, cursor: "pointer", fontSize: 11 }}>{p}</button>)}
+                </span>}
+              </div>;
+            })}
           </div>
         </div>
 
