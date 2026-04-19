@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, createContext, useContext, useMemo, useRef } from "react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Area, LabelList } from "recharts";
+import * as XLSX from "xlsx";
 import {
   fetchAllIncome, addIncome, updateIncome, removeIncome, saveAllIncome, clearAllIncome, migrateCommissions, retroRecalculate, restoreCorruptedRecords,
   fetchPending, addPending, updatePending, removePending, approvePending, rejectPending, fixOrphanedApprovals,
@@ -97,6 +98,20 @@ function _syncCommissionsFromFirebase(fbData) {
   }
 }
 
+let _incomeTypeLm = {};
+function saveIncomeTypeLm(typeName, isLm) {
+  if (isLm) _incomeTypeLm[typeName] = true;
+  else delete _incomeTypeLm[typeName];
+  saveAgencySettings({ incomeTypeLm: { ..._incomeTypeLm } }).catch(() => {});
+}
+function _syncLmFromSettings(data) {
+  if (data && typeof data === "object") {
+    Object.keys(_incomeTypeLm).forEach(k => delete _incomeTypeLm[k]);
+    Object.keys(data).forEach(k => { if (data[k]) _incomeTypeLm[k] = true; });
+  }
+}
+function isIncomeTypeLm(incomeType) { return !!_incomeTypeLm[incomeType]; }
+
 // Resolve commission % for a given platform + incomeType
 function resolveCommissionPct(platform, incomeType) {
   return INCOME_TYPE_COMMISSIONS[incomeType] || _incomeTypeCommissions[incomeType] || 0;
@@ -171,6 +186,15 @@ function exportCSV(headers, rows, filename) {
   const a = document.createElement("a");
   a.href = url; a.download = `${filename}.csv`; a.click();
   URL.revokeObjectURL(url);
+}
+
+function exportXLSX(headers, rows, filename) {
+  const data = [headers, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws["!cols"] = headers.map(() => ({ wch: 16 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+  XLSX.writeFile(wb, `${filename}.xlsx`);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -876,7 +900,8 @@ function Prov({ children }) {
       try {
         const ag = await fetchAgencySettings();
         setAgSettings(ag);
-        if (ag.customCats?.length) setCustomCats(ag.customCats);
+        if (ag.incomeTypeLm) _syncLmFromSettings(ag.incomeTypeLm);
+        if (ag.customCats?.length) setCustomCats([...new Set([...EXPENSE_CATEGORIES, ...ag.customCats])]);
       } catch (e) { console.error("Error fetching agencySettings:", e); }
       try { const u = await UserSvc.fetchAll(); setSheetUsers(u); } catch (e) { console.error("Error fetching users:", e); }
       try { const a = await fetchAssets(); setAssets(a); } catch (e) { console.error("Error fetching assets:", e); }
@@ -1148,7 +1173,11 @@ function useFD() {
     });
   }, [income, liveRate]);
 
-  const incomeWithCommission = useMemo(() => incomeWithDynamicRate.map(r => applyCommission(r, liveRate)), [incomeWithDynamicRate, liveRate]);
+  const incomeWithCommission = useMemo(() => incomeWithDynamicRate.map(r => {
+    const rec = applyCommission(r, liveRate);
+    if (!rec.isLm && rec.incomeType && isIncomeTypeLm(rec.incomeType)) return { ...rec, isLm: true };
+    return rec;
+  }), [incomeWithDynamicRate, liveRate]);
   const iY = useMemo(() => incomeWithCommission.filter(r => r.date && r.date.getFullYear() === year), [incomeWithCommission, year]);
   const iM = useMemo(() => iY.filter(r => r.date.getMonth() === month), [iY, month]);
   const eY = useMemo(() => expenses.filter(r => r.date && r.date.getFullYear() === year), [expenses, year]);
@@ -2135,13 +2164,14 @@ function IncPage() {
         <Btn variant="success" size="sm" onClick={() => setShowIncForm(true)}>➕ הוסף מכירה ידנית</Btn>
         <Btn variant="ghost" size="sm" onClick={() => setShowIncTypesMgr(true)}>✏️ עריכת סוגי הכנסה</Btn>
         <Btn variant="ghost" size="sm" onClick={() => {
-          const headers = ["תאריך", "שעה", "צ'אטר", "לקוחה", "פלטפורמה", "סוג", "מיקום", "סכום ₪", "סכום $", "שולם", "חייב מע״מ", "ל.מ"];
-          const csvRows = data.map(r => [
+          const headers = ["תאריך", "שעה", "צ'אטר", "לקוחה", "פלטפורמה", "סוג", "מיקום", "סכום לפני עמלה ₪", "עמלת פלטפורמה %", "סכום נטו ₪", "סכום $", "שולם", "חייב מע״מ", "ל.מ"];
+          const xlRows = data.map(r => [
             r.date instanceof Date ? r.date.toLocaleDateString("he-IL") : "", r.hour || "", r.chatterName || "", r.modelName || "", r.platform || "", r.incomeType || "", r.shiftLocation || "",
-            r.amountILS || 0, r.amountUSD || 0, r.paymentTarget || "agency", r.vatLiable !== false ? "כן" : "לא", r.isLm ? "כן" : "לא"
+            +(r.preCommissionILS || r.amountILS || 0).toFixed(2), r.commissionPct || 0, +(r.amountILS || 0).toFixed(2), +(r.amountUSD || 0).toFixed(2),
+            r.paymentTarget === "chatter" ? "צ'אטר" : r.paymentTarget === "client" ? "לקוח" : "סוכנות", r.vatLiable !== false ? "כן" : "לא", r.isLm ? "כן" : "לא"
           ]);
-          exportCSV(headers, csvRows, `income-${view}`);
-        }}>📥 CSV</Btn>
+          exportXLSX(headers, xlRows, `income-${view}`);
+        }}>📥 Excel</Btn>
       </div>
     </div>
     <FB><ViewFilter /></FB>
@@ -2210,8 +2240,10 @@ function IncomeTypesModal({ onClose }) {
   const [editComm, setEditComm] = useState("");
   const [newType, setNewType] = useState("");
   const [newComm, setNewComm] = useState("");
+  const [newLm, setNewLm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [commissions, setCommissions] = useState(() => ({ ..._incomeTypeCommissions }));
+  const [lmTypes, setLmTypes] = useState(() => ({ ..._incomeTypeLm }));
   const { agSettings } = useApp();
   const [customTypes, setCustomTypes] = useState([]);
   useEffect(() => {
@@ -2234,8 +2266,10 @@ function IncomeTypesModal({ onClose }) {
     try {
       // Save commission
       saveIncomeTypeCommission(newName, pct);
-      if (newName !== oldName) saveIncomeTypeCommission(oldName, 0); // remove old key
+      if (newName !== oldName) saveIncomeTypeCommission(oldName, 0);
       setCommissions({ ..._incomeTypeCommissions });
+      // Carry over LM flag on rename
+      if (newName !== oldName && lmTypes[oldName]) { saveIncomeTypeLm(newName, true); saveIncomeTypeLm(oldName, false); setLmTypes({ ..._incomeTypeLm }); }
 
       // Rename in records if name changed
       if (newName !== oldName) {
@@ -2271,6 +2305,7 @@ function IncomeTypesModal({ onClose }) {
       setIncome(prev => prev.map(r => r.incomeType === type ? { ...r, incomeType: "" } : r));
       saveIncomeTypeCommission(type, 0);
       setCommissions({ ..._incomeTypeCommissions });
+      if (lmTypes[type]) { saveIncomeTypeLm(type, false); setLmTypes({ ..._incomeTypeLm }); }
       setCustomTypes(prev => {
         const updated = prev.filter(t => t !== type);
         saveAgencySettings({ customIncomeTypes: updated }).catch(() => {});
@@ -2286,12 +2321,13 @@ function IncomeTypesModal({ onClose }) {
     if (allTypes.includes(name)) { alert("סוג זה כבר קיים"); return; }
     const pct = parseFloat(newComm) || 0;
     if (pct > 0) { saveIncomeTypeCommission(name, pct); setCommissions({ ..._incomeTypeCommissions }); }
+    if (newLm) { saveIncomeTypeLm(name, true); setLmTypes({ ..._incomeTypeLm }); }
     setCustomTypes(prev => {
       const updated = [...prev, name];
       saveAgencySettings({ customIncomeTypes: updated }).catch(() => {});
       return updated;
     });
-    setNewType(""); setNewComm("");
+    setNewType(""); setNewComm(""); setNewLm(false);
   };
 
   return <div style={{ direction: "rtl" }}>
@@ -2299,6 +2335,7 @@ function IncomeTypesModal({ onClose }) {
     <div style={{ display: "flex", gap: 8, padding: "0 12px 8px", color: C.dim, fontSize: 12, fontWeight: 600 }}>
       <span style={{ flex: 1 }}>סוג הכנסה</span>
       <span style={{ width: 60, textAlign: "center" }}>עמלה %</span>
+      <span style={{ width: 40, textAlign: "center" }}>ל.מ</span>
       <span style={{ width: 70, textAlign: "center" }}>עסקאות</span>
       <span style={{ width: 72 }}></span>
     </div>
@@ -2321,6 +2358,9 @@ function IncomeTypesModal({ onClose }) {
                 <span style={{ width: 60, textAlign: "center", color: commissions[type] > 0 ? C.ylw : C.dim, fontSize: 13, fontWeight: commissions[type] > 0 ? 700 : 400 }}>
                   {commissions[type] > 0 ? `${commissions[type]}%` : "—"}
                 </span>
+                <span style={{ width: 40, textAlign: "center" }}>
+                  <input type="checkbox" checked={!!lmTypes[type]} onChange={e => { const v = e.target.checked; saveIncomeTypeLm(type, v); setLmTypes({ ..._incomeTypeLm }); }} style={{ cursor: "pointer", width: 16, height: 16, accentColor: C.pri }} />
+                </span>
                 <span style={{ width: 70, textAlign: "center", color: C.dim, fontSize: 11 }}>{income.filter(r => r.incomeType === type).length}</span>
                 <div style={{ display: "flex", gap: 4 }}>
                   <Btn size="sm" variant="ghost" onClick={() => startEdit(type)} disabled={saving} style={{ color: C.pri }}>✏️</Btn>
@@ -2334,9 +2374,12 @@ function IncomeTypesModal({ onClose }) {
     )}
     <div style={{ borderTop: `1px solid ${C.bdr}`, paddingTop: 14, marginBottom: 14 }}>
       <div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>הוספת סוג חדש:</div>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <input value={newType} onChange={e => setNewType(e.target.value)} onKeyDown={e => e.key === "Enter" && addType()} placeholder="שם הסוג..." style={{ ...inputStyle, flex: 1 }} />
         <input value={newComm} onChange={e => setNewComm(e.target.value)} style={{ ...inputStyle, width: 80 }} placeholder="עמלה %" type="number" min="0" max="100" />
+        <label style={{ display: "flex", alignItems: "center", gap: 4, color: C.dim, fontSize: 12, whiteSpace: "nowrap" }}>
+          <input type="checkbox" checked={newLm} onChange={e => setNewLm(e.target.checked)} style={{ width: 16, height: 16, accentColor: C.pri }} /> ל.מ
+        </label>
         <Btn variant="primary" size="sm" onClick={addType}>+ הוסף</Btn>
       </div>
     </div>
@@ -2546,7 +2589,9 @@ function RecordIncomeAdmin({ onClose }) {
     date: new Date().toISOString().split("T")[0],
     hour: new Date().toTimeString().slice(0, 5),
     vatLiable: true,
-    isLm: false
+    isLm: false,
+    paymentTarget: "agency",
+    paymentTargetChatter: ""
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
@@ -2594,8 +2639,9 @@ function RecordIncomeAdmin({ onClose }) {
         notes: form.notes,
         buyerName: form.buyerName || "",
         buyerId: form.buyerId.trim(),
-        verified: "V", // Already verified if Admin adds it
-        paymentTarget: "agency",
+        verified: "V",
+        paymentTarget: form.paymentTarget || "agency",
+        paymentTargetChatter: form.paymentTarget === "chatter" ? (form.paymentTargetChatter || form.chatterName) : "",
         paidToClient: false,
         cancelled: false,
         vatLiable: form.vatLiable !== false,
@@ -2690,6 +2736,20 @@ function RecordIncomeAdmin({ onClose }) {
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>הערות</label>
         <input value={form.notes} onChange={e => upd("notes", e.target.value)} placeholder="אופציונלי" style={inputStyle} />
       </div>
+      <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>כסף התקבל אצל</label>
+        <select value={form.paymentTarget} onChange={e => { upd("paymentTarget", e.target.value); if (e.target.value !== "chatter") upd("paymentTargetChatter", ""); }} style={inputStyle}>
+          <option value="agency">סוכנות</option>
+          <option value="chatter">צ'אטר</option>
+        </select>
+      </div>
+      {form.paymentTarget === "chatter" && <div>
+        <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>צ'אטר שקיבל את הכסף</label>
+        <select value={form.paymentTargetChatter} onChange={e => upd("paymentTargetChatter", e.target.value)} style={inputStyle}>
+          <option value="">אותו צ'אטר שהזין</option>
+          {registeredChatters.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>}
       <div>
         <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
         <input type="date" value={form.date} onChange={e => upd("date", e.target.value)} style={inputStyle} />
@@ -3163,33 +3223,21 @@ function ChatterPage({ forceSel, onBack } = {}) {
         const totSalary = mbd.reduce((s, r) => s + r.total, 0);
         const approvedCnt = approvedRows.length;
         return <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-          <Stat icon="💰" title="סה״כ מכירות" value={fmtC(totSales)} color={C.grn} />
-          <Stat icon="🏢" title="משרד" value={fmtC(totOffice)} color={C.pri} />
-          <Stat icon="🏠" title="חוץ" value={fmtC(totField)} color={C.cyan} />
-          <Stat icon="📊" title="עסקאות" value={approvedCnt} color={C.dim} />
-          {!isSM && <Stat icon="💵" title="סה״כ שכר" value={fmtC(totSalary)} color={C.ylw} />}
+          <Stat icon="💰" title="סה״כ" value={fmtC(totSales)} sub={`${rows.length} עסקאות`} color={C.grn} />
+          <Stat icon="🏢" title="משרד" value={fmtC(totOffice)} sub={`${approvedRows.filter(r => r.shiftLocation === "משרד").length} עסקאות`} color={C.pri} />
+          <Stat icon="🏠" title="חוץ" value={fmtC(totField)} sub={`${approvedRows.filter(r => r.shiftLocation !== "משרד").length} עסקאות`} color={C.cyan} />
+          <Stat icon="✅" title="מאושרות" value={fmtC(totalApproved)} sub={`${approvedCnt} עסקאות`} color={C.grn} />
+          {!isSM && <Stat icon="💵" title="משכורת" value={fmtC(totSalary)} color={C.ylw} />}
         </div>;
       })()}
       <Card style={{ marginBottom: 16 }}><ResponsiveContainer width="100%" height={220}><ComposedChart data={mbd}><CartesianGrid strokeDasharray="3 3" stroke={C.bdr} /><XAxis dataKey="ms" tick={{ fill: C.dim, fontSize: 11 }} /><YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><Tooltip content={<TT />} /><Bar dataKey="sales" fill={C.pri} radius={[4, 4, 0, 0]} name="מכירות" />{!isSM && <Line type="monotone" dataKey="total" stroke={C.ylw} strokeWidth={2} dot={{ r: 3 }} name="משכורת" />}</ComposedChart></ResponsiveContainer></Card>
       <DT columns={[{ label: "חודש", key: "month" }, { label: "מכירות", render: r => fmtC(r.sales) }, { label: "משרד", render: r => fmtC(r.oSales) }, { label: "חוץ", render: r => fmtC(r.rSales) }, ...(isSM ? [] : [{ label: "שכר", render: r => <strong style={{ color: C.pri }}>{fmtC(r.total)}</strong> }])]} rows={mbd} footer={isSM ? ["סה״כ", fmtC(mbd.reduce((s, r) => s + r.sales, 0)), "", ""] : ["סה״כ", fmtC(mbd.reduce((s, r) => s + r.sales, 0)), "", "", fmtC(mbd.reduce((s, r) => s + r.total, 0))]} />
 
-      {/* Per-client breakdown */}
-      {byCl.length > 0 && <Card style={{ marginTop: 16 }}>
-        <h4 style={{ color: C.dim, fontSize: 13, marginBottom: 8 }}>👤 פירוט לפי לקוחה</h4>
-        {byCl.map((c, i) => <div key={c.name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < byCl.length - 1 ? `1px solid ${C.bdr}` : "none" }}>
-          <span style={{ color: C.txt, fontWeight: 600, fontSize: 13 }}>{c.name}</span>
-          <span style={{ color: C.grn, fontWeight: 700, fontSize: 13 }}>{fmtC(c.value)}</span>
-        </div>)}
-      </Card>}
-
-      {/* Per income-type breakdown */}
-      {byType.length > 0 && <Card style={{ marginTop: 12 }}>
-        <h4 style={{ color: C.dim, fontSize: 13, marginBottom: 8 }}>📊 פירוט לפי סוג הכנסה</h4>
-        {byType.map((t, i) => <div key={t.name} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: i < byType.length - 1 ? `1px solid ${C.bdr}` : "none" }}>
-          <span style={{ color: C.txt, fontSize: 13 }}>{t.name}</span>
-          <span style={{ color: C.pri, fontWeight: 700, fontSize: 13 }}>{fmtC(t.value)}</span>
-        </div>)}
-      </Card>}
+      {/* Per-client and per-type charts */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 16, marginTop: 16 }}>
+        {byCl.length > 0 && <Card><div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>מכירות לפי לקוחה</div><div style={{ width: "100%", direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(180, byCl.length * 30)}><BarChart data={byCl} layout="vertical" margin={{ top: 5, right: 150, bottom: 5, left: 20 }}><XAxis type="number" reversed={true} tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={150} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.pri} radius={[4, 0, 0, 4]} name="מכירות"><LabelList dataKey="value" position="insideLeft" formatter={v => `₪${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} /></Bar></BarChart></ResponsiveContainer></div></Card>}
+        {byType.length > 0 && <Card><div style={{ color: C.dim, fontSize: 12, marginBottom: 8 }}>מכירות לפי סוג הכנסה</div><div style={{ width: "100%", direction: "ltr" }}><ResponsiveContainer width="100%" height={Math.max(180, byType.length * 30)}><BarChart data={byType} layout="vertical" margin={{ top: 5, right: 150, bottom: 5, left: 20 }}><XAxis type="number" reversed={true} tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => `₪${(v / 1000).toFixed(0)}k`} /><YAxis type="category" orientation="right" dataKey="name" tick={{ fill: C.dim, fontSize: 11 }} width={150} interval={0} /><Tooltip content={<TT />} /><Bar dataKey="value" fill={C.priL} radius={[4, 0, 0, 4]} name="מכירות"><LabelList dataKey="value" position="insideLeft" formatter={v => `₪${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} style={{ fill: "#fff", fontSize: 10, fontWeight: 600 }} /></Bar></BarChart></ResponsiveContainer></div></Card>}
+      </div>
     </>}
   </div>;
 }
@@ -4587,7 +4635,8 @@ function ChatterPortal({ hideHeader } = {}) {
     modelName: "", platform: "", amountILS: "", amountUSD: "", usdRate: "3.14", currency: "ILS",
     date: new Date().toISOString().split("T")[0],
     hour: new Date().toTimeString().substring(0, 5),
-    shiftLocation: "משרד", notes: "", incomeType: "", customIncomeType: "", buyerName: "", buyerId: ""
+    shiftLocation: "משרד", notes: "", incomeType: "", customIncomeType: "", buyerName: "", buyerId: "",
+    paymentTarget: "agency", paymentTargetChatter: ""
   });
 
   // Shift request state
@@ -4807,14 +4856,16 @@ function ChatterPortal({ hideHeader } = {}) {
         notes: form.notes, verified: "", shiftLocation: form.shiftLocation,
         buyerName: form.buyerName || "",
         buyerId: form.buyerId.trim(),
-        paymentTarget: "agency", paidToClient: false, cancelled: false
+        paymentTarget: form.paymentTarget || "agency",
+        paymentTargetChatter: form.paymentTarget === "chatter" ? (form.paymentTargetChatter || chatterName) : "",
+        paidToClient: false, cancelled: false
       };
       const saved = await addPending(newInc);
       TelegramSvc.notifyIncomeSubmitted(saved);
       setIncome(prev => [{ ...saved, _fromPending: true }, ...prev]);
       setSaving(false); setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-      setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "", incomeType: "", customIncomeType: "", currency: "ILS", buyerName: "", buyerId: "" }));
+      setForm(f => ({ ...f, modelName: "", amountILS: "", amountUSD: "", notes: "", incomeType: "", customIncomeType: "", currency: "ILS", buyerName: "", buyerId: "", paymentTarget: "agency", paymentTargetChatter: "" }));
     } catch (e) { setErr(e.message); setSaving(false); }
   };
 
@@ -5019,6 +5070,20 @@ function ChatterPortal({ hideHeader } = {}) {
             <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>הערות</label>
             <input value={form.notes} onChange={e => upd("notes", e.target.value)} placeholder="אופציונלי" style={inputStyle} />
           </div>
+          <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>כסף התקבל אצל</label>
+            <select value={form.paymentTarget} onChange={e => { upd("paymentTarget", e.target.value); if (e.target.value !== "chatter") upd("paymentTargetChatter", ""); }} style={inputStyle}>
+              <option value="agency">סוכנות</option>
+              <option value="chatter">צ'אטר</option>
+            </select>
+          </div>
+          {form.paymentTarget === "chatter" && <div>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>צ'אטר שקיבל את הכסף</label>
+            <select value={form.paymentTargetChatter} onChange={e => upd("paymentTargetChatter", e.target.value)} style={inputStyle}>
+              <option value="">אני ({chatterName})</option>
+              {(sheetUsers || []).filter(u => u.role === "chatter" && u.name !== chatterName).map(u => <option key={u.name} value={u.name}>{u.name}</option>)}
+            </select>
+          </div>}
           <div style={{ gridColumn: "1 / -1", display: "flex", gap: 12 }}>
             <div style={{ flex: 1 }}>
               <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>תאריך</label>
@@ -7072,14 +7137,14 @@ function AssetsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editAsset, setEditAsset] = useState(null);
   const [activeTab, setActiveTab] = useState("ציוד");
-  const defaultForm = { name: "", category: "ציוד", purchaseDate: new Date().toISOString().slice(0, 10), cost: "", status: "פעיל", notes: "", description: "", sku: "", borrower: "" };
+  const defaultForm = { name: "", category: "ציוד", purchaseDate: new Date().toISOString().slice(0, 10), cost: "", status: "במשרד תקין", notes: "", description: "", sku: "", borrower: "" };
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
   const [delConfirm, setDelConfirm] = useState(null);
   const inpS = { width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" };
 
   const openAdd = (cat) => { setForm({ ...defaultForm, category: cat }); setEditAsset(null); setShowForm(true); };
-  const openEdit = (a) => { setForm({ name: a.name || "", category: a.category || "ציוד", purchaseDate: (a.purchaseDate || "").slice?.(0, 10) || "", cost: a.cost || "", status: a.status || "פעיל", notes: a.notes || "", description: a.description || "", sku: a.sku || "", borrower: a.borrower || "" }); setEditAsset(a); setShowForm(true); };
+  const openEdit = (a) => { setForm({ name: a.name || "", category: a.category || "ציוד", purchaseDate: (a.purchaseDate || "").slice?.(0, 10) || "", cost: a.cost || "", status: a.status || "במשרד תקין", notes: a.notes || "", description: a.description || "", sku: a.sku || "", borrower: a.borrower || "" }); setEditAsset(a); setShowForm(true); };
 
   const handleSave = async () => {
     if (!form.name.trim()) return alert("נא למלא שם");
@@ -7099,7 +7164,7 @@ function AssetsPage() {
 
   const equipment = assets.filter(a => a.category === "ציוד");
   const assetItems = assets.filter(a => a.category === "נכס");
-  const activeItems = assets.filter(a => a.status === "פעיל");
+  const activeItems = assets.filter(a => a.status === "פעיל" || a.status === "במשרד תקין" || a.status === "מושאל");
   const totalValue = activeItems.reduce((s, a) => s + (+a.cost || 0), 0);
 
   return <div style={{ direction: "rtl", maxWidth: 1000, margin: "0 auto" }}>
@@ -7126,7 +7191,7 @@ function AssetsPage() {
         { label: "תיאור", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.description || "—"}</span> },
         { label: "מק״ט", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.sku || "—"}</span> },
         { label: "עלות ₪", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(+r.cost || 0)}</span> },
-        { label: "סטטוס", render: r => <span style={{ color: r.status === "פעיל" ? C.grn : r.status === "מושאל" ? C.ylw : C.red }}>{r.status}{r.status === "מושאל" && r.borrower ? ` (${r.borrower})` : ""}</span> },
+        { label: "סטטוס", render: r => <span style={{ color: r.status === "במשרד תקין" ? C.grn : r.status === "מושאל" ? C.ylw : C.red }}>{r.status}{r.status === "מושאל" && r.borrower ? ` — ${r.borrower}` : ""}</span> },
         { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> },
         { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}>
           <Btn size="sm" variant="outline" onClick={() => openEdit(r)}>✏️</Btn>
@@ -7135,12 +7200,8 @@ function AssetsPage() {
       ]} rows={equipment} />
     </Card> : <Card style={{ padding: 0 }}>
       <DT columns={[
-        { label: "שם", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
-        { label: "תיאור", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.description || "—"}</span> },
+        { label: "תיאור נכס", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
         { label: "שווי ₪", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(+r.cost || 0)}</span> },
-        { label: "תאריך רכישה", render: r => r.purchaseDate ? r.purchaseDate.slice(0, 10) : "—" },
-        { label: "סטטוס", render: r => <span style={{ color: r.status === "פעיל" ? C.grn : r.status === "נמכר" ? C.ylw : C.red }}>{r.status}</span> },
-        { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> },
         { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}>
           <Btn size="sm" variant="outline" onClick={() => openEdit(r)}>✏️</Btn>
           <Btn size="sm" variant="danger" onClick={() => setDelConfirm(r)}>🗑️</Btn>
@@ -7150,30 +7211,30 @@ function AssetsPage() {
 
     {showForm && <Modal open={true} onClose={() => setShowForm(false)} title={editAsset ? "✏️ עריכה" : `➕ הוספת ${form.category}`} width={420}>
       <div style={{ direction: "rtl", display: "flex", flexDirection: "column", gap: 10 }}>
-        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>שם</label>
+        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>{form.category === "נכס" ? "תיאור נכס" : "שם"}</label>
           <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inpS} /></div>
-        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>תיאור</label>
-          <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} style={inpS} placeholder="תיאור הפריט" /></div>
+        {form.category === "ציוד" && <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>תיאור</label>
+          <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} style={inpS} placeholder="תיאור הפריט" /></div>}
         <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>קטגוריה</label>
-          <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} style={inpS}>
+          <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value, status: e.target.value === "נכס" ? "פעיל" : "במשרד תקין" }))} style={inpS}>
             <option value="ציוד">ציוד</option><option value="נכס">נכס</option>
           </select></div>
         {form.category === "ציוד" && <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>מק״ט (SKU)</label>
           <input value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} style={inpS} placeholder="מספר קטלוגי" /></div>}
         <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>{form.category === "נכס" ? "שווי ₪" : "עלות ₪"}</label>
           <input type="number" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} style={inpS} /></div>
-        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>תאריך רכישה</label>
-          <input type="date" value={form.purchaseDate} onChange={e => setForm(f => ({ ...f, purchaseDate: e.target.value }))} style={inpS} /></div>
-        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>סטטוס</label>
-          <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={inpS}>
-            <option value="פעיל">פעיל</option>
-            {form.category === "ציוד" && <option value="מושאל">מושאל</option>}
-            <option value="נמכר">נמכר</option><option value="הושלך">הושלך</option>
-          </select></div>
-        {form.category === "ציוד" && form.status === "מושאל" && <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>מושאל ל</label>
-          <input value={form.borrower} onChange={e => setForm(f => ({ ...f, borrower: e.target.value }))} style={inpS} placeholder="שם השואל" /></div>}
-        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>הערות</label>
-          <input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={inpS} /></div>
+        {form.category === "ציוד" && <>
+          <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>סטטוס</label>
+            <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={inpS}>
+              <option value="במשרד תקין">במשרד תקין</option>
+              <option value="לא תקין">לא תקין</option>
+              <option value="מושאל">מושאל</option>
+            </select></div>
+          {form.status === "מושאל" && <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>מושאל ל</label>
+            <input value={form.borrower} onChange={e => setForm(f => ({ ...f, borrower: e.target.value }))} style={inpS} placeholder="שם השואל" /></div>}
+          <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>הערות</label>
+            <input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} style={inpS} /></div>
+        </>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
           <Btn variant="ghost" onClick={() => setShowForm(false)}>ביטול</Btn>
           <Btn variant="primary" onClick={handleSave} disabled={saving}>{saving ? "⏳" : "💾 שמור"}</Btn>
