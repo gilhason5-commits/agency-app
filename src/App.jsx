@@ -78,6 +78,9 @@ const TelegramSvc = {
   notifyClockOut(shift, hoursWorked) {
     return this.send(`🔴 <b>${shift.chatterName} ירד/ה ממשמרת ${shift.slotLabel} — ${hoursWorked} שעות</b>\nתאריך: ${shift.date}\nשעת יציאה: ${new Date().toTimeString().slice(0, 5)}`);
   },
+  notifyForceClockOut(shift, hoursWorked) {
+    return this.send(`⛔ <b>${shift.chatterName} הורד/ה ממשמרת ${shift.slotLabel} ע"י מנהל</b>\nתאריך: ${shift.date}\nשעת יציאה: ${new Date().toTimeString().slice(0, 5)}\nשעות: ${hoursWorked}`);
+  },
 };
 
 const parseTime = (t) => { const [h, m] = (t || "0:0").split(":").map(Number); return h * 60 + m; };
@@ -1305,6 +1308,7 @@ function TopBar() {
     const diffMs = now - new Date(s.clockIn);
     const hoursWorked = Math.round(diffMs / 36000) / 100;
     updateShiftCtx(s.id, { clockOut, hoursWorked });
+    TelegramSvc.notifyForceClockOut(s, hoursWorked);
   };
   return <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: w < 768 ? "10px 14px" : "10px 24px", background: C.card, borderBottom: `1px solid ${C.bdr}`, direction: "rtl" }}>
     <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -1762,10 +1766,10 @@ function DashPage() {
             : <input type="number" value={lmVals[year]?.[month] || ""} placeholder="0" onChange={e => saveLm(month, +e.target.value)} style={{ width: 90, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
           }
         </div>
-        {employees.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <label style={{ color: C.dim, fontSize: 12 }}>ב.ל נוסף (שכירים) ₪</label>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <label style={{ color: C.dim, fontSize: 12 }}>ביטוח לאומי — כוח אדם ₪</label>
           <input type="number" value={manualNI || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setManualNI(v); saveAgencySettings({ manualNI: v }).catch(() => {}); }} style={{ width: 100, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
-        </div>}
+        </div>
       </div>
 
       {/* Row 1: Sales breakdown → agency income */}
@@ -1792,7 +1796,7 @@ function DashPage() {
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <Stat icon="📋" title="מע״מ (18/118)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatLiableIncome)}`} />
           <Stat icon="🏛️" title={`מס הכנסה${bizType === "חברה" ? " (23%)" : " (מדרגות)"}`} value={<span>{taxableIncome > 0 && <span style={{ display: "block", fontSize: 11, color: C.mut, fontWeight: 400, marginBottom: 2 }}>{effectiveTaxRate.toFixed(1)}% מהבסיס החייב</span>}{fmtC(incomeTax)}</span>} color={C.ylw} sub={`בסיס (אחרי מע"מ): ${fmtC(Math.max(0, taxableIncome))}`} />
-          <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + ידני" : "ידני"} />
+          <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + כוח אדם" : "כוח אדם"} />
           <Stat icon="💸" title="סה״כ מסים" value={fmtC(vat + incomeTax + niTotal)} color={C.red} sub="מע״מ + מס + ב.ל" />
         </div>
       </Card>
@@ -1835,7 +1839,7 @@ function DashPage() {
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <Stat icon="📋" title="מע״מ (18/118)" value={fmtC(vat)} color={C.ylw} sub={`בסיס: ${fmtC(vatLiableIncome)}`} />
           <Stat icon="🏛️" title={`מס הכנסה${bizType === "חברה" ? " (23%)" : " (מדרגות)"}`} value={<span>{taxableIncome > 0 && <span style={{ display: "block", fontSize: 11, color: C.mut, fontWeight: 400, marginBottom: 2 }}>{effectiveTaxRate.toFixed(1)}% מהבסיס החייב</span>}{fmtC(incomeTax)}</span>} color={C.ylw} sub={`בסיס (אחרי מע"מ): ${fmtC(Math.max(0, taxableIncome))}`} />
-          <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + ידני" : "ידני"} />
+          <Stat icon="🏥" title="ביטוח לאומי" value={fmtC(niTotal)} color={niTotal > 0 ? C.ylw : C.mut} sub={employees.length > 0 ? "עובדים + כוח אדם" : "כוח אדם"} />
           <Stat icon="💸" title="סה״כ מסים" value={fmtC(vat + incomeTax + niTotal)} color={C.red} sub="מע״מ + מס + ב.ל" />
         </div>
       </Card>
