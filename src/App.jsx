@@ -78,6 +78,9 @@ const TelegramSvc = {
   notifyClockOut(shift, hoursWorked) {
     return this.send(`🔴 <b>${shift.chatterName} ירד/ה ממשמרת ${shift.slotLabel} — ${hoursWorked} שעות</b>\nתאריך: ${shift.date}\nשעת יציאה: ${new Date().toTimeString().slice(0, 5)}`);
   },
+  notifyForceClockOut(shift, hoursWorked) {
+    return this.send(`⛔ <b>${shift.chatterName} הורד/ה ממשמרת ${shift.slotLabel} ע"י מנהל</b>\nתאריך: ${shift.date}\nשעת יציאה: ${new Date().toTimeString().slice(0, 5)}\nשעות: ${hoursWorked}`);
+  },
 };
 
 const parseTime = (t) => { const [h, m] = (t || "0:0").split(":").map(Number); return h * 60 + m; };
@@ -1305,6 +1308,7 @@ function TopBar() {
     const diffMs = now - new Date(s.clockIn);
     const hoursWorked = Math.round(diffMs / 36000) / 100;
     updateShiftCtx(s.id, { clockOut, hoursWorked });
+    TelegramSvc.notifyForceClockOut(s, hoursWorked);
   };
   return <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: w < 768 ? "10px 14px" : "10px 24px", background: C.card, borderBottom: `1px solid ${C.bdr}`, direction: "rtl" }}>
     <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
