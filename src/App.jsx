@@ -5311,7 +5311,7 @@ function ChatterPortal({ hideHeader } = {}) {
             { label: "סכום ₪", render: r => <span style={{ color: C.ylw }}>{fmtC(r.amountILS)}</span> },
             { label: "סטטוס", render: () => <span style={{ color: C.ylw }}>⏳ ממתין</span> },
             { label: "", render: r => <button onClick={() => openEdit(r)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>✏️</button> }
-          ]} rows={pending} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(pending.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalPending), "", "", ""]} />
+          ]} rows={pending} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(pending.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalPending), "", ""]} />
         </div>
       </>}
 
@@ -5331,7 +5331,7 @@ function ChatterPortal({ hideHeader } = {}) {
           { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> },
           { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> },
           { label: "סטטוס", render: r => <span style={{ color: r.cancelled ? C.ylw : C.dim }}>{r.cancelled ? "בוטל" : "✅"}</span> }
-        ]} rows={approved} footer={["סה״כ", "", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved), "", ""]} />
+        ]} rows={approved} footer={["סה״כ", "", "", "", "", "", "", "", "", fmtUSD(approved.reduce((s, r) => s + (r.amountUSD || 0), 0)), fmtC(totalApproved), ""]} />
       }
 
       {editTx && <Modal open={true} onClose={() => setEditTx(null)} title="✏️ עריכת עסקה" width={420}>
