@@ -500,12 +500,13 @@ const IncSvc = {
     await updateIncome(incRow.id, { paidToClient: updated.paidToClient });
     return updated;
   },
-  async setPaymentTarget(incRow, target) {
-    const updated = { ...incRow, paymentTarget: target };
+  async setPaymentTarget(incRow, target, targetChatter) {
+    const updates = { paymentTarget: target, paymentTargetChatter: target === "chatter" ? (targetChatter || "") : "" };
+    const updated = { ...incRow, ...updates };
     if (incRow._fromPending) {
-      await updatePending(incRow.id, { paymentTarget: target });
+      await updatePending(incRow.id, updates);
     } else {
-      await updateIncome(incRow.id, { paymentTarget: target });
+      await updateIncome(incRow.id, updates);
     }
     return updated;
   },
@@ -1600,7 +1601,7 @@ function DashPage() {
       const rows = activeI.filter(r => r.chatterName === name);
       const cfg = chatterSettings[name] || {};
       const sal = Calc.chatterSalary(rows, cfg, ymi).total;
-      const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+      const paidDirect = activeI.filter(r => r.paymentTarget === "chatter" && r.paymentTargetChatter === name).reduce((s, r) => s + r.amountILS, 0);
       let netSettled = 0;
       chatterSets.filter(s => s.modelName === name).forEach(s => {
         if (s.direction === "AgencyToChatter") netSettled += s.amount;
@@ -1645,7 +1646,7 @@ function DashPage() {
         const rows = mi.filter(r => r.chatterName === name);
         const cfg = chatterSettings[name] || {};
         const sal = Calc.chatterSalary(rows, cfg, ymiM).total;
-        const pd = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+        const pd = mi.filter(r => r.paymentTarget === "chatter" && r.paymentTargetChatter === name).reduce((s, r) => s + r.amountILS, 0);
         let ns = 0;
         chSets.filter(s => s.modelName === name).forEach(s => { if (s.direction === "AgencyToChatter") ns += s.amount; if (s.direction === "ChatterToAgency") ns -= s.amount; });
         const balance = sal - pd - ns;
@@ -2127,9 +2128,9 @@ function IncPage() {
   const totalPreCommUSD = data.reduce((s, r) => s + (r.preCommissionUSD || 0), 0);
   const totalPreCommILS = data.reduce((s, r) => s + (r.preCommissionILS || 0), 0);
 
-  const setPayment = async (r, target) => {
+  const setPayment = async (r, target, targetChatter) => {
     try {
-      const nr = await IncSvc.setPaymentTarget(r, target);
+      const nr = await IncSvc.setPaymentTarget(r, target, targetChatter);
       setIncome(prev => prev.map(x => x.id === r.id ? nr : x));
     } catch (e) { alert("שגיאה: " + e.message); }
   };
@@ -2195,7 +2196,7 @@ function IncPage() {
     </Card>
     {view === "yearly" && <DT columns={[{ label: "חודש", key: "name" }, { label: "הכנסות", render: r => <span style={{ color: C.grn }}>{fmtC(r.value)}</span> }]} rows={chartData} footer={["סה״כ", fmtC(grandTotal)]} />}
     {view === "yearly" && <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, margin: "16px 0 10px" }}>📋 כל העסקאות — {year}</h3>}
-    <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "ID קונה", render: r => r.buyerId || "—" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <select value={cur} onChange={e => setPayment(r, e.target.value)} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "הערה", render: r => { if (!r.notes) return ""; const words = r.notes.trim().split(/\s+/); if (words.length <= 3) return <span style={{ fontSize: 11, color: C.dim }}>{r.notes}</span>; return <span onClick={() => setNoteView(r.notes)} style={{ fontSize: 11, color: C.pri, cursor: "pointer", whiteSpace: "nowrap" }} title="לחץ לצפייה בהערה המלאה">{words.slice(0, 3).join(" ")}...</span>; } }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", "", totalPreCommUSD > 0 ? fmtUSD(totalPreCommUSD) : "", totalPreCommILS > 0 ? fmtC(totalPreCommILS) : "", fmtUSD(totalUSD), fmtC(grandTotal), "", "", ""]} />
+    <DT columns={[{ label: "תאריך", render: renderDateHour }, { label: "סוג הכנסה", key: "incomeType" }, { label: "ID קונה", render: r => r.buyerId || "—" }, { label: "שם קונה", render: r => r.buyerName || "—" }, { label: "צ'אטר", key: "chatterName" }, { label: "דוגמנית", key: "modelName" }, { label: "פלטפורמה", key: "platform" }, { label: "מיקום", key: "shiftLocation" }, { label: "שולם", render: r => { const cur = r.paymentTarget || (r.paidToClient ? "client" : "agency"); const col = cur === "client" ? C.grn : cur === "chatter" ? C.pri : C.dim; return <div style={{ display: "flex", flexDirection: "column", gap: 3 }}><select value={cur} onChange={e => setPayment(r, e.target.value, cur === "chatter" ? r.paymentTargetChatter : "")} style={{ background: C.card, border: `1px solid ${C.bdr}`, color: col, borderRadius: 6, padding: "3px 5px", fontSize: 11, cursor: "pointer", outline: "none" }}><option value="agency">לסוכנות</option><option value="client">ללקוחה</option><option value="chatter">לצ'אטר</option></select>{cur === "chatter" && <select value={r.paymentTargetChatter || ""} onChange={e => setPayment(r, "chatter", e.target.value)} style={{ background: C.card, border: `1px solid ${C.cyan}55`, borderRadius: 6, padding: "2px 4px", fontSize: 10, color: C.cyan, cursor: "pointer", outline: "none" }}><option value="">בחר צ'אטר...</option>{activeChatters.map(c => <option key={c} value={c}>{c}</option>)}</select>}</div>; } },{ label: "לפני עמלה ($)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtUSD(r.preCommissionUSD)}</span> : "" }, { label: "לפני עמלה (₪)", render: r => r.commissionPct > 0 ? <span style={{ color: C.dim }}>{fmtC(r.preCommissionILS)}</span> : "" }, { label: "סכום $", render: r => <span style={{ color: C.pri }}>{fmtUSD(r.amountUSD)}</span> }, { label: "סכום ₪", render: r => <span style={{ color: C.grn, textDecoration: r.cancelled ? "line-through" : "none" }}>{fmtC(r.amountILS)}</span> }, { label: "הערה", render: r => { if (!r.notes) return ""; const words = r.notes.trim().split(/\s+/); if (words.length <= 3) return <span style={{ fontSize: 11, color: C.dim }}>{r.notes}</span>; return <span onClick={() => setNoteView(r.notes)} style={{ fontSize: 11, color: C.pri, cursor: "pointer", whiteSpace: "nowrap" }} title="לחץ לצפייה בהערה המלאה">{words.slice(0, 3).join(" ")}...</span>; } }, { label: "עריכה", render: r => <Btn size="sm" variant="ghost" onClick={() => setEditTx(r)} style={{ color: C.pri }}>✏️</Btn> }, { label: "ביטול", render: r => <div style={{ display: "flex", gap: 4, alignItems: "center" }}><Btn size="sm" variant="ghost" onClick={() => cancelTx(r)} style={{ color: r.cancelled ? C.ylw : C.red }}>{r.cancelled ? "↩️ שחזר" : "❌"}</Btn>{r.cancelled && <Btn size="sm" variant="ghost" onClick={() => deleteTx(r)} style={{ color: C.red }} title="מחק לצמיתות">🗑️</Btn>}</div> }]} rows={data.sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", "", "", "", "", "", "", totalPreCommUSD > 0 ? fmtUSD(totalPreCommUSD) : "", totalPreCommILS > 0 ? fmtC(totalPreCommILS) : "", fmtUSD(totalUSD), fmtC(grandTotal), "", "", ""]} />
 
     {/* Per-client entitlement summary */}
     {(() => {
@@ -3120,7 +3121,7 @@ function ChatterPage({ forceSel, onBack } = {}) {
 
       {/* Salary + Reconciliation combined */}
       {!isSM && (() => {
-        const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+        const paidDirect = incD.filter(r => r.paymentTarget === "chatter" && r.paymentTargetChatter === sel).reduce((s, r) => s + r.amountILS, 0);
         const balance = sal.total - paidDirect;
         const vatAmt = Math.abs(balance) * 0.18;
         const finalBalance = Math.abs(balance) * (vatChatter ? 1.18 : 1);
@@ -6062,7 +6063,8 @@ function DebtsPage() {
       const rows = income.filter(r => r.chatterName === name && new Date(r.date || 0).getMonth() === month && new Date(r.date || 0).getFullYear() === year);
       const cfg = (chatterSettings || {})[name] || {};
       const sal = Calc.chatterSalary(rows, cfg, ym(year, month));
-      const paidDirect = rows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+      const monthInc = income.filter(r => new Date(r.date || 0).getMonth() === month && new Date(r.date || 0).getFullYear() === year);
+      const paidDirect = monthInc.filter(r => r.paymentTarget === "chatter" && r.paymentTargetChatter === name).reduce((s, r) => s + r.amountILS, 0);
       let netSettled = 0;
       monthChatterSettlements.filter(s => s.modelName === name).forEach(s => {
         if (s.direction === "AgencyToChatter") netSettled += s.amount;
@@ -6146,7 +6148,8 @@ function DebtsPage() {
         const sal = Calc.chatterSalary(mRows, cfg, ym(year, mi));
         totalSales += mRows.reduce((s, r) => s + r.amountILS, 0);
         totalSalary += sal.total;
-        totalPaidDirect += mRows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+        const mAll = yearIncome.filter(r => new Date(r.date || 0).getMonth() === mi);
+        totalPaidDirect += mAll.filter(r => r.paymentTarget === "chatter" && r.paymentTargetChatter === name).reduce((s, r) => s + r.amountILS, 0);
       }
       let netSettled = 0;
       yearChatterSets.filter(s => s.modelName === name).forEach(s => {
@@ -6188,7 +6191,8 @@ function DebtsPage() {
         const mRows = income.filter(r => r.chatterName === name && new Date(r.date || 0).getMonth() === mi && new Date(r.date || 0).getFullYear() === year);
         const cfg = (chatterSettings || {})[name] || {};
         const sal = Calc.chatterSalary(mRows, cfg, ym(year, mi));
-        const pd = mRows.filter(r => (r.paymentTarget || (r.paidToClient ? "client" : "agency")) === "chatter").reduce((s, r) => s + r.amountILS, 0);
+        const mAllInc = income.filter(r => new Date(r.date || 0).getMonth() === mi && new Date(r.date || 0).getFullYear() === year);
+        const pd = mAllInc.filter(r => r.paymentTarget === "chatter" && r.paymentTargetChatter === name).reduce((s, r) => s + r.amountILS, 0);
         let ns = 0;
         settlements.filter(s => s.entityType === "chatter" && s.modelName === name && (() => { const d = new Date(s.timestamp || s.date || Date.now()); return d.getMonth() === mi && d.getFullYear() === year; })()).forEach(s => {
           if (s.direction === "AgencyToChatter") ns += s.amount;
