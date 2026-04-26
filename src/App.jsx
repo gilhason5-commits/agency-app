@@ -7199,20 +7199,21 @@ function AssetsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editAsset, setEditAsset] = useState(null);
   const [activeTab, setActiveTab] = useState("ציוד");
-  const defaultForm = { name: "", category: "ציוד", purchaseDate: new Date().toISOString().slice(0, 10), cost: "", status: "במשרד תקין", notes: "", description: "", sku: "", borrower: "" };
+  const defaultForm = { name: "", category: "ציוד", purchaseDate: new Date().toISOString().slice(0, 10), cost: "", currency: "ILS", status: "במשרד תקין", notes: "", description: "", sku: "", borrower: "" };
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
   const [delConfirm, setDelConfirm] = useState(null);
   const inpS = { width: "100%", padding: "8px 10px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", boxSizing: "border-box" };
 
   const openAdd = (cat) => { setForm({ ...defaultForm, category: cat }); setEditAsset(null); setShowForm(true); };
-  const openEdit = (a) => { setForm({ name: a.name || "", category: a.category || "ציוד", purchaseDate: (a.purchaseDate || "").slice?.(0, 10) || "", cost: a.cost || "", status: a.status || "במשרד תקין", notes: a.notes || "", description: a.description || "", sku: a.sku || "", borrower: a.borrower || "" }); setEditAsset(a); setShowForm(true); };
+  const openEdit = (a) => { setForm({ name: a.name || "", category: a.category || "ציוד", purchaseDate: (a.purchaseDate || "").slice?.(0, 10) || "", cost: a.cost || "", currency: a.currency || "ILS", status: a.status || "במשרד תקין", notes: a.notes || "", description: a.description || "", sku: a.sku || "", borrower: a.borrower || "" }); setEditAsset(a); setShowForm(true); };
+  const fmtAssetCost = (a) => { const v = +a.cost || 0; if (a.currency === "USD") return `$${v.toLocaleString()}`; if (a.currency === "EUR") return `€${v.toLocaleString()}`; return fmtC(v); };
 
   const handleSave = async () => {
     if (!form.name.trim()) return alert("נא למלא שם");
     setSaving(true);
     try {
-      const data = { ...form, cost: +form.cost || 0 };
+      const data = { ...form, cost: +form.cost || 0, currency: form.currency || "ILS" };
       if (editAsset) await updateAssetCtx(editAsset.id, data);
       else await addAssetCtx(data);
       setShowForm(false);
@@ -7252,7 +7253,7 @@ function AssetsPage() {
         { label: "שם", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
         { label: "תיאור", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.description || "—"}</span> },
         { label: "מק״ט", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.sku || "—"}</span> },
-        { label: "עלות ₪", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(+r.cost || 0)}</span> },
+        { label: "עלות", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtAssetCost(r)}</span> },
         { label: "סטטוס", render: r => <span style={{ color: r.status === "במשרד תקין" ? C.grn : r.status === "מושאל" ? C.ylw : C.red }}>{r.status}{r.status === "מושאל" && r.borrower ? ` — ${r.borrower}` : ""}</span> },
         { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> },
         { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}>
@@ -7263,7 +7264,7 @@ function AssetsPage() {
     </Card> : <Card style={{ padding: 0 }}>
       <DT columns={[
         { label: "תיאור נכס", key: "name", tdStyle: { fontWeight: "bold", color: C.txt } },
-        { label: "שווי ₪", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtC(+r.cost || 0)}</span> },
+        { label: "שווי", render: r => <span style={{ color: C.grn, fontWeight: 700 }}>{fmtAssetCost(r)}</span> },
         { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}>
           <Btn size="sm" variant="outline" onClick={() => openEdit(r)}>✏️</Btn>
           <Btn size="sm" variant="danger" onClick={() => setDelConfirm(r)}>🗑️</Btn>
@@ -7283,8 +7284,13 @@ function AssetsPage() {
           </select></div>
         {form.category === "ציוד" && <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>מק״ט (SKU)</label>
           <input value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} style={inpS} placeholder="מספר קטלוגי" /></div>}
-        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>{form.category === "נכס" ? "שווי ₪" : "עלות ₪"}</label>
-          <input type="number" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} style={inpS} /></div>
+        <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>{form.category === "נכס" ? "שווי" : "עלות"}</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input type="number" value={form.cost} onChange={e => setForm(f => ({ ...f, cost: e.target.value }))} style={{ ...inpS, flex: 1 }} />
+            <select value={form.currency} onChange={e => setForm(f => ({ ...f, currency: e.target.value }))} style={{ ...inpS, width: 70, textAlign: "center" }}>
+              <option value="ILS">₪</option><option value="USD">$</option><option value="EUR">€</option>
+            </select>
+          </div></div>
         {form.category === "ציוד" && <>
           <div><label style={{ color: C.dim, fontSize: 11, display: "block", marginBottom: 2 }}>סטטוס</label>
             <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={inpS}>
