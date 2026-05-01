@@ -2900,7 +2900,20 @@ function ExpPage() {
           </Card>}
         </div>
         <div style={{ marginTop: 28 }}><h3 style={{ color: C.dim, fontSize: 14, marginBottom: 10 }}>✍️ הוצאות ידניות ({MONTHS_HE[month]})</h3>
-          <DT columns={[{ label: "תאריך", render: r => fmtD(r.date) }, { label: "ספק/סיבה", key: "category" }, { label: "פירוט", render: r => <span>{r.name}{r.installmentTotal > 0 && <span style={{ marginRight: 6, fontSize: 10, background: `${C.ylw}33`, color: C.ylw, border: `1px solid ${C.ylw}55`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>💳 {r.installmentCurrent}/{r.installmentTotal}</span>}</span> }, { label: "סהכ", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "מעמ", render: r => <button onClick={() => updField(r, "vatRecognized", !r.vatRecognized)} style={{ background: r.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: r.vatRecognized ? C.grn : C.red, border: `1px solid ${r.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.vatRecognized ? "כן" : "לא"}</button> }, { label: "מס", render: r => <button onClick={() => updField(r, "taxRecognized", !r.taxRecognized)} style={{ background: r.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: r.taxRecognized ? C.grn : C.red, border: `1px solid ${r.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{r.taxRecognized ? "כן" : "לא"}</button> }, { label: "תשלום", key: "paidBy" }, { label: "פעולות", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={data.filter(e => e.source === "ידני").sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""))} footer={["סה״כ", "", "", fmtC(data.filter(e => e.source === "ידני").reduce((s, e) => s + e.amount, 0)), "", "", "", ""]} />
+          {(() => {
+            const raw = data.filter(e => e.source === "ידני").sort((a, b) => ((b.date || 0) - (a.date || 0)) || (b.hour || "").localeCompare(a.hour || ""));
+            const groups = {};
+            const singles = [];
+            raw.forEach(r => {
+              if (r.installmentTotal > 0) {
+                const key = `${r.name}||${r.category}||${r.installmentTotal}`;
+                if (!groups[key]) groups[key] = { ...r, totalAmount: r.amount * r.installmentTotal, items: [] };
+                groups[key].items.push(r);
+              } else singles.push(r);
+            });
+            const grouped = [...Object.values(groups), ...singles].sort((a, b) => ((b.date || 0) - (a.date || 0)));
+            return <DT columns={[{ label: "תאריך", render: r => r.items ? fmtD(r.items[0].date) : fmtD(r.date) }, { label: "ספק/סיבה", key: "category" }, { label: "פירוט", render: r => r.items ? <span>{r.name} <span style={{ marginRight: 6, fontSize: 10, background: `${C.ylw}33`, color: C.ylw, border: `1px solid ${C.ylw}55`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>💳 {r.installmentTotal} תשלומים × {fmtC(r.amount)}</span></span> : <span>{r.name}</span> }, { label: "סכום", render: r => <strong style={{ color: C.red }}>{fmtC(r.items ? r.totalAmount : r.amount)}</strong> }, { label: "מעמ", render: r => { const e = r.items ? r.items[0] : r; return <button onClick={() => updField(e, "vatRecognized", !e.vatRecognized)} style={{ background: e.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: e.vatRecognized ? C.grn : C.red, border: `1px solid ${e.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{e.vatRecognized ? "כן" : "לא"}</button>; } }, { label: "מס", render: r => { const e = r.items ? r.items[0] : r; return <button onClick={() => updField(e, "taxRecognized", !e.taxRecognized)} style={{ background: e.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: e.taxRecognized ? C.grn : C.red, border: `1px solid ${e.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{e.taxRecognized ? "כן" : "לא"}</button>; } }, { label: "תשלום", render: r => r.items ? r.items[0].paidBy || "" : r.paidBy || "" }, { label: "פעולות", render: r => r.items ? "" : <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={grouped} footer={["סה״כ", "", "", fmtC(raw.reduce((s, e) => s + e.amount, 0)), "", "", "", ""]} />;
+          })()}
         </div>
         {(() => {
           const emailRows = data.filter(e => e.source !== "ידני" && e.source !== "auto-settlement").sort((a, b) => ((b.date || 0) - (a.date || 0)));
@@ -3297,7 +3310,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
     return map;
   }, [shifts]);
   const incD = view === "range" ? iRange : view === "monthly" ? iM : iY;
-  const ymi = ym(year, new Date().getMonth());
+  const ymi = ym(year, month);
 
   const chatterStats = useMemo(() => {
     return chatters.map(name => {
@@ -3411,13 +3424,13 @@ function ChattersOverviewPage({ onSelectChatter }) {
         }},
         { label: "מכירות", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.total)}</span> },
         ...(isSM ? [] : [
-          { label: "% משרד", render: r => <InlinePctInput value={r.officePct} onSave={v => saveChatterSetting(r.name, { officePct: v })} /> },
-          { label: "% חוץ", render: r => <InlinePctInput value={r.fieldPct} onSave={v => saveChatterSetting(r.name, { fieldPct: v })} /> },
+          { label: "% משרד", render: r => <InlinePctInput value={r.officePct} onSave={v => { const cfg = chatterSettings[r.name] || {}; const cur = getMonthlyPcts(cfg, ymi); saveChatterSetting(r.name, { monthlyPcts: { ...(cfg.monthlyPcts || {}), [ymi]: { ...cur, officePct: v } } }); }} /> },
+          { label: "% חוץ", render: r => <InlinePctInput value={r.fieldPct} onSave={v => { const cfg = chatterSettings[r.name] || {}; const cur = getMonthlyPcts(cfg, ymi); saveChatterSetting(r.name, { monthlyPcts: { ...(cfg.monthlyPcts || {}), [ymi]: { ...cur, fieldPct: v } } }); }} /> },
           { label: "משכורת", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.salary)}</span> },
           { label: "רווח נקי", render: r => <span style={{ color: r.netProfit >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.netProfit)}</span> },
         ]),
         { label: "", render: r => <button onClick={() => onSelectChatter(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>פרטים ←</button> }
-      ]} rows={chatterStats.map(c => ({ ...c, officePct: (chatterSettings[c.name] || {}).officePct ?? 17, fieldPct: (chatterSettings[c.name] || {}).fieldPct ?? 15 }))}
+      ]} rows={chatterStats.map(c => { const pcts = getMonthlyPcts(chatterSettings[c.name] || {}, ymi); return { ...c, officePct: pcts.officePct ?? 17, fieldPct: pcts.fieldPct ?? 15 }; })}
       footer={isSM ? ["סה״כ", "", fmtC(totalSales), ""] : ["סה״כ", "", fmtC(totalSales), "", "", fmtC(totalSalary), fmtC(totalSales - totalSalary), ""]} />
     </Card>
   </div>;
@@ -5759,7 +5772,6 @@ function ClientPortal() {
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} />
-        <Stat icon="👩" title="נכנס לחשבון" value={fmtC(bal.ent)} color={C.pri} />
       </div>
 
       {data.length > 0 && (() => {
