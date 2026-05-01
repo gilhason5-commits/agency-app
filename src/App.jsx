@@ -3297,7 +3297,7 @@ function ChattersOverviewPage({ onSelectChatter }) {
     return map;
   }, [shifts]);
   const incD = view === "range" ? iRange : view === "monthly" ? iM : iY;
-  const ymi = ym(year, new Date().getMonth());
+  const ymi = ym(year, month);
 
   const chatterStats = useMemo(() => {
     return chatters.map(name => {
@@ -3411,13 +3411,13 @@ function ChattersOverviewPage({ onSelectChatter }) {
         }},
         { label: "מכירות", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.total)}</span> },
         ...(isSM ? [] : [
-          { label: "% משרד", render: r => <InlinePctInput value={r.officePct} onSave={v => saveChatterSetting(r.name, { officePct: v })} /> },
-          { label: "% חוץ", render: r => <InlinePctInput value={r.fieldPct} onSave={v => saveChatterSetting(r.name, { fieldPct: v })} /> },
+          { label: "% משרד", render: r => <InlinePctInput value={r.officePct} onSave={v => { const cfg = chatterSettings[r.name] || {}; const cur = getMonthlyPcts(cfg, ymi); saveChatterSetting(r.name, { monthlyPcts: { ...(cfg.monthlyPcts || {}), [ymi]: { ...cur, officePct: v } } }); }} /> },
+          { label: "% חוץ", render: r => <InlinePctInput value={r.fieldPct} onSave={v => { const cfg = chatterSettings[r.name] || {}; const cur = getMonthlyPcts(cfg, ymi); saveChatterSetting(r.name, { monthlyPcts: { ...(cfg.monthlyPcts || {}), [ymi]: { ...cur, fieldPct: v } } }); }} /> },
           { label: "משכורת", render: r => <span style={{ color: C.ylw, fontWeight: 600 }}>{fmtC(r.salary)}</span> },
           { label: "רווח נקי", render: r => <span style={{ color: r.netProfit >= 0 ? C.grn : C.red, fontWeight: 700 }}>{fmtC(r.netProfit)}</span> },
         ]),
         { label: "", render: r => <button onClick={() => onSelectChatter(r.name)} style={{ background: "none", border: "none", color: C.pri, cursor: "pointer", fontSize: 12 }}>פרטים ←</button> }
-      ]} rows={chatterStats.map(c => ({ ...c, officePct: (chatterSettings[c.name] || {}).officePct ?? 17, fieldPct: (chatterSettings[c.name] || {}).fieldPct ?? 15 }))}
+      ]} rows={chatterStats.map(c => { const pcts = getMonthlyPcts(chatterSettings[c.name] || {}, ymi); return { ...c, officePct: pcts.officePct ?? 17, fieldPct: pcts.fieldPct ?? 15 }; })}
       footer={isSM ? ["סה״כ", "", fmtC(totalSales), ""] : ["סה״כ", "", fmtC(totalSales), "", "", fmtC(totalSalary), fmtC(totalSales - totalSalary), ""]} />
     </Card>
   </div>;
