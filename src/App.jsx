@@ -5759,7 +5759,6 @@ function ClientPortal() {
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <Stat icon="💰" title="סה״כ הכנסות" value={fmtC(bal.totalIncome)} color={C.grn} />
-        <Stat icon="👩" title="נכנס לחשבון" value={fmtC(bal.ent)} color={C.pri} />
       </div>
 
       {data.length > 0 && (() => {
