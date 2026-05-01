@@ -2912,7 +2912,7 @@ function ExpPage() {
               } else singles.push(r);
             });
             const grouped = [...Object.values(groups), ...singles].sort((a, b) => ((b.date || 0) - (a.date || 0)));
-            return <DT columns={[{ label: "תאריך", render: r => r.items ? fmtD(r.items[0].date) : fmtD(r.date) }, { label: "ספק/סיבה", key: "category" }, { label: "פירוט", render: r => r.items ? <span>{r.name} <span style={{ marginRight: 6, fontSize: 10, background: `${C.ylw}33`, color: C.ylw, border: `1px solid ${C.ylw}55`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>💳 {r.installmentTotal} תשלומים × {fmtC(r.amount)}</span></span> : <span>{r.name}</span> }, { label: "סכום", render: r => <strong style={{ color: C.red }}>{fmtC(r.items ? r.totalAmount : r.amount)}</strong> }, { label: "מעמ", render: r => { const e = r.items ? r.items[0] : r; return <button onClick={() => updField(e, "vatRecognized", !e.vatRecognized)} style={{ background: e.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: e.vatRecognized ? C.grn : C.red, border: `1px solid ${e.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{e.vatRecognized ? "כן" : "לא"}</button>; } }, { label: "מס", render: r => { const e = r.items ? r.items[0] : r; return <button onClick={() => updField(e, "taxRecognized", !e.taxRecognized)} style={{ background: e.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: e.taxRecognized ? C.grn : C.red, border: `1px solid ${e.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{e.taxRecognized ? "כן" : "לא"}</button>; } }, { label: "תשלום", render: r => r.items ? r.items[0].paidBy || "" : r.paidBy || "" }, { label: "פעולות", render: r => r.items ? "" : <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={grouped} footer={["סה״כ", "", "", fmtC(raw.reduce((s, e) => s + e.amount, 0)), "", "", "", ""]} />;
+            return <DT columns={[{ label: "תאריך", render: r => r.items ? fmtD(r.items[0].date) : fmtD(r.date) }, { label: "ספק/סיבה", key: "category" }, { label: "פירוט", render: r => r.items ? <span>{r.name} <span style={{ marginRight: 6, fontSize: 10, background: `${C.ylw}33`, color: C.ylw, border: `1px solid ${C.ylw}55`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>💳 {r.installmentTotal} תשלומים × {fmtC(r.amount)}</span></span> : <span>{r.name}</span> }, { label: "סכום", render: r => <strong style={{ color: C.red }}>{fmtC(r.amount)}</strong> }, { label: "מעמ", render: r => { const e = r.items ? r.items[0] : r; return <button onClick={() => updField(e, "vatRecognized", !e.vatRecognized)} style={{ background: e.vatRecognized ? `${C.grn}22` : `${C.red}22`, color: e.vatRecognized ? C.grn : C.red, border: `1px solid ${e.vatRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{e.vatRecognized ? "כן" : "לא"}</button>; } }, { label: "מס", render: r => { const e = r.items ? r.items[0] : r; return <button onClick={() => updField(e, "taxRecognized", !e.taxRecognized)} style={{ background: e.taxRecognized ? `${C.grn}22` : `${C.red}22`, color: e.taxRecognized ? C.grn : C.red, border: `1px solid ${e.taxRecognized ? C.grn : C.red}44`, borderRadius: 4, padding: "2px 6px", fontSize: 10, cursor: "pointer", fontWeight: 600 }}>{e.taxRecognized ? "כן" : "לא"}</button>; } }, { label: "תשלום", render: r => r.items ? r.items[0].paidBy || "" : r.paidBy || "" }, { label: "פעולות", render: r => r.items ? "" : <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => setEditExp(r)}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => setDelExp(r)} style={{ color: C.red }}>🗑️</Btn></div> }]} rows={grouped} footer={["סה״כ", "", "", fmtC(raw.reduce((s, e) => s + e.amount, 0)), "", "", "", ""]} />;
           })()}
         </div>
         {(() => {
@@ -4112,14 +4112,26 @@ function RecordExpensePage({ editMode, onDone }) {
     {err && <div style={{ marginBottom: 12, padding: 10, borderRadius: 8, background: `${C.red}22`, color: C.red, fontSize: 12 }}>{err}</div>}
     <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 12 }}>📋 הוצאות שהוזנו ידנית ({manualExpenses.length})</h3>
     {manualExpenses.length === 0 ? <Card style={{ textAlign: "center", padding: 24 }}><div style={{ color: C.mut, fontSize: 13 }}>עדיין לא הוזנו הוצאות ידניות</div></Card> :
-      <DT textSm columns={[
-        { label: "תאריך", render: r => fmtD(r.date) },
-        { label: "שם", key: "name" },
-        { label: "קטגוריה", key: "category" },
-        { label: "סכום", render: r => <span style={{ color: C.red }}>{fmtC(r.amount)}</span> },
-        { label: "שילם", key: "paidBy" },
-        { label: "", render: r => <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => { setMode("manual"); setForm({ category: r.category, name: r.name, amount: String(r.amount), date: r.date ? `${r.date.getFullYear()}-${String(r.date.getMonth() + 1).padStart(2, "0")}-${String(r.date.getDate()).padStart(2, "0")}` : "", hour: r.hour || "12:00", paidBy: r.paidBy, vatRecognized: r.vatRecognized, taxRecognized: r.taxRecognized }); }}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => handleDeleteManual(r)} style={{ color: C.red }}>🗑️</Btn></div> }
-      ]} rows={manualExpenses} footer={["סה״כ", "", "", fmtC(manualTotal), "", ""]} />}
+      (() => {
+        const groups = {};
+        const singles = [];
+        manualExpenses.forEach(r => {
+          if (r.installmentTotal > 0) {
+            const key = `${r.name}||${r.category}||${r.installmentTotal}`;
+            if (!groups[key]) groups[key] = { ...r, totalAmount: r.amount * r.installmentTotal, items: [] };
+            groups[key].items.push(r);
+          } else singles.push(r);
+        });
+        const grouped = [...Object.values(groups), ...singles].sort((a, b) => ((b.date || 0) - (a.date || 0)));
+        return <DT textSm columns={[
+          { label: "תאריך", render: r => r.items ? fmtD(r.items[0].date) : fmtD(r.date) },
+          { label: "שם", render: r => r.items ? <span>{r.name} <span style={{ fontSize: 10, background: `${C.ylw}33`, color: C.ylw, border: `1px solid ${C.ylw}55`, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>💳 {r.installmentTotal} תשלומים</span></span> : <span>{r.name}</span> },
+          { label: "קטגוריה", key: "category" },
+          { label: "סכום", render: r => <span style={{ color: C.red }}>{fmtC(r.items ? r.totalAmount : r.amount)}</span> },
+          { label: "שילם", render: r => r.items ? r.items[0].paidBy || "" : r.paidBy || "" },
+          { label: "", render: r => r.items ? "" : <div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" onClick={() => { setMode("manual"); setForm({ category: r.category, name: r.name, amount: String(r.amount), date: r.date ? `${r.date.getFullYear()}-${String(r.date.getMonth() + 1).padStart(2, "0")}-${String(r.date.getDate()).padStart(2, "0")}` : "", hour: r.hour || "12:00", paidBy: r.paidBy, vatRecognized: r.vatRecognized, taxRecognized: r.taxRecognized }); }}>✏️</Btn><Btn size="sm" variant="ghost" onClick={() => handleDeleteManual(r)} style={{ color: C.red }}>🗑️</Btn></div> }
+        ]} rows={grouped} footer={["סה״כ", "", "", fmtC(manualTotal), "", ""]} />;
+      })()}
     <div style={{ marginTop: 28 }}>
       <h3 style={{ color: C.txt, fontSize: 15, fontWeight: 700, marginBottom: 12 }}>🔒 הוצאות קבועות ({fixedExps.length})</h3>
       {fixedExps.length === 0 ? <Card style={{ textAlign: "center", padding: 24 }}><div style={{ color: C.mut, fontSize: 13 }}>אין הוצאות קבועות פעילות</div></Card> :
