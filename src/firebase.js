@@ -693,3 +693,21 @@ export async function updateAssetRecord(id, updates) {
 export async function removeAssetRecord(id) {
     await deleteDoc(doc(db, "assets", id));
 }
+
+// ═══════════════════════════════════════════════════════
+// TEAM LEAD LOGS API
+// ═══════════════════════════════════════════════════════
+export async function fetchTeamLeadLogs() {
+    const snap = await getDocs(collection(db, "teamLeadLogs"));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function addTeamLeadLog(data) {
+    const docRef = await addDoc(collection(db, "teamLeadLogs"), data);
+    return { id: docRef.id, ...data };
+}
+
+export async function updateTeamLeadLog(id, updates) {
+    await updateDoc(doc(db, "teamLeadLogs", id), updates);
+    return { id, ...updates };
+}
