@@ -21,7 +21,8 @@ import {
   fetchModels as fbFetchModels, addModel as fbAddModel, updateModel as fbUpdateModel, removeModel as fbRemoveModel,
   fetchHistory as fbFetchHistory, addHistory as fbAddHistory,
   fetchGenParams as fbFetchGenParams, saveGenParams as fbSaveGenParams,
-  fetchAssets, addAssetRecord, updateAssetRecord, removeAssetRecord
+  fetchAssets, addAssetRecord, updateAssetRecord, removeAssetRecord,
+  fetchTeamLeadLogs, addTeamLeadLog, updateTeamLeadLog
 } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
@@ -935,6 +936,7 @@ function Prov({ children }) {
     fetchEmployees().then(setEmployees).catch(() => {});
     fetchShiftSlots().then(setShiftSlots).catch(() => {});
     fetchShifts().then(setShifts).catch(() => {});
+    fetchTeamLeadLogs().then(setTeamLeadLogs).catch(() => {});
   }, []);
 
   const loadDemo = useCallback(() => {
@@ -1048,6 +1050,7 @@ function Prov({ children }) {
   const [shifts, setShifts] = useState([]);
   const [agSettings, setAgSettings] = useState({});
   const [assets, setAssets] = useState([]);
+  const [teamLeadLogs, setTeamLeadLogs] = useState([]);
 
   const [customCats, setCustomCats] = useState([...EXPENSE_CATEGORIES]);
   const _syncCatsToFB = (cats) => { saveAgencySettings({ customCats: cats }).catch(() => {}); };
@@ -1078,7 +1081,9 @@ function Prov({ children }) {
       setClientSettings(prev => ({ ...prev, [name]: { ...(prev[name] || {}), ...settings } }));
       await saveClientSettings(name, settings);
     },
-    shiftSlots, shifts, agSettings, setAgSettings, assets, setAssets,
+    shiftSlots, shifts, agSettings, setAgSettings, assets, setAssets, teamLeadLogs,
+    addTeamLeadLogCtx: async (data) => { const saved = await addTeamLeadLog(data); setTeamLeadLogs(prev => [...prev, saved]); return saved; },
+    updateTeamLeadLogCtx: async (id, updates) => { await updateTeamLeadLog(id, updates); setTeamLeadLogs(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l)); },
     addAssetCtx: async (data) => { const saved = await addAssetRecord(data); setAssets(prev => [...prev, saved]); return saved; },
     updateAssetCtx: async (id, updates) => { await updateAssetRecord(id, updates); setAssets(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a)); },
     removeAssetCtx: async (id) => { await removeAssetRecord(id); setAssets(prev => prev.filter(a => a.id !== id)); },
@@ -1114,7 +1119,7 @@ function Prov({ children }) {
       setSettlements(prev => [...prev, saved]);
       return saved;
     }
-  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate, customCats, fixedExps, employees, shiftSlots, shifts, agSettings]);
+  }), [year, month, view, dateRange, page, income, expenses, settlements, chatterTargets, chatterSettings, clientSettings, models, history, genParams, loading, error, connected, demo, load, loadDemo, rv, updRate, loadStep, user, liveRate, customCats, fixedExps, employees, shiftSlots, shifts, agSettings, teamLeadLogs]);
 
   return <Ctx.Provider value={val}>{children}</Ctx.Provider>;
 }
@@ -1270,6 +1275,7 @@ const NAV = [
   { key: "targets", label: "יעדים", icon: "🎯" },
   { key: "record", label: "תיעוד הוצאות", icon: "📱" },
   { key: "assets", label: "נכסים וציוד", icon: "🏗️" },
+  { key: "teamleads", label: "ראשי צוות", icon: "👑" },
   { key: "users", label: "ניהול משתמשים", icon: "⚙️" },
   { key: "generator", label: "מחולל תכנים", icon: "✨" }
 ];
@@ -1479,7 +1485,7 @@ function calcProgressiveTax(annualIncome) {
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
-  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements, fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx, shifts } = useApp();
+  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements, fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx, shifts, teamLeadLogs, sheetUsers } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const { agSettings } = useApp();
@@ -2018,6 +2024,49 @@ function DashPage() {
           {rankCard("👑 לקוחות מובילות", top3Cl, true)}
           {rankCard("📉 לקוחות נמוכות", bot3Cl, false)}
         </div>
+      </div>;
+    })()}
+
+    {/* Team Lead Performance */}
+    {(() => {
+      const tlNames = [...new Set([...(sheetUsers || []).filter(u => u.role === "shift_manager").map(u => u.name), ...teamLeadLogs.map(l => l.teamLeadName)])].filter(Boolean);
+      if (tlNames.length === 0) return null;
+      const ymi = `${year}-${String(month + 1).padStart(2, "0")}`;
+      const prevM = month === 0 ? 11 : month - 1;
+      const prevY = month === 0 ? year - 1 : year;
+      const prevYmi = `${prevY}-${String(prevM + 1).padStart(2, "0")}`;
+      const curLogs = teamLeadLogs.filter(l => view === "monthly" ? (l.date || "").startsWith(ymi) : (l.date || "").startsWith(String(year)));
+      const prevLogs = teamLeadLogs.filter(l => (l.date || "").startsWith(prevYmi));
+      const chartMonths = view === "yearly" ? [...new Set(curLogs.map(l => (l.date || "").slice(0, 7)))].sort() : [...new Set(curLogs.map(l => l.date))].sort();
+      const chartD = chartMonths.map(m => {
+        const label = view === "yearly" ? (MONTHS_SHORT[parseInt(m.split("-")[1], 10) - 1] || m) : m.slice(5);
+        const row = { name: label };
+        tlNames.forEach(n => { row[n] = curLogs.filter(l => (view === "yearly" ? (l.date || "").slice(0, 7) === m : l.date === m) && l.teamLeadName === n).reduce((s, l) => s + (l.totalSalesILS || 0), 0); });
+        return row;
+      });
+      return <div style={{ marginTop: 24 }}>
+        <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>👑 ראשי צוות — ביצועים</h3>
+        <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+          {tlNames.map(n => {
+            const cur = curLogs.filter(l => l.teamLeadName === n).reduce((s, l) => s + (l.totalSalesILS || 0), 0);
+            const prev = prevLogs.filter(l => l.teamLeadName === n).reduce((s, l) => s + (l.totalSalesILS || 0), 0);
+            const pct = prev > 0 ? ((cur - prev) / prev * 100) : 0;
+            const up = pct >= 0;
+            return <Stat key={n} title={n} icon="👑" value={fmtC(cur)} sub={prev > 0 ? <span style={{ color: up ? C.grn : C.red }}>{up ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}% לעומת חודש קודם</span> : `${curLogs.filter(l => l.teamLeadName === n).length} משמרות`} color={C.grn} />;
+          })}
+        </div>
+        {chartD.length > 0 && <Card>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={chartD}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
+              <XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} />
+              <YAxis tick={{ fill: C.dim, fontSize: 10 }} />
+              <Tooltip content={<TT />} />
+              <Legend />
+              {tlNames.map((n, i) => <Line key={n} type="monotone" dataKey={n} name={n} stroke={ENTITY_COLORS[i % ENTITY_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} />)}
+            </LineChart>
+          </ResponsiveContainer>
+        </Card>}
       </div>;
     })()}
 
@@ -4674,7 +4723,7 @@ ${overridesText || "אין"}
 // CHATTER PORTAL
 // ═══════════════════════════════════════════════════════
 function ChatterPortal({ hideHeader } = {}) {
-  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets, sheetUsers, chatterSettings, shiftSlots, shifts, addShiftCtx, updateShiftCtx, agSettings } = useApp();
+  const { user, logout, income, setIncome, load, connected, year, setYear, month, setMonth, chatterTargets, sheetUsers, chatterSettings, shiftSlots, shifts, addShiftCtx, updateShiftCtx, agSettings, addTeamLeadLogCtx } = useApp();
   const { iM, iY } = useFD();
   const w = useWin();
   const chatterName = user?.name || "";
@@ -4734,6 +4783,10 @@ function ChatterPortal({ hideHeader } = {}) {
   const [showClockOutModal, setShowClockOutModal] = useState(null);
   const [hoursInput, setHoursInput] = useState("");
   const [clockOutSummary, setClockOutSummary] = useState(null);
+  const [showTLSummary, setShowTLSummary] = useState(null);
+  const [tlNotes, setTlNotes] = useState("");
+  const [tlAbsentees, setTlAbsentees] = useState([]);
+  const [tlSaving, setTlSaving] = useState(false);
 
   const handleClockIn = async (shift) => {
     setClockingId(shift.id);
@@ -4753,7 +4806,33 @@ function ChatterPortal({ hideHeader } = {}) {
     const outTime = new Date();
     await updateShiftCtx(shift.id, { clockOut: outTime.toISOString(), hoursWorked: +hoursInput });
     TelegramSvc.notifyClockOut(shift, +hoursInput);
-    setClockOutSummary({ slotLabel: shift.slotLabel, clockIn: shift.clockIn, clockOut: outTime.toISOString(), hoursWorked: +hoursInput, lateMinutes: shift.lateMinutes || 0 });
+
+    if (user?.role === "shift_manager") {
+      const dayIncome = income.filter(r => {
+        if (!r.date) return false;
+        const d = r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10);
+        return d === shift.date;
+      });
+      const slotStartH = shift.slotStart ? parseInt(shift.slotStart.split(":")[0], 10) : 0;
+      const slotEndH = shift.slotEnd ? parseInt(shift.slotEnd.split(":")[0], 10) : 24;
+      const shiftIncome = dayIncome.filter(r => {
+        const h = r.hour ? parseInt(r.hour.split(":")[0], 10) : -1;
+        return h >= slotStartH && h < slotEndH;
+      });
+      const totalSalesILS = shiftIncome.reduce((s, r) => s + (r.amountILS || 0), 0);
+      const totalSalesUSD = shiftIncome.reduce((s, r) => s + (r.amountUSD || 0), 0);
+      const salesCount = shiftIncome.length;
+      const highestSale = shiftIncome.reduce((max, r) => Math.max(max, r.amountILS || 0), 0);
+      const slotShifts = shifts.filter(s => s.date === shift.date && s.slotId === shift.slotId && s.status === "approved" && s.chatterName !== chatterName);
+      const chattersWorked = slotShifts.filter(s => s.clockIn).map(s => s.chatterName);
+      const expectedChatters = slotShifts.map(s => s.chatterName);
+      const absent = expectedChatters.filter(n => !chattersWorked.includes(n));
+      setShowTLSummary({ date: shift.date, slotId: shift.slotId, slotLabel: shift.slotLabel, clockIn: shift.clockIn, clockOut: outTime.toISOString(), hoursWorked: +hoursInput, totalSalesILS, totalSalesUSD, salesCount, highestSale, chattersWorked, expectedChatters });
+      setTlAbsentees(absent);
+      setTlNotes("");
+    } else {
+      setClockOutSummary({ slotLabel: shift.slotLabel, clockIn: shift.clockIn, clockOut: outTime.toISOString(), hoursWorked: +hoursInput, lateMinutes: shift.lateMinutes || 0 });
+    }
     setShowClockOutModal(null);
     setHoursInput("");
     setClockingId(null);
@@ -5206,6 +5285,50 @@ function ChatterPortal({ hideHeader } = {}) {
         </div>
       </Modal>}
 
+      {/* Team Lead Shift Summary */}
+      {showTLSummary && <Modal open onClose={() => setShowTLSummary(null)} title="📊 סיכום משמרת — ראש צוות" width={480}>
+        <div style={{ direction: "rtl" }}>
+          <div style={{ textAlign: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 32, marginBottom: 4 }}>👑</div>
+            <div style={{ color: C.txt, fontSize: 15, fontWeight: 700 }}>{showTLSummary.slotLabel} — {showTLSummary.date}</div>
+          </div>
+          <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 16, flexWrap: "wrap" }}>
+            <div style={{ textAlign: "center" }}><div style={{ color: C.dim, fontSize: 11 }}>כניסה</div><div style={{ color: C.grn, fontSize: 15, fontWeight: 700 }}>{new Date(showTLSummary.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</div></div>
+            <div style={{ textAlign: "center" }}><div style={{ color: C.dim, fontSize: 11 }}>יציאה</div><div style={{ color: C.red, fontSize: 15, fontWeight: 700 }}>{new Date(showTLSummary.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</div></div>
+            <div style={{ textAlign: "center" }}><div style={{ color: C.dim, fontSize: 11 }}>שעות</div><div style={{ color: C.pri, fontSize: 15, fontWeight: 700 }}>{showTLSummary.hoursWorked}</div></div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+            <div style={{ background: `${C.grn}15`, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}><div style={{ color: C.dim, fontSize: 11 }}>סה״כ מכירות ₪</div><div style={{ color: C.grn, fontSize: 18, fontWeight: 700 }}>{fmtC(showTLSummary.totalSalesILS)}</div></div>
+            {showTLSummary.totalSalesUSD > 0 && <div style={{ background: `${C.pri}15`, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}><div style={{ color: C.dim, fontSize: 11 }}>סה״כ מכירות $</div><div style={{ color: C.pri, fontSize: 18, fontWeight: 700 }}>{fmtUSD(showTLSummary.totalSalesUSD)}</div></div>}
+            <div style={{ background: `${C.pri}15`, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}><div style={{ color: C.dim, fontSize: 11 }}>מספר מכירות</div><div style={{ color: C.pri, fontSize: 18, fontWeight: 700 }}>{showTLSummary.salesCount}</div></div>
+            <div style={{ background: `${C.ylw}15`, borderRadius: 8, padding: "10px 12px", textAlign: "center" }}><div style={{ color: C.dim, fontSize: 11 }}>מכירה גבוהה</div><div style={{ color: C.ylw, fontSize: 18, fontWeight: 700 }}>{fmtC(showTLSummary.highestSale)}</div></div>
+          </div>
+          {showTLSummary.chattersWorked.length > 0 && <div style={{ marginBottom: 12 }}><div style={{ color: C.dim, fontSize: 12, marginBottom: 4 }}>צ׳אטרים שעבדו ({showTLSummary.chattersWorked.length})</div><div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{showTLSummary.chattersWorked.map(n => <span key={n} style={{ background: `${C.grn}20`, color: C.grn, padding: "3px 10px", borderRadius: 12, fontSize: 12 }}>{n}</span>)}</div></div>}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ color: C.dim, fontSize: 12, marginBottom: 4 }}>חוסרים</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+              {tlAbsentees.map(n => <span key={n} style={{ background: `${C.red}20`, color: C.red, padding: "3px 10px", borderRadius: 12, fontSize: 12, cursor: "pointer" }} onClick={() => setTlAbsentees(prev => prev.filter(x => x !== n))}>{n} ✕</span>)}
+              {tlAbsentees.length === 0 && <span style={{ color: C.mut, fontSize: 12 }}>אין חוסרים</span>}
+            </div>
+            {showTLSummary.expectedChatters.filter(n => !tlAbsentees.includes(n) && !showTLSummary.chattersWorked.includes(n)).length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              {showTLSummary.expectedChatters.filter(n => !tlAbsentees.includes(n) && !showTLSummary.chattersWorked.includes(n)).map(n => <button key={n} onClick={() => setTlAbsentees(prev => [...prev, n])} style={{ background: "none", border: `1px dashed ${C.bdr}`, color: C.mut, padding: "2px 8px", borderRadius: 10, fontSize: 11, cursor: "pointer" }}>+ {n}</button>)}
+            </div>}
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ color: C.dim, fontSize: 12, display: "block", marginBottom: 4 }}>הערות</label>
+            <textarea value={tlNotes} onChange={e => setTlNotes(e.target.value)} rows={3} style={{ width: "100%", padding: "8px 12px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 13, outline: "none", resize: "vertical", boxSizing: "border-box" }} placeholder="הערות על המשמרת..." />
+          </div>
+          <Btn onClick={async () => {
+            setTlSaving(true);
+            try {
+              await addTeamLeadLogCtx({ date: showTLSummary.date, teamLeadName: chatterName, slotId: showTLSummary.slotId, slotLabel: showTLSummary.slotLabel, clockIn: showTLSummary.clockIn, clockOut: showTLSummary.clockOut, hoursWorked: showTLSummary.hoursWorked, totalSalesILS: showTLSummary.totalSalesILS, totalSalesUSD: showTLSummary.totalSalesUSD, salesCount: showTLSummary.salesCount, highestSale: showTLSummary.highestSale, chattersWorked: showTLSummary.chattersWorked, absentees: tlAbsentees, notes: tlNotes });
+              setShowTLSummary(null);
+            } catch (e) { console.error(e); }
+            setTlSaving(false);
+          }} variant="success" size="lg" style={{ width: "100%" }} disabled={tlSaving}>{tlSaving ? "שומר..." : "💾 שמור סיכום משמרת"}</Btn>
+        </div>
+      </Modal>}
+
       {/* My Shifts */}
       <Card style={{ marginBottom: 16 }}>
         <h3 style={{ color: C.pri, fontSize: 15, marginBottom: 12 }}>📅 המשמרות שלי</h3>
@@ -5431,10 +5554,80 @@ function ChatterPortal({ hideHeader } = {}) {
 // ═══════════════════════════════════════════════════════
 const SM_NAV = [
   { key: "main", label: "הסטטוס שלי", icon: "👤" },
+  { key: "log", label: "לוג משמרות", icon: "📊" },
   { key: "approvals", label: "אישורים", icon: "✅" },
   { key: "chatters", label: "צ'אטרים", icon: "👥" },
   { key: "shifts", label: "משמרות", icon: "📅" },
 ];
+
+function TeamLeadLogPage() {
+  const { user, teamLeadLogs, year, month, view } = useApp();
+  const w = useWin();
+  const name = user?.name || "";
+  const myLogs = useMemo(() => teamLeadLogs.filter(l => l.teamLeadName === name).sort((a, b) => (b.date || "").localeCompare(a.date || "")), [teamLeadLogs, name]);
+  const [logView, setLogView] = useState("monthly");
+  const [logMonth, setLogMonth] = useState(month);
+  const [logYear, setLogYear] = useState(year);
+
+  const filtered = useMemo(() => {
+    if (logView === "monthly") return myLogs.filter(l => { const d = l.date || ""; return d.startsWith(`${logYear}-${String(logMonth + 1).padStart(2, "0")}`); });
+    return myLogs.filter(l => (l.date || "").startsWith(String(logYear)));
+  }, [myLogs, logView, logMonth, logYear]);
+
+  const chartData = useMemo(() => {
+    if (logView === "monthly") {
+      return filtered.map(l => ({ name: l.date, sales: l.totalSalesILS || 0, count: l.salesCount || 0 }));
+    }
+    const byMonth = {};
+    filtered.forEach(l => { const m = (l.date || "").slice(0, 7); byMonth[m] = (byMonth[m] || 0) + (l.totalSalesILS || 0); });
+    return Object.entries(byMonth).sort((a, b) => a[0].localeCompare(b[0])).map(([m, v]) => {
+      const mi = parseInt(m.split("-")[1], 10) - 1;
+      return { name: MONTHS_SHORT[mi] || m, sales: v };
+    });
+  }, [filtered, logView]);
+
+  return <div style={{ direction: "rtl" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+      <h2 style={{ color: C.txt, fontSize: 18, fontWeight: 700, margin: 0 }}>📊 לוג משמרות</h2>
+      <div style={{ display: "flex", gap: 4 }}>
+        {[{ k: "monthly", l: "חודשי" }, { k: "yearly", l: "שנתי" }].map(o => <button key={o.k} onClick={() => setLogView(o.k)} style={{ padding: "4px 12px", borderRadius: 8, fontSize: 12, fontWeight: logView === o.k ? 700 : 400, background: logView === o.k ? C.pri : C.card, color: logView === o.k ? "#fff" : C.dim, border: `1px solid ${logView === o.k ? C.pri : C.bdr}`, cursor: "pointer" }}>{o.l}</button>)}
+      </div>
+      {logView === "monthly" && <select value={logMonth} onChange={e => setLogMonth(+e.target.value)} style={{ padding: "4px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 12 }}>
+        {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
+      </select>}
+      <select value={logYear} onChange={e => setLogYear(+e.target.value)} style={{ padding: "4px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 12 }}>
+        {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+      </select>
+    </div>
+
+    {chartData.length > 0 && <Card style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.txt, marginBottom: 8 }}>מכירות לפי {logView === "monthly" ? "יום" : "חודש"}</div>
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart data={chartData}>
+          <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
+          <XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} />
+          <YAxis tick={{ fill: C.dim, fontSize: 10 }} />
+          <Tooltip content={<TT />} />
+          <Line type="monotone" dataKey="sales" name="מכירות ₪" stroke={C.pri} strokeWidth={2} dot={{ r: 3 }} />
+        </LineChart>
+      </ResponsiveContainer>
+    </Card>}
+
+    {filtered.length === 0 && <Card><div style={{ color: C.mut, fontSize: 13, textAlign: "center", padding: 20 }}>אין רשומות לתקופה זו</div></Card>}
+    {filtered.length > 0 && <DT columns={[
+      { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date}</span> },
+      { label: "משמרת", render: r => <span style={{ color: C.pri }}>{r.slotLabel}</span> },
+      { label: "שעות", render: r => <span style={{ color: C.txt }}>{r.hoursWorked}</span> },
+      { label: "מכירות ₪", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.totalSalesILS)}</span> },
+      { label: "מכירות $", render: r => <span style={{ color: C.pri }}>{r.totalSalesUSD > 0 ? fmtUSD(r.totalSalesUSD) : "—"}</span> },
+      { label: "כמות", render: r => <span style={{ color: C.txt }}>{r.salesCount}</span> },
+      { label: "מכירה גבוהה", render: r => <span style={{ color: C.ylw }}>{fmtC(r.highestSale)}</span> },
+      { label: "צ'אטרים", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{(r.chattersWorked || []).join(", ") || "—"}</span> },
+      { label: "חוסרים", render: r => <span style={{ color: r.absentees?.length ? C.red : C.dim, fontSize: 11 }}>{(r.absentees || []).join(", ") || "—"}</span> },
+      { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> }
+    ]} rows={filtered} footer={["סה״כ", "", "", fmtC(filtered.reduce((s, l) => s + (l.totalSalesILS || 0), 0)), fmtUSD(filtered.reduce((s, l) => s + (l.totalSalesUSD || 0), 0)), String(filtered.reduce((s, l) => s + (l.salesCount || 0), 0)), "", "", "", ""]} />}
+  </div>;
+}
 
 function ShiftManagerPortal() {
   const { logout } = useApp();
@@ -5442,6 +5635,7 @@ function ShiftManagerPortal() {
   const [smPage, setSmPage] = useState("main");
 
   const renderPage = () => {
+    if (smPage === "log") return <TeamLeadLogPage />;
     if (smPage === "approvals") return <ApprovalsPage />;
     if (smPage === "chatters") return <ChatterHub />;
     if (smPage === "shifts") return <ShiftsPage />;
@@ -7609,9 +7803,116 @@ function BuyersPage() {
 }
 
 // ═══════════════════════════════════════════════════════
+// TEAM LEAD OVERVIEW (ADMIN)
+// ═══════════════════════════════════════════════════════
+function TeamLeadOverviewPage() {
+  const { teamLeadLogs, sheetUsers, year, month, view } = useApp();
+  const w = useWin();
+  const [tlView, setTlView] = useState("monthly");
+  const [tlMonth, setTlMonth] = useState(month);
+  const [tlYear, setTlYear] = useState(year);
+  const [expanded, setExpanded] = useState(null);
+
+  const teamLeads = useMemo(() => (sheetUsers || []).filter(u => u.role === "shift_manager").map(u => u.name), [sheetUsers]);
+  const allNames = useMemo(() => [...new Set([...teamLeads, ...teamLeadLogs.map(l => l.teamLeadName)])].filter(Boolean), [teamLeads, teamLeadLogs]);
+
+  const filtered = useMemo(() => {
+    if (tlView === "monthly") return teamLeadLogs.filter(l => (l.date || "").startsWith(`${tlYear}-${String(tlMonth + 1).padStart(2, "0")}`));
+    return teamLeadLogs.filter(l => (l.date || "").startsWith(String(tlYear)));
+  }, [teamLeadLogs, tlView, tlMonth, tlYear]);
+
+  const byLead = useMemo(() => {
+    const map = {};
+    allNames.forEach(n => { map[n] = []; });
+    filtered.forEach(l => { if (!map[l.teamLeadName]) map[l.teamLeadName] = []; map[l.teamLeadName].push(l); });
+    return map;
+  }, [filtered, allNames]);
+
+  const compareData = useMemo(() => {
+    if (tlView === "monthly") {
+      const dates = [...new Set(filtered.map(l => l.date))].sort();
+      return dates.map(d => {
+        const row = { name: d.slice(5) };
+        allNames.forEach(n => { row[n] = filtered.filter(l => l.date === d && l.teamLeadName === n).reduce((s, l) => s + (l.totalSalesILS || 0), 0); });
+        return row;
+      });
+    }
+    const months = [...new Set(filtered.map(l => (l.date || "").slice(0, 7)))].sort();
+    return months.map(m => {
+      const mi = parseInt(m.split("-")[1], 10) - 1;
+      const row = { name: MONTHS_SHORT[mi] || m };
+      allNames.forEach(n => { row[n] = filtered.filter(l => (l.date || "").slice(0, 7) === m && l.teamLeadName === n).reduce((s, l) => s + (l.totalSalesILS || 0), 0); });
+      return row;
+    });
+  }, [filtered, allNames, tlView]);
+
+  return <div style={{ direction: "rtl" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, margin: 0 }}>👑 ראשי צוות</h2>
+      <div style={{ display: "flex", gap: 4 }}>
+        {[{ k: "monthly", l: "חודשי" }, { k: "yearly", l: "שנתי" }].map(o => <button key={o.k} onClick={() => setTlView(o.k)} style={{ padding: "4px 12px", borderRadius: 8, fontSize: 12, fontWeight: tlView === o.k ? 700 : 400, background: tlView === o.k ? C.pri : C.card, color: tlView === o.k ? "#fff" : C.dim, border: `1px solid ${tlView === o.k ? C.pri : C.bdr}`, cursor: "pointer" }}>{o.l}</button>)}
+      </div>
+      {tlView === "monthly" && <select value={tlMonth} onChange={e => setTlMonth(+e.target.value)} style={{ padding: "4px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 12 }}>
+        {MONTHS_HE.map((m, i) => <option key={i} value={i}>{m}</option>)}
+      </select>}
+      <select value={tlYear} onChange={e => setTlYear(+e.target.value)} style={{ padding: "4px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 12 }}>
+        {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+      </select>
+    </div>
+
+    {compareData.length > 0 && allNames.length > 0 && <Card style={{ marginBottom: 20 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: C.txt, marginBottom: 10 }}>השוואת ביצועים</div>
+      <ResponsiveContainer width="100%" height={280}>
+        <LineChart data={compareData}>
+          <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
+          <XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} />
+          <YAxis tick={{ fill: C.dim, fontSize: 10 }} />
+          <Tooltip content={<TT />} />
+          <Legend />
+          {allNames.map((n, i) => <Line key={n} type="monotone" dataKey={n} name={n} stroke={ENTITY_COLORS[i % ENTITY_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} />)}
+        </LineChart>
+      </ResponsiveContainer>
+    </Card>}
+
+    <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 20 }}>
+      {allNames.map(n => {
+        const logs = byLead[n] || [];
+        const totalSales = logs.reduce((s, l) => s + (l.totalSalesILS || 0), 0);
+        const totalCount = logs.reduce((s, l) => s + (l.salesCount || 0), 0);
+        const totalHours = logs.reduce((s, l) => s + (l.hoursWorked || 0), 0);
+        return <Stat key={n} title={n} icon="👑" value={fmtC(totalSales)} sub={`${totalCount} מכירות · ${totalHours} שעות · ${logs.length} משמרות`} color={C.grn} />;
+      })}
+    </div>
+
+    {allNames.map(n => {
+      const logs = (byLead[n] || []).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+      const isOpen = expanded === n;
+      return <Card key={n} style={{ marginBottom: 12 }}>
+        <div onClick={() => setExpanded(isOpen ? null : n)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.txt }}>👑 {n} ({logs.length} רשומות)</div>
+          <span style={{ color: C.dim, fontSize: 16 }}>{isOpen ? "▲" : "▼"}</span>
+        </div>
+        {isOpen && logs.length > 0 && <div style={{ marginTop: 12 }}>
+          <DT columns={[
+            { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date}</span> },
+            { label: "משמרת", render: r => <span style={{ color: C.pri }}>{r.slotLabel}</span> },
+            { label: "שעות", render: r => <span style={{ color: C.txt }}>{r.hoursWorked}</span> },
+            { label: "מכירות ₪", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.totalSalesILS)}</span> },
+            { label: "כמות", render: r => <span style={{ color: C.txt }}>{r.salesCount}</span> },
+            { label: "חוסרים", render: r => <span style={{ color: r.absentees?.length ? C.red : C.dim, fontSize: 11 }}>{(r.absentees || []).join(", ") || "—"}</span> },
+            { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> }
+          ]} rows={logs} />
+        </div>}
+        {isOpen && logs.length === 0 && <div style={{ color: C.mut, fontSize: 12, marginTop: 8 }}>אין רשומות</div>}
+      </Card>;
+    })}
+  </div>;
+}
+
+// ═══════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════
-const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterHub, clients: ClientHub, debts: DebtsPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage, approvals: ApprovalsPage, users: UserManagementPage, shifts: ShiftsPage, buyers: BuyersPage, assets: AssetsPage };
+const PAGES = { dashboard: DashPage, income: IncPage, expenses: ExpPage, chatters: ChatterHub, clients: ClientHub, debts: DebtsPage, targets: TgtPage, record: RecordExpensePage, generator: GeneratorPage, approvals: ApprovalsPage, users: UserManagementPage, shifts: ShiftsPage, buyers: BuyersPage, assets: AssetsPage, teamleads: TeamLeadOverviewPage };
 function Content() {
   const { page, setPage, connected, user, load } = useApp();
   const w = useWin();
