@@ -345,19 +345,16 @@ const API = {
 // ═══════════════════════════════════════════════════════
 const ExRate = {
   _rate: null,
-  async fetchUsdIls() {
-    const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const today = now.toISOString().slice(0, 10);
-    // Always check Firebase first — rate is locked for the whole month
-    try {
-      const ag = await fetchAgencySettings();
-      if (ag.usdRate?.month === currentMonth && ag.usdRate?.rate > 2) {
-        this._rate = ag.usdRate.rate;
-        return ag.usdRate.rate;
-      }
-    } catch {}
-    // No valid rate in Firebase for this month — fetch from external sources
+  _monthlyRates: {},
+  _getRateYm(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  },
+  _prevYm(ym) {
+    const [y, m] = ym.split("-").map(Number);
+    return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
+  },
+  async _fetchFromApi() {
+    const today = new Date().toISOString().slice(0, 10);
     const sources = [
       async () => {
         const r = await fetch(`https://edge.boi.gov.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/EXR/1.0/RER_USD_ILS?startperiod=${today}&endperiod=${today}&format=sdmx-json`);
@@ -373,21 +370,61 @@ const ExRate = {
     for (const src of sources) {
       try {
         const rate = await src();
-        if (rate && rate > 2 && rate < 6) {
-          this._rate = rate;
-          // Save to Firebase — all devices will use this rate until end of month
-          saveAgencySettings({ usdRate: { rate, month: currentMonth, day: today } }).catch(() => {});
-          return rate;
-        }
+        if (rate && rate > 2 && rate < 6) return rate;
       } catch {}
     }
-    // Fallback: use existing Firebase rate if available
+    return null;
+  },
+  async fetchUsdIls() {
+    const now = new Date();
+    const day = now.getDate();
+    const curYm = this._getRateYm(now);
+    const prevYm = this._prevYm(curYm);
+    const period = day >= 15 ? "15th" : "1st";
+
     try {
       const ag = await fetchAgencySettings();
-      if (ag.usdRate?.rate > 2) { this._rate = ag.usdRate.rate; return ag.usdRate.rate; }
+      if (ag.monthlyRates) this._monthlyRates = { ...ag.monthlyRates };
     } catch {}
-    this._rate = this._rate || 3.14;
-    return this._rate;
+
+    const cur = this._monthlyRates[curYm];
+    const needsFetch = !cur || cur.period !== period;
+
+    if (!needsFetch && cur) {
+      this._rate = cur.rate;
+      return cur.rate;
+    }
+
+    const newRate = await this._fetchFromApi();
+    if (!newRate) {
+      this._rate = cur?.rate || this._rate || 3.14;
+      return this._rate;
+    }
+
+    if (period === "1st") {
+      const prev = this._monthlyRates[prevYm];
+      if (prev && !prev.locked) {
+        this._monthlyRates[prevYm] = { ...prev, rate: newRate, locked: true };
+      }
+      this._monthlyRates[curYm] = { rate: newRate, locked: false, period: "1st" };
+    } else {
+      this._monthlyRates[curYm] = { rate: newRate, locked: false, period: "15th" };
+    }
+
+    this._rate = newRate;
+    saveAgencySettings({ monthlyRates: this._monthlyRates, usdRate: { rate: newRate, month: curYm, day: now.toISOString().slice(0, 10) } }).catch(() => {});
+    return newRate;
+  },
+  getRateForMonth(ym) {
+    const entry = this._monthlyRates[ym];
+    if (entry) return entry.rate;
+    return this._rate || 3.14;
+  },
+  isLocked(ym) {
+    return !!this._monthlyRates[ym]?.locked;
+  },
+  getMonthlyRates() {
+    return this._monthlyRates;
   },
   get() {
     return this._rate || 3.14;
@@ -874,9 +911,10 @@ function Prov({ children }) {
   const [loadStep, setLoadStep] = useState("");
   const [liveRate, setLiveRate] = useState(ExRate.get());
   const updRate = useCallback((n, ymi, p) => { setRate(n, ymi, p); setRv(v => v + 1); }, []);
+  const refreshRate = useCallback(async () => { const r = await ExRate.fetchUsdIls(); setLiveRate(r); return r; }, []);
 
   // Fetch live exchange rate on mount
-  useEffect(() => { ExRate.fetchUsdIls().then(r => setLiveRate(r)); }, []);
+  useEffect(() => { refreshRate(); }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null); setLoadStep("טוען נתונים...");
@@ -1063,7 +1101,7 @@ function Prov({ children }) {
     income, setIncome, expenses, setExpenses, settlements, setSettlements, models, setModels,
     history, setHistory, genParams, setGenParams, loading, error,
     connected, setConnected, demo, setDemo, load, loadDemo, rv, updRate,
-    loadStep, user, login, logout, sheetUsers, loadSheetUsers, liveRate,
+    loadStep, user, login, logout, sheetUsers, loadSheetUsers, liveRate, refreshRate,
     chatterTargets, setChatterTargets, customCats, addCustomCat, removeCustomCat, renameCustomCat,
     saveChatterTarget: async (name, targets) => {
       await setChatterTarget(name, targets);
@@ -1165,20 +1203,20 @@ function useFD() {
   const dM = useMemo(() => new Date(year, month, 1), [year, month]);
 
   const incomeWithDynamicRate = useMemo(() => {
+    const monthlyRates = ExRate.getMonthlyRates();
     return income.map(r => {
-      // Always use the global monthly rate — uniform across all records
-      const rate = liveRate;
-      // For chatter-submitted pending records, rawILS may be missing — fall back to stored amountILS
+      const d = r.date instanceof Date ? r.date : (r.date ? new Date(r.date) : null);
+      const recYm = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : null;
+      const rate = recYm && monthlyRates[recYm] ? monthlyRates[recYm].rate : liveRate;
       const baseILS = r.rawILS !== undefined ? r.rawILS : (r.originalRawILS !== undefined ? r.originalRawILS : (r.amountILS || 0));
       if (r.commissionPct > 0) {
-        // Recalculate pre-commission total with current rate, then re-apply commission factor
         const baseUSD = r.preCommissionUSD !== undefined ? r.preCommissionUSD : (r.originalRawUSD !== undefined ? r.originalRawUSD : (r.amountUSD || 0));
         const newPreComm = baseILS + baseUSD * rate;
         const factor = 1 - r.commissionPct / 100;
-        return { ...r, rawILS: baseILS, preCommissionILS: newPreComm, amountILS: r.cancelled ? 0 : newPreComm * factor };
+        return { ...r, rawILS: baseILS, preCommissionILS: newPreComm, amountILS: r.cancelled ? 0 : newPreComm * factor, _appliedRate: rate };
       }
       const computedILS = baseILS + (r.amountUSD || 0) * rate;
-      return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : computedILS };
+      return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : computedILS, _appliedRate: rate };
     });
   }, [income, liveRate]);
 
@@ -1485,7 +1523,7 @@ function calcProgressiveTax(annualIncome) {
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
-  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements, fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx, shifts, teamLeadLogs, sheetUsers } = useApp();
+  const { year, month, setMonth, view, setView, liveRate, refreshRate, chatterSettings, clientSettings, settlements, fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx, shifts, teamLeadLogs, sheetUsers } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const { agSettings } = useApp();
@@ -1778,6 +1816,20 @@ function DashPage() {
           <input type="number" value={manualNI || ""} placeholder="0" onChange={e => { const v = +e.target.value || 0; setManualNI(v); saveAgencySettings({ manualNI: v }).catch(() => {}); }} style={{ width: 100, padding: "6px 8px", background: C.bg, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.txt, fontSize: 13, outline: "none" }} />
         </div>
       </div>
+
+      {/* Exchange rate status */}
+      {(() => {
+        const mr = ExRate.getMonthlyRates();
+        const curYm = `${year}-${String(month + 1).padStart(2, "0")}`;
+        const entry = mr[curYm];
+        const locked = entry?.locked;
+        return <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, padding: "8px 14px", background: locked ? `${C.grn}10` : `${C.pri}10`, borderRadius: 10, border: `1px solid ${locked ? C.grn : C.pri}30`, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 14 }}>{locked ? "🔒" : "💱"}</span>
+          <span style={{ color: C.txt, fontSize: 13, fontWeight: 600 }}>שער דולר — {MONTHS_HE[month]}: ₪{(entry?.rate || liveRate).toFixed(2)}</span>
+          <span style={{ color: locked ? C.grn : C.ylw, fontSize: 11, fontWeight: 500 }}>{locked ? "נעול" : `פעיל (${entry?.period || "—"})`}</span>
+          {!locked && <button onClick={() => refreshRate()} style={{ background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.pri, fontSize: 11, padding: "3px 10px", cursor: "pointer" }}>🔄 עדכן שער</button>}
+        </div>;
+      })()}
 
       {/* Row 1: Sales breakdown → agency income */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
@@ -2231,7 +2283,7 @@ function IncPage() {
     <FB><ViewFilter /></FB>
     <FB><Sel label="פלטפורמה:" value={fP} onChange={setFP} options={[{ value: "all", label: "הכל" }, ...activePlatforms.map(p => ({ value: p, label: p }))]} /><Sel label="סוג הכנסה:" value={fT} onChange={setFT} options={[{ value: "all", label: "הכל" }, ...incTypes.map(t => ({ value: t, label: t }))]} /><Sel label="לקוחה:" value={fC} onChange={setFC} options={[{ value: "all", label: "הכל" }, ...activeClients.map(c => ({ value: c, label: c }))]} /><Sel label="צ'אטר:" value={fCh} onChange={setFCh} options={[{ value: "all", label: "הכל" }, ...activeChatters.map(c => ({ value: c, label: c }))]} /><Sel label="מיקום:" value={fL} onChange={setFL} options={[{ value: "all", label: "הכל" }, { value: "משרד", label: "משרד" }, { value: "חוץ", label: "חוץ" }]} /></FB>
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-      <Stat icon="💰" title="סה״כ ₪" value={fmtC(grandTotal)} color={C.grn} sub={`${data.length} עסקאות • שער $: ₪${liveRate.toFixed(2)}`} />
+      <Stat icon="💰" title="סה״כ ₪" value={fmtC(grandTotal)} color={C.grn} sub={`${data.length} עסקאות • שער $: ₪${liveRate.toFixed(2)}${ExRate.isLocked(`${year}-${String(month + 1).padStart(2, "0")}`) ? " 🔒" : ""}`} />
       <Stat icon="🏦" title='סה״כ ₪ (שקל)' value={fmtC(ilsOnlyTotal)} color={C.grn} sub="עסקאות שנכנסו בשקל" />
       <Stat icon="💵" title='סה״כ $' value={fmtUSD(totalUSD)} color={C.pri} sub={`≈ ${fmtC(grandTotal - ilsOnlyTotal)} (מומר לשקל)`} />
       <Stat icon="🏢" title="עבר דרך הסוכנות" value={fmtC(agencyTotal)} color={C.ylw} sub="תשלומים שיועדו לסוכנות" />
