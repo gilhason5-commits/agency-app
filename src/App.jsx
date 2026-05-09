@@ -345,19 +345,16 @@ const API = {
 // ═══════════════════════════════════════════════════════
 const ExRate = {
   _rate: null,
-  async fetchUsdIls() {
-    const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const today = now.toISOString().slice(0, 10);
-    // Always check Firebase first — rate is locked for the whole month
-    try {
-      const ag = await fetchAgencySettings();
-      if (ag.usdRate?.month === currentMonth && ag.usdRate?.rate > 2) {
-        this._rate = ag.usdRate.rate;
-        return ag.usdRate.rate;
-      }
-    } catch {}
-    // No valid rate in Firebase for this month — fetch from external sources
+  _monthlyRates: {},
+  _getRateYm(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  },
+  _prevYm(ym) {
+    const [y, m] = ym.split("-").map(Number);
+    return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
+  },
+  async _fetchFromApi() {
+    const today = new Date().toISOString().slice(0, 10);
     const sources = [
       async () => {
         const r = await fetch(`https://edge.boi.gov.il/FusionEdgeServer/sdmx/v2/data/dataflow/BOI.STATISTICS/EXR/1.0/RER_USD_ILS?startperiod=${today}&endperiod=${today}&format=sdmx-json`);
@@ -373,21 +370,61 @@ const ExRate = {
     for (const src of sources) {
       try {
         const rate = await src();
-        if (rate && rate > 2 && rate < 6) {
-          this._rate = rate;
-          // Save to Firebase — all devices will use this rate until end of month
-          saveAgencySettings({ usdRate: { rate, month: currentMonth, day: today } }).catch(() => {});
-          return rate;
-        }
+        if (rate && rate > 2 && rate < 6) return rate;
       } catch {}
     }
-    // Fallback: use existing Firebase rate if available
+    return null;
+  },
+  async fetchUsdIls() {
+    const now = new Date();
+    const day = now.getDate();
+    const curYm = this._getRateYm(now);
+    const prevYm = this._prevYm(curYm);
+    const period = day >= 15 ? "15th" : "1st";
+
     try {
       const ag = await fetchAgencySettings();
-      if (ag.usdRate?.rate > 2) { this._rate = ag.usdRate.rate; return ag.usdRate.rate; }
+      if (ag.monthlyRates) this._monthlyRates = { ...ag.monthlyRates };
     } catch {}
-    this._rate = this._rate || 3.14;
-    return this._rate;
+
+    const cur = this._monthlyRates[curYm];
+    const needsFetch = !cur || cur.period !== period;
+
+    if (!needsFetch && cur) {
+      this._rate = cur.rate;
+      return cur.rate;
+    }
+
+    const newRate = await this._fetchFromApi();
+    if (!newRate) {
+      this._rate = cur?.rate || this._rate || 3.14;
+      return this._rate;
+    }
+
+    if (period === "1st") {
+      const prev = this._monthlyRates[prevYm];
+      if (prev && !prev.locked) {
+        this._monthlyRates[prevYm] = { ...prev, rate: newRate, locked: true };
+      }
+      this._monthlyRates[curYm] = { rate: newRate, locked: false, period: "1st" };
+    } else {
+      this._monthlyRates[curYm] = { rate: newRate, locked: false, period: "15th" };
+    }
+
+    this._rate = newRate;
+    saveAgencySettings({ monthlyRates: this._monthlyRates, usdRate: { rate: newRate, month: curYm, day: now.toISOString().slice(0, 10) } }).catch(() => {});
+    return newRate;
+  },
+  getRateForMonth(ym) {
+    const entry = this._monthlyRates[ym];
+    if (entry) return entry.rate;
+    return this._rate || 3.14;
+  },
+  isLocked(ym) {
+    return !!this._monthlyRates[ym]?.locked;
+  },
+  getMonthlyRates() {
+    return this._monthlyRates;
   },
   get() {
     return this._rate || 3.14;
@@ -874,9 +911,10 @@ function Prov({ children }) {
   const [loadStep, setLoadStep] = useState("");
   const [liveRate, setLiveRate] = useState(ExRate.get());
   const updRate = useCallback((n, ymi, p) => { setRate(n, ymi, p); setRv(v => v + 1); }, []);
+  const refreshRate = useCallback(async () => { const r = await ExRate.fetchUsdIls(); setLiveRate(r); return r; }, []);
 
   // Fetch live exchange rate on mount
-  useEffect(() => { ExRate.fetchUsdIls().then(r => setLiveRate(r)); }, []);
+  useEffect(() => { refreshRate(); }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null); setLoadStep("טוען נתונים...");
@@ -1063,7 +1101,7 @@ function Prov({ children }) {
     income, setIncome, expenses, setExpenses, settlements, setSettlements, models, setModels,
     history, setHistory, genParams, setGenParams, loading, error,
     connected, setConnected, demo, setDemo, load, loadDemo, rv, updRate,
-    loadStep, user, login, logout, sheetUsers, loadSheetUsers, liveRate,
+    loadStep, user, login, logout, sheetUsers, loadSheetUsers, liveRate, refreshRate,
     chatterTargets, setChatterTargets, customCats, addCustomCat, removeCustomCat, renameCustomCat,
     saveChatterTarget: async (name, targets) => {
       await setChatterTarget(name, targets);
@@ -1165,20 +1203,20 @@ function useFD() {
   const dM = useMemo(() => new Date(year, month, 1), [year, month]);
 
   const incomeWithDynamicRate = useMemo(() => {
+    const monthlyRates = ExRate.getMonthlyRates();
     return income.map(r => {
-      // Always use the global monthly rate — uniform across all records
-      const rate = liveRate;
-      // For chatter-submitted pending records, rawILS may be missing — fall back to stored amountILS
+      const d = r.date instanceof Date ? r.date : (r.date ? new Date(r.date) : null);
+      const recYm = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : null;
+      const rate = recYm && monthlyRates[recYm] ? monthlyRates[recYm].rate : liveRate;
       const baseILS = r.rawILS !== undefined ? r.rawILS : (r.originalRawILS !== undefined ? r.originalRawILS : (r.amountILS || 0));
       if (r.commissionPct > 0) {
-        // Recalculate pre-commission total with current rate, then re-apply commission factor
         const baseUSD = r.preCommissionUSD !== undefined ? r.preCommissionUSD : (r.originalRawUSD !== undefined ? r.originalRawUSD : (r.amountUSD || 0));
         const newPreComm = baseILS + baseUSD * rate;
         const factor = 1 - r.commissionPct / 100;
-        return { ...r, rawILS: baseILS, preCommissionILS: newPreComm, amountILS: r.cancelled ? 0 : newPreComm * factor };
+        return { ...r, rawILS: baseILS, preCommissionILS: newPreComm, amountILS: r.cancelled ? 0 : newPreComm * factor, _appliedRate: rate };
       }
       const computedILS = baseILS + (r.amountUSD || 0) * rate;
-      return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : computedILS };
+      return { ...r, rawILS: baseILS, amountILS: r.cancelled ? 0 : computedILS, _appliedRate: rate };
     });
   }, [income, liveRate]);
 
@@ -1485,7 +1523,7 @@ function calcProgressiveTax(annualIncome) {
 // PAGE: DASHBOARD
 // ═══════════════════════════════════════════════════════
 function DashPage() {
-  const { year, month, setMonth, view, setView, liveRate, chatterSettings, clientSettings, settlements, fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx, shifts, teamLeadLogs, sheetUsers } = useApp();
+  const { year, month, setMonth, view, setView, liveRate, refreshRate, chatterSettings, clientSettings, settlements, fixedExps, addFixedExp, removeFixedExp, employees, addEmployeeCtx, removeEmployeeCtx, shifts, teamLeadLogs, sheetUsers, income } = useApp();
   const { iM, iY, iRange, eM, eY, eRange, targets } = useFD();
   const w = useWin();
   const { agSettings } = useApp();
@@ -1779,6 +1817,20 @@ function DashPage() {
         </div>
       </div>
 
+      {/* Exchange rate status */}
+      {(() => {
+        const mr = ExRate.getMonthlyRates();
+        const curYm = `${year}-${String(month + 1).padStart(2, "0")}`;
+        const entry = mr[curYm];
+        const locked = entry?.locked;
+        return <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, padding: "8px 14px", background: locked ? `${C.grn}10` : `${C.pri}10`, borderRadius: 10, border: `1px solid ${locked ? C.grn : C.pri}30`, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 14 }}>{locked ? "🔒" : "💱"}</span>
+          <span style={{ color: C.txt, fontSize: 13, fontWeight: 600 }}>שער דולר — {MONTHS_HE[month]}: ₪{(entry?.rate || liveRate).toFixed(2)}</span>
+          <span style={{ color: locked ? C.grn : C.ylw, fontSize: 11, fontWeight: 500 }}>{locked ? "נעול" : `פעיל (${entry?.period || "—"})`}</span>
+          {!locked && <button onClick={() => refreshRate()} style={{ background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 6, color: C.pri, fontSize: 11, padding: "3px 10px", cursor: "pointer" }}>🔄 עדכן שער</button>}
+        </div>;
+      })()}
+
       {/* Row 1: Sales breakdown → agency income */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
         <Stat icon="💰" title={`מכירות — ${MONTHS_HE[month]}`} value={fmtC(mp.inc)} color={C.grn} sub={`${iM.length} עסקאות`} />
@@ -2029,30 +2081,37 @@ function DashPage() {
 
     {/* Team Lead Performance */}
     {(() => {
-      const tlNames = [...new Set([...(sheetUsers || []).filter(u => u.role === "shift_manager").map(u => u.name), ...teamLeadLogs.map(l => l.teamLeadName)])].filter(Boolean);
+      const tlNames = [...new Set([...(sheetUsers || []).filter(u => u.role === "shift_manager").map(u => u.name)])].filter(Boolean);
       if (tlNames.length === 0) return null;
-      const ymi = `${year}-${String(month + 1).padStart(2, "0")}`;
+      const activeI = view === "monthly" ? iM : iY;
       const prevM = month === 0 ? 11 : month - 1;
       const prevY = month === 0 ? year - 1 : year;
-      const prevYmi = `${prevY}-${String(prevM + 1).padStart(2, "0")}`;
-      const curLogs = teamLeadLogs.filter(l => view === "monthly" ? (l.date || "").startsWith(ymi) : (l.date || "").startsWith(String(year)));
-      const prevLogs = teamLeadLogs.filter(l => (l.date || "").startsWith(prevYmi));
-      const chartMonths = view === "yearly" ? [...new Set(curLogs.map(l => (l.date || "").slice(0, 7)))].sort() : [...new Set(curLogs.map(l => l.date))].sort();
-      const chartD = chartMonths.map(m => {
-        const label = view === "yearly" ? (MONTHS_SHORT[parseInt(m.split("-")[1], 10) - 1] || m) : m.slice(5);
+      const prevInc = income.filter(r => { const d = r.date instanceof Date ? r.date : (r.date ? new Date(r.date) : null); return d && d.getFullYear() === prevY && d.getMonth() === prevM; });
+      const chartKeys = view === "yearly"
+        ? [...new Set(activeI.filter(r => tlNames.includes(r.chatterName)).map(r => { const d = r.date instanceof Date ? r.date : new Date(r.date); return d.getMonth(); }))].sort((a, b) => a - b)
+        : [...new Set(activeI.filter(r => tlNames.includes(r.chatterName)).map(r => { const d = r.date instanceof Date ? r.date : new Date(r.date); return d.getDate(); }))].sort((a, b) => a - b);
+      const chartD = chartKeys.map(k => {
+        const label = view === "yearly" ? MONTHS_SHORT[k] : String(k);
         const row = { name: label };
-        tlNames.forEach(n => { row[n] = curLogs.filter(l => (view === "yearly" ? (l.date || "").slice(0, 7) === m : l.date === m) && l.teamLeadName === n).reduce((s, l) => s + (l.totalSalesILS || 0), 0); });
+        tlNames.forEach(n => {
+          row[n] = activeI.filter(r => {
+            if (r.chatterName !== n) return false;
+            const d = r.date instanceof Date ? r.date : new Date(r.date);
+            return view === "yearly" ? d.getMonth() === k : d.getDate() === k;
+          }).reduce((s, r) => s + (r.amountILS || 0), 0);
+        });
         return row;
       });
       return <div style={{ marginTop: 24 }}>
         <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>👑 ראשי צוות — ביצועים</h3>
         <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
           {tlNames.map(n => {
-            const cur = curLogs.filter(l => l.teamLeadName === n).reduce((s, l) => s + (l.totalSalesILS || 0), 0);
-            const prev = prevLogs.filter(l => l.teamLeadName === n).reduce((s, l) => s + (l.totalSalesILS || 0), 0);
+            const cur = activeI.filter(r => r.chatterName === n).reduce((s, r) => s + (r.amountILS || 0), 0);
+            const curCount = activeI.filter(r => r.chatterName === n).length;
+            const prev = prevInc.filter(r => r.chatterName === n).reduce((s, r) => s + (r.amountILS || 0), 0);
             const pct = prev > 0 ? ((cur - prev) / prev * 100) : 0;
             const up = pct >= 0;
-            return <Stat key={n} title={n} icon="👑" value={fmtC(cur)} sub={prev > 0 ? <span style={{ color: up ? C.grn : C.red }}>{up ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}% לעומת חודש קודם</span> : `${curLogs.filter(l => l.teamLeadName === n).length} משמרות`} color={C.grn} />;
+            return <Stat key={n} title={n} icon="👑" value={fmtC(cur)} sub={prev > 0 ? <span style={{ color: up ? C.grn : C.red }}>{up ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}% לעומת חודש קודם</span> : `${curCount} מכירות`} color={C.grn} />;
           })}
         </div>
         {chartD.length > 0 && <Card>
@@ -2231,7 +2290,7 @@ function IncPage() {
     <FB><ViewFilter /></FB>
     <FB><Sel label="פלטפורמה:" value={fP} onChange={setFP} options={[{ value: "all", label: "הכל" }, ...activePlatforms.map(p => ({ value: p, label: p }))]} /><Sel label="סוג הכנסה:" value={fT} onChange={setFT} options={[{ value: "all", label: "הכל" }, ...incTypes.map(t => ({ value: t, label: t }))]} /><Sel label="לקוחה:" value={fC} onChange={setFC} options={[{ value: "all", label: "הכל" }, ...activeClients.map(c => ({ value: c, label: c }))]} /><Sel label="צ'אטר:" value={fCh} onChange={setFCh} options={[{ value: "all", label: "הכל" }, ...activeChatters.map(c => ({ value: c, label: c }))]} /><Sel label="מיקום:" value={fL} onChange={setFL} options={[{ value: "all", label: "הכל" }, { value: "משרד", label: "משרד" }, { value: "חוץ", label: "חוץ" }]} /></FB>
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-      <Stat icon="💰" title="סה״כ ₪" value={fmtC(grandTotal)} color={C.grn} sub={`${data.length} עסקאות • שער $: ₪${liveRate.toFixed(2)}`} />
+      <Stat icon="💰" title="סה״כ ₪" value={fmtC(grandTotal)} color={C.grn} sub={`${data.length} עסקאות • שער $: ₪${liveRate.toFixed(2)}${ExRate.isLocked(`${year}-${String(month + 1).padStart(2, "0")}`) ? " 🔒" : ""}`} />
       <Stat icon="🏦" title='סה״כ ₪ (שקל)' value={fmtC(ilsOnlyTotal)} color={C.grn} sub="עסקאות שנכנסו בשקל" />
       <Stat icon="💵" title='סה״כ $' value={fmtUSD(totalUSD)} color={C.pri} sub={`≈ ${fmtC(grandTotal - ilsOnlyTotal)} (מומר לשקל)`} />
       <Stat icon="🏢" title="עבר דרך הסוכנות" value={fmtC(agencyTotal)} color={C.ylw} sub="תשלומים שיועדו לסוכנות" />
@@ -5561,34 +5620,56 @@ const SM_NAV = [
 ];
 
 function TeamLeadLogPage() {
-  const { user, teamLeadLogs, year, month, view } = useApp();
+  const { user, income, shifts, year, month } = useApp();
   const w = useWin();
   const name = user?.name || "";
-  const myLogs = useMemo(() => teamLeadLogs.filter(l => l.teamLeadName === name).sort((a, b) => (b.date || "").localeCompare(a.date || "")), [teamLeadLogs, name]);
   const [logView, setLogView] = useState("monthly");
   const [logMonth, setLogMonth] = useState(month);
   const [logYear, setLogYear] = useState(year);
+  const [subTab, setSubTab] = useState("sales");
 
-  const filtered = useMemo(() => {
-    if (logView === "monthly") return myLogs.filter(l => { const d = l.date || ""; return d.startsWith(`${logYear}-${String(logMonth + 1).padStart(2, "0")}`); });
-    return myLogs.filter(l => (l.date || "").startsWith(String(logYear)));
-  }, [myLogs, logView, logMonth, logYear]);
+  const filterByPeriod = (date) => {
+    if (!date) return false;
+    const d = date instanceof Date ? date : new Date(date);
+    if (isNaN(d)) return false;
+    if (logView === "monthly") return d.getFullYear() === logYear && d.getMonth() === logMonth;
+    return d.getFullYear() === logYear;
+  };
+
+  const myIncome = useMemo(() => income.filter(r => r.chatterName === name && filterByPeriod(r.date)).sort((a, b) => ((b.date || 0) - (a.date || 0))), [income, name, logView, logMonth, logYear]);
+  const myShiftsF = useMemo(() => shifts.filter(s => s.chatterName === name && s.status === "approved" && (() => {
+    if (!s.date) return false;
+    const p = s.date.split("-");
+    const sy = +p[0], sm = +p[1] - 1;
+    return logView === "monthly" ? (sy === logYear && sm === logMonth) : sy === logYear;
+  })()).sort((a, b) => (b.date || "").localeCompare(a.date || "")), [shifts, name, logView, logMonth, logYear]);
+
+  const totalSales = myIncome.reduce((s, r) => s + (r.amountILS || 0), 0);
+  const totalUSD = myIncome.reduce((s, r) => s + (r.amountUSD || 0), 0);
+  const totalHours = myShiftsF.reduce((s, r) => s + (r.hoursWorked || 0), 0);
 
   const chartData = useMemo(() => {
     if (logView === "monthly") {
-      return filtered.map(l => ({ name: l.date, sales: l.totalSalesILS || 0, count: l.salesCount || 0 }));
+      const dayMap = {};
+      myIncome.forEach(r => {
+        const d = r.date instanceof Date ? r.date.getDate() : "";
+        if (!d) return;
+        dayMap[d] = (dayMap[d] || 0) + (r.amountILS || 0);
+      });
+      return Object.entries(dayMap).sort((a, b) => +a[0] - +b[0]).map(([d, v]) => ({ name: d, sales: v }));
     }
-    const byMonth = {};
-    filtered.forEach(l => { const m = (l.date || "").slice(0, 7); byMonth[m] = (byMonth[m] || 0) + (l.totalSalesILS || 0); });
-    return Object.entries(byMonth).sort((a, b) => a[0].localeCompare(b[0])).map(([m, v]) => {
-      const mi = parseInt(m.split("-")[1], 10) - 1;
-      return { name: MONTHS_SHORT[mi] || m, sales: v };
+    const mMap = {};
+    myIncome.forEach(r => {
+      const d = r.date instanceof Date ? r.date : new Date(r.date);
+      const mi = d.getMonth();
+      mMap[mi] = (mMap[mi] || 0) + (r.amountILS || 0);
     });
-  }, [filtered, logView]);
+    return Object.entries(mMap).sort((a, b) => +a[0] - +b[0]).map(([mi, v]) => ({ name: MONTHS_SHORT[+mi], sales: v }));
+  }, [myIncome, logView]);
 
   return <div style={{ direction: "rtl" }}>
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-      <h2 style={{ color: C.txt, fontSize: 18, fontWeight: 700, margin: 0 }}>📊 לוג משמרות</h2>
+      <h2 style={{ color: C.txt, fontSize: 18, fontWeight: 700, margin: 0 }}>📊 הנתונים שלי</h2>
       <div style={{ display: "flex", gap: 4 }}>
         {[{ k: "monthly", l: "חודשי" }, { k: "yearly", l: "שנתי" }].map(o => <button key={o.k} onClick={() => setLogView(o.k)} style={{ padding: "4px 12px", borderRadius: 8, fontSize: 12, fontWeight: logView === o.k ? 700 : 400, background: logView === o.k ? C.pri : C.card, color: logView === o.k ? "#fff" : C.dim, border: `1px solid ${logView === o.k ? C.pri : C.bdr}`, cursor: "pointer" }}>{o.l}</button>)}
       </div>
@@ -5598,6 +5679,12 @@ function TeamLeadLogPage() {
       <select value={logYear} onChange={e => setLogYear(+e.target.value)} style={{ padding: "4px 8px", background: C.card, border: `1px solid ${C.bdr}`, borderRadius: 8, color: C.txt, fontSize: 12 }}>
         {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
       </select>
+    </div>
+
+    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+      <Stat icon="💰" title="סה״כ מכירות" value={fmtC(totalSales)} color={C.grn} sub={`${myIncome.length} עסקאות${totalUSD > 0 ? ` · ${fmtUSD(totalUSD)}` : ""}`} />
+      <Stat icon="📅" title="משמרות" value={String(myShiftsF.length)} color={C.pri} sub={`${totalHours} שעות`} />
+      {myIncome.length > 0 && <Stat icon="📈" title="ממוצע למכירה" value={fmtC(totalSales / myIncome.length)} color={C.ylw} />}
     </div>
 
     {chartData.length > 0 && <Card style={{ marginBottom: 16 }}>
@@ -5613,19 +5700,28 @@ function TeamLeadLogPage() {
       </ResponsiveContainer>
     </Card>}
 
-    {filtered.length === 0 && <Card><div style={{ color: C.mut, fontSize: 13, textAlign: "center", padding: 20 }}>אין רשומות לתקופה זו</div></Card>}
-    {filtered.length > 0 && <DT columns={[
+    <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+      {[{ k: "sales", l: "מכירות" }, { k: "shifts", l: "משמרות" }].map(t => <button key={t.k} onClick={() => setSubTab(t.k)} style={{ padding: "4px 12px", borderRadius: 8, fontSize: 12, fontWeight: subTab === t.k ? 700 : 400, background: subTab === t.k ? C.pri : C.card, color: subTab === t.k ? "#fff" : C.dim, border: `1px solid ${subTab === t.k ? C.pri : C.bdr}`, cursor: "pointer" }}>{t.l}</button>)}
+    </div>
+
+    {subTab === "sales" && (myIncome.length > 0 ? <DT columns={[
+      { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date instanceof Date ? r.date.toLocaleDateString("he-IL") : r.date}</span> },
+      { label: "שעה", key: "hour" },
+      { label: "לקוחה", render: r => <span style={{ color: C.pri }}>{r.modelName}</span> },
+      { label: "פלטפורמה", key: "platform" },
+      { label: "סכום ₪", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.amountILS)}</span> },
+      { label: "סכום $", render: r => <span style={{ color: C.pri }}>{r.amountUSD > 0 ? fmtUSD(r.amountUSD) : "—"}</span> },
+      { label: "סטטוס", render: r => <span style={{ color: r.cancelled ? C.ylw : C.grn }}>{r.cancelled ? "בוטל" : "✅"}</span> }
+    ]} rows={myIncome} footer={["סה״כ", "", "", "", fmtC(totalSales), fmtUSD(totalUSD), ""]} /> : <Card><div style={{ color: C.mut, fontSize: 13, textAlign: "center", padding: 20 }}>אין מכירות</div></Card>)}
+
+    {subTab === "shifts" && (myShiftsF.length > 0 ? <DT columns={[
       { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date}</span> },
       { label: "משמרת", render: r => <span style={{ color: C.pri }}>{r.slotLabel}</span> },
-      { label: "שעות", render: r => <span style={{ color: C.txt }}>{r.hoursWorked}</span> },
-      { label: "מכירות ₪", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.totalSalesILS)}</span> },
-      { label: "מכירות $", render: r => <span style={{ color: C.pri }}>{r.totalSalesUSD > 0 ? fmtUSD(r.totalSalesUSD) : "—"}</span> },
-      { label: "כמות", render: r => <span style={{ color: C.txt }}>{r.salesCount}</span> },
-      { label: "מכירה גבוהה", render: r => <span style={{ color: C.ylw }}>{fmtC(r.highestSale)}</span> },
-      { label: "צ'אטרים", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{(r.chattersWorked || []).join(", ") || "—"}</span> },
-      { label: "חוסרים", render: r => <span style={{ color: r.absentees?.length ? C.red : C.dim, fontSize: 11 }}>{(r.absentees || []).join(", ") || "—"}</span> },
-      { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> }
-    ]} rows={filtered} footer={["סה״כ", "", "", fmtC(filtered.reduce((s, l) => s + (l.totalSalesILS || 0), 0)), fmtUSD(filtered.reduce((s, l) => s + (l.totalSalesUSD || 0), 0)), String(filtered.reduce((s, l) => s + (l.salesCount || 0), 0)), "", "", "", ""]} />}
+      { label: "כניסה", render: r => <span style={{ color: C.grn }}>{r.clockIn ? new Date(r.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</span> },
+      { label: "יציאה", render: r => <span style={{ color: C.red }}>{r.clockOut ? new Date(r.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</span> },
+      { label: "שעות", render: r => <span style={{ color: C.txt }}>{r.hoursWorked || "—"}</span> },
+      { label: "לקוחות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{(r.clients || []).map(c => typeof c === "string" ? c : c.name).join(", ") || "—"}</span> }
+    ]} rows={myShiftsF} footer={["סה״כ", "", "", "", String(totalHours), ""]} /> : <Card><div style={{ color: C.mut, fontSize: 13, textAlign: "center", padding: 20 }}>אין משמרות</div></Card>)}
   </div>;
 }
 
@@ -7806,45 +7902,77 @@ function BuyersPage() {
 // TEAM LEAD OVERVIEW (ADMIN)
 // ═══════════════════════════════════════════════════════
 function TeamLeadOverviewPage() {
-  const { teamLeadLogs, sheetUsers, year, month, view } = useApp();
+  const { teamLeadLogs, sheetUsers, year, month, view, income, shifts } = useApp();
   const w = useWin();
   const [tlView, setTlView] = useState("monthly");
   const [tlMonth, setTlMonth] = useState(month);
   const [tlYear, setTlYear] = useState(year);
   const [expanded, setExpanded] = useState(null);
+  const [subTab, setSubTab] = useState("sales");
 
   const teamLeads = useMemo(() => (sheetUsers || []).filter(u => u.role === "shift_manager").map(u => u.name), [sheetUsers]);
   const allNames = useMemo(() => [...new Set([...teamLeads, ...teamLeadLogs.map(l => l.teamLeadName)])].filter(Boolean), [teamLeads, teamLeadLogs]);
 
-  const filtered = useMemo(() => {
-    if (tlView === "monthly") return teamLeadLogs.filter(l => (l.date || "").startsWith(`${tlYear}-${String(tlMonth + 1).padStart(2, "0")}`));
-    return teamLeadLogs.filter(l => (l.date || "").startsWith(String(tlYear)));
-  }, [teamLeadLogs, tlView, tlMonth, tlYear]);
+  const filterByPeriod = (date) => {
+    if (!date) return false;
+    const d = date instanceof Date ? date : new Date(date);
+    if (isNaN(d)) return false;
+    if (tlView === "monthly") return d.getFullYear() === tlYear && d.getMonth() === tlMonth;
+    return d.getFullYear() === tlYear;
+  };
 
-  const byLead = useMemo(() => {
+  const incByLead = useMemo(() => {
     const map = {};
     allNames.forEach(n => { map[n] = []; });
-    filtered.forEach(l => { if (!map[l.teamLeadName]) map[l.teamLeadName] = []; map[l.teamLeadName].push(l); });
+    income.forEach(r => {
+      if (r.chatterName && allNames.includes(r.chatterName) && filterByPeriod(r.date)) {
+        map[r.chatterName].push(r);
+      }
+    });
     return map;
-  }, [filtered, allNames]);
+  }, [income, allNames, tlView, tlMonth, tlYear]);
+
+  const shiftsByLead = useMemo(() => {
+    const map = {};
+    allNames.forEach(n => { map[n] = []; });
+    shifts.forEach(s => {
+      if (s.chatterName && allNames.includes(s.chatterName) && s.status === "approved") {
+        const d = s.date;
+        if (!d) return;
+        const parts = d.split("-");
+        const sy = +parts[0], sm = +parts[1] - 1;
+        if (tlView === "monthly" ? (sy === tlYear && sm === tlMonth) : sy === tlYear) {
+          map[s.chatterName].push(s);
+        }
+      }
+    });
+    return map;
+  }, [shifts, allNames, tlView, tlMonth, tlYear]);
 
   const compareData = useMemo(() => {
     if (tlView === "monthly") {
-      const dates = [...new Set(filtered.map(l => l.date))].sort();
-      return dates.map(d => {
-        const row = { name: d.slice(5) };
-        allNames.forEach(n => { row[n] = filtered.filter(l => l.date === d && l.teamLeadName === n).reduce((s, l) => s + (l.totalSalesILS || 0), 0); });
-        return row;
+      const dayMap = {};
+      allNames.forEach(n => {
+        (incByLead[n] || []).forEach(r => {
+          const d = r.date instanceof Date ? r.date.getDate() : "";
+          if (!d) return;
+          if (!dayMap[d]) dayMap[d] = { name: String(d) };
+          dayMap[d][n] = (dayMap[d][n] || 0) + (r.amountILS || 0);
+        });
       });
+      return Object.values(dayMap).sort((a, b) => +a.name - +b.name);
     }
-    const months = [...new Set(filtered.map(l => (l.date || "").slice(0, 7)))].sort();
-    return months.map(m => {
-      const mi = parseInt(m.split("-")[1], 10) - 1;
-      const row = { name: MONTHS_SHORT[mi] || m };
-      allNames.forEach(n => { row[n] = filtered.filter(l => (l.date || "").slice(0, 7) === m && l.teamLeadName === n).reduce((s, l) => s + (l.totalSalesILS || 0), 0); });
-      return row;
+    const monthMap = {};
+    allNames.forEach(n => {
+      (incByLead[n] || []).forEach(r => {
+        const d = r.date instanceof Date ? r.date : new Date(r.date);
+        const mi = d.getMonth();
+        if (!monthMap[mi]) monthMap[mi] = { name: MONTHS_SHORT[mi] };
+        monthMap[mi][n] = (monthMap[mi][n] || 0) + (r.amountILS || 0);
+      });
     });
-  }, [filtered, allNames, tlView]);
+    return Object.entries(monthMap).sort((a, b) => +a[0] - +b[0]).map(([, v]) => v);
+  }, [incByLead, allNames, tlView]);
 
   return <div style={{ direction: "rtl" }}>
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
@@ -7861,7 +7989,7 @@ function TeamLeadOverviewPage() {
     </div>
 
     {compareData.length > 0 && allNames.length > 0 && <Card style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: C.txt, marginBottom: 10 }}>השוואת ביצועים</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: C.txt, marginBottom: 10 }}>השוואת מכירות</div>
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={compareData}>
           <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
@@ -7874,36 +8002,58 @@ function TeamLeadOverviewPage() {
       </ResponsiveContainer>
     </Card>}
 
-    <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr" : "1fr 1fr", gap: 12, marginBottom: 20 }}>
+    <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr" : "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
       {allNames.map(n => {
-        const logs = byLead[n] || [];
-        const totalSales = logs.reduce((s, l) => s + (l.totalSalesILS || 0), 0);
-        const totalCount = logs.reduce((s, l) => s + (l.salesCount || 0), 0);
-        const totalHours = logs.reduce((s, l) => s + (l.hoursWorked || 0), 0);
-        return <Stat key={n} title={n} icon="👑" value={fmtC(totalSales)} sub={`${totalCount} מכירות · ${totalHours} שעות · ${logs.length} משמרות`} color={C.grn} />;
+        const inc = incByLead[n] || [];
+        const sh = shiftsByLead[n] || [];
+        const totalSales = inc.reduce((s, r) => s + (r.amountILS || 0), 0);
+        const totalUSD = inc.reduce((s, r) => s + (r.amountUSD || 0), 0);
+        const totalHours = sh.reduce((s, r) => s + (r.hoursWorked || 0), 0);
+        return <Stat key={n} title={n} icon="👑" value={fmtC(totalSales)} sub={`${inc.length} מכירות · ${sh.length} משמרות · ${totalHours} שעות${totalUSD > 0 ? ` · ${fmtUSD(totalUSD)}` : ""}`} color={C.grn} />;
       })}
     </div>
 
     {allNames.map(n => {
-      const logs = (byLead[n] || []).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+      const inc = (incByLead[n] || []).sort((a, b) => ((b.date || 0) - (a.date || 0)));
+      const sh = (shiftsByLead[n] || []).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+      const logs = (teamLeadLogs || []).filter(l => l.teamLeadName === n).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
       const isOpen = expanded === n;
+      const totalSales = inc.reduce((s, r) => s + (r.amountILS || 0), 0);
       return <Card key={n} style={{ marginBottom: 12 }}>
         <div onClick={() => setExpanded(isOpen ? null : n)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.txt }}>👑 {n} ({logs.length} רשומות)</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.txt }}>👑 {n} — {fmtC(totalSales)} ({inc.length} מכירות, {sh.length} משמרות)</div>
           <span style={{ color: C.dim, fontSize: 16 }}>{isOpen ? "▲" : "▼"}</span>
         </div>
-        {isOpen && logs.length > 0 && <div style={{ marginTop: 12 }}>
-          <DT columns={[
+        {isOpen && <div style={{ marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+            {[{ k: "sales", l: "מכירות" }, { k: "shifts", l: "משמרות" }, ...(logs.length > 0 ? [{ k: "logs", l: "סיכומי משמרות" }] : [])].map(t => <button key={t.k} onClick={e => { e.stopPropagation(); setSubTab(t.k); }} style={{ padding: "4px 12px", borderRadius: 8, fontSize: 12, fontWeight: subTab === t.k ? 700 : 400, background: subTab === t.k ? C.pri : C.card, color: subTab === t.k ? "#fff" : C.dim, border: `1px solid ${subTab === t.k ? C.pri : C.bdr}`, cursor: "pointer" }}>{t.l}</button>)}
+          </div>
+          {subTab === "sales" && (inc.length > 0 ? <DT columns={[
+            { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date instanceof Date ? r.date.toLocaleDateString("he-IL") : r.date}</span> },
+            { label: "שעה", key: "hour" },
+            { label: "לקוחה", render: r => <span style={{ color: C.pri }}>{r.modelName}</span> },
+            { label: "פלטפורמה", key: "platform" },
+            { label: "סכום ₪", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.amountILS)}</span> },
+            { label: "סכום $", render: r => <span style={{ color: C.pri }}>{r.amountUSD > 0 ? fmtUSD(r.amountUSD) : "—"}</span> },
+            { label: "סטטוס", render: r => <span style={{ color: r.cancelled ? C.ylw : C.grn }}>{r.cancelled ? "בוטל" : "✅"}</span> }
+          ]} rows={inc} footer={["סה״כ", "", "", "", fmtC(totalSales), fmtUSD(inc.reduce((s, r) => s + (r.amountUSD || 0), 0)), ""]} /> : <div style={{ color: C.mut, fontSize: 12 }}>אין מכירות</div>)}
+          {subTab === "shifts" && (sh.length > 0 ? <DT columns={[
+            { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date}</span> },
+            { label: "משמרת", render: r => <span style={{ color: C.pri }}>{r.slotLabel}</span> },
+            { label: "כניסה", render: r => <span style={{ color: C.grn }}>{r.clockIn ? new Date(r.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</span> },
+            { label: "יציאה", render: r => <span style={{ color: C.red }}>{r.clockOut ? new Date(r.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</span> },
+            { label: "שעות", render: r => <span style={{ color: C.txt }}>{r.hoursWorked || "—"}</span> },
+            { label: "לקוחות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{(r.clients || []).map(c => typeof c === "string" ? c : c.name).join(", ") || "—"}</span> }
+          ]} rows={sh} footer={["סה״כ", "", "", "", String(sh.reduce((s, r) => s + (r.hoursWorked || 0), 0)), ""]} /> : <div style={{ color: C.mut, fontSize: 12 }}>אין משמרות</div>)}
+          {subTab === "logs" && logs.length > 0 && <DT columns={[
             { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date}</span> },
             { label: "משמרת", render: r => <span style={{ color: C.pri }}>{r.slotLabel}</span> },
             { label: "שעות", render: r => <span style={{ color: C.txt }}>{r.hoursWorked}</span> },
             { label: "מכירות ₪", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.totalSalesILS)}</span> },
-            { label: "כמות", render: r => <span style={{ color: C.txt }}>{r.salesCount}</span> },
             { label: "חוסרים", render: r => <span style={{ color: r.absentees?.length ? C.red : C.dim, fontSize: 11 }}>{(r.absentees || []).join(", ") || "—"}</span> },
             { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> }
-          ]} rows={logs} />
+          ]} rows={logs} />}
         </div>}
-        {isOpen && logs.length === 0 && <div style={{ color: C.mut, fontSize: 12, marginTop: 8 }}>אין רשומות</div>}
       </Card>;
     })}
   </div>;
