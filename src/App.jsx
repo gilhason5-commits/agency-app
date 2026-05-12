@@ -864,7 +864,7 @@ const Calc = {
   }
 };
 const _rates = {};
-function getRate(n, ymi) { return _rates[n]?.[ymi] ?? 0; }
+function getRate(n, ymi) { return _rates[n]?.[ymi] ?? 50; }
 function setRate(n, ymi, p) {
   if (!_rates[n]) _rates[n] = {};
   _rates[n][ymi] = p;
