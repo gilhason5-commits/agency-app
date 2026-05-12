@@ -2087,23 +2087,44 @@ function DashPage() {
       const prevM = month === 0 ? 11 : month - 1;
       const prevY = month === 0 ? year - 1 : year;
       const prevInc = income.filter(r => { const d = r.date instanceof Date ? r.date : (r.date ? new Date(r.date) : null); return d && d.getFullYear() === prevY && d.getMonth() === prevM; });
-      const chartKeys = view === "yearly"
-        ? [...new Set(activeI.filter(r => tlNames.includes(r.chatterName)).map(r => { const d = r.date instanceof Date ? r.date : new Date(r.date); return d.getMonth(); }))].sort((a, b) => a - b)
-        : [...new Set(activeI.filter(r => tlNames.includes(r.chatterName)).map(r => { const d = r.date instanceof Date ? r.date : new Date(r.date); return d.getDate(); }))].sort((a, b) => a - b);
-      const chartD = chartKeys.map(k => {
-        const label = view === "yearly" ? MONTHS_SHORT[k] : String(k);
-        const row = { name: label };
-        tlNames.forEach(n => {
-          row[n] = activeI.filter(r => {
-            if (r.chatterName !== n) return false;
+      // Build cumulative chart data
+      const buildCumulative = () => {
+        if (view === "yearly") {
+          const monthly = {};
+          tlNames.forEach(n => { monthly[n] = {}; });
+          activeI.forEach(r => {
+            if (!tlNames.includes(r.chatterName)) return;
             const d = r.date instanceof Date ? r.date : new Date(r.date);
-            return view === "yearly" ? d.getMonth() === k : d.getDate() === k;
-          }).reduce((s, r) => s + (r.amountILS || 0), 0);
+            const mi = d.getMonth();
+            monthly[r.chatterName][mi] = (monthly[r.chatterName][mi] || 0) + (r.amountILS || 0);
+          });
+          const rows = []; const run = {}; tlNames.forEach(n => { run[n] = 0; });
+          for (let mi = 0; mi < 12; mi++) {
+            const row = { name: MONTHS_SHORT[mi] };
+            tlNames.forEach(n => { run[n] += monthly[n][mi] || 0; row[n] = run[n]; });
+            rows.push(row);
+          }
+          return rows;
+        }
+        const daily = {};
+        tlNames.forEach(n => { daily[n] = {}; });
+        activeI.forEach(r => {
+          if (!tlNames.includes(r.chatterName)) return;
+          const d = r.date instanceof Date ? r.date : new Date(r.date);
+          daily[r.chatterName][d.getDate()] = (daily[r.chatterName][d.getDate()] || 0) + (r.amountILS || 0);
         });
-        return row;
-      });
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const rows = []; const run = {}; tlNames.forEach(n => { run[n] = 0; });
+        for (let d = 1; d <= daysInMonth; d++) {
+          const row = { name: String(d) };
+          tlNames.forEach(n => { run[n] += daily[n][d] || 0; row[n] = run[n]; });
+          rows.push(row);
+        }
+        return rows;
+      };
+      const chartD = buildCumulative();
       return <div style={{ marginTop: 24 }}>
-        <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>👑 ראשי צוות — ביצועים</h3>
+        <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>👑 ראשי צוות — מכירות מצטברות</h3>
         <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
           {tlNames.map(n => {
             const cur = activeI.filter(r => r.chatterName === n).reduce((s, r) => s + (r.amountILS || 0), 0);
@@ -2114,15 +2135,15 @@ function DashPage() {
             return <Stat key={n} title={n} icon="👑" value={fmtC(cur)} sub={prev > 0 ? <span style={{ color: up ? C.grn : C.red }}>{up ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}% לעומת חודש קודם</span> : `${curCount} מכירות`} color={C.grn} />;
           })}
         </div>
-        {chartD.length > 0 && <Card>
+        {<Card>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={chartD}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
               <XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} />
-              <YAxis tick={{ fill: C.dim, fontSize: 10 }} />
+              <YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
               <Tooltip content={<TT />} />
               <Legend />
-              {tlNames.map((n, i) => <Line key={n} type="monotone" dataKey={n} name={n} stroke={ENTITY_COLORS[i % ENTITY_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} />)}
+              {tlNames.map((n, i) => <Line key={n} type="monotoneX" dataKey={n} name={n} stroke={ENTITY_COLORS[i % ENTITY_COLORS.length]} strokeWidth={2.5} dot={false} />)}
             </LineChart>
           </ResponsiveContainer>
         </Card>}
@@ -7951,28 +7972,53 @@ function TeamLeadOverviewPage() {
 
   const compareData = useMemo(() => {
     if (tlView === "monthly") {
-      const dayMap = {};
+      // Build day-by-day sales per lead, then accumulate
+      const daysInMonth = new Date(tlYear, tlMonth + 1, 0).getDate();
+      const dailySales = {};
       allNames.forEach(n => {
+        dailySales[n] = {};
         (incByLead[n] || []).forEach(r => {
-          const d = r.date instanceof Date ? r.date.getDate() : "";
+          const d = r.date instanceof Date ? r.date.getDate() : (r.date ? new Date(r.date).getDate() : null);
           if (!d) return;
-          if (!dayMap[d]) dayMap[d] = { name: String(d) };
-          dayMap[d][n] = (dayMap[d][n] || 0) + (r.amountILS || 0);
+          dailySales[n][d] = (dailySales[n][d] || 0) + (r.amountILS || 0);
         });
       });
-      return Object.values(dayMap).sort((a, b) => +a.name - +b.name);
+      const rows = [];
+      const running = {};
+      allNames.forEach(n => { running[n] = 0; });
+      for (let d = 1; d <= daysInMonth; d++) {
+        const row = { name: String(d) };
+        allNames.forEach(n => {
+          running[n] += dailySales[n][d] || 0;
+          row[n] = running[n];
+        });
+        rows.push(row);
+      }
+      return rows;
     }
-    const monthMap = {};
+    // Yearly: month-by-month cumulative
+    const monthlySales = {};
     allNames.forEach(n => {
+      monthlySales[n] = {};
       (incByLead[n] || []).forEach(r => {
         const d = r.date instanceof Date ? r.date : new Date(r.date);
         const mi = d.getMonth();
-        if (!monthMap[mi]) monthMap[mi] = { name: MONTHS_SHORT[mi] };
-        monthMap[mi][n] = (monthMap[mi][n] || 0) + (r.amountILS || 0);
+        monthlySales[n][mi] = (monthlySales[n][mi] || 0) + (r.amountILS || 0);
       });
     });
-    return Object.entries(monthMap).sort((a, b) => +a[0] - +b[0]).map(([, v]) => v);
-  }, [incByLead, allNames, tlView]);
+    const rows = [];
+    const running = {};
+    allNames.forEach(n => { running[n] = 0; });
+    for (let mi = 0; mi < 12; mi++) {
+      const row = { name: MONTHS_SHORT[mi] };
+      allNames.forEach(n => {
+        running[n] += monthlySales[n][mi] || 0;
+        row[n] = running[n];
+      });
+      rows.push(row);
+    }
+    return rows;
+  }, [incByLead, allNames, tlView, tlMonth, tlYear]);
 
   return <div style={{ direction: "rtl" }}>
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
@@ -7989,15 +8035,15 @@ function TeamLeadOverviewPage() {
     </div>
 
     {compareData.length > 0 && allNames.length > 0 && <Card style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: C.txt, marginBottom: 10 }}>השוואת מכירות</div>
-      <ResponsiveContainer width="100%" height={280}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: C.txt, marginBottom: 10 }}>מכירות מצטברות — מי עוקף את מי?</div>
+      <ResponsiveContainer width="100%" height={300}>
         <LineChart data={compareData}>
           <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
           <XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} />
-          <YAxis tick={{ fill: C.dim, fontSize: 10 }} />
+          <YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
           <Tooltip content={<TT />} />
           <Legend />
-          {allNames.map((n, i) => <Line key={n} type="monotone" dataKey={n} name={n} stroke={ENTITY_COLORS[i % ENTITY_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} />)}
+          {allNames.map((n, i) => <Line key={n} type="monotoneX" dataKey={n} name={n} stroke={ENTITY_COLORS[i % ENTITY_COLORS.length]} strokeWidth={2.5} dot={false} />)}
         </LineChart>
       </ResponsiveContainer>
     </Card>}
