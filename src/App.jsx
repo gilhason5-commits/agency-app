@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createContext, useContext, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, createContext, useContext, useMemo, useRef, Fragment } from "react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, Area, LabelList } from "recharts";
 import * as XLSX from "xlsx";
 import {
@@ -881,6 +881,45 @@ async function loadRatesFromFirebase() {
       });
     });
   } catch {}
+}
+
+function computeManagedSales(leadName, allShifts, allIncome, datePredicate) {
+  const leadShifts = allShifts.filter(s =>
+    s.chatterName === leadName && s.status === "approved" && datePredicate(s.date)
+  );
+  return leadShifts.map(ls => {
+    const chatterShifts = allShifts.filter(s =>
+      s.date === ls.date && s.slotId === ls.slotId &&
+      s.status === "approved" && s.chatterName !== leadName
+    );
+    const slotStartH = ls.slotStart ? parseInt(ls.slotStart.split(":")[0], 10) : 0;
+    const slotEndH = ls.slotEnd ? parseInt(ls.slotEnd.split(":")[0], 10) : 24;
+    const chatters = chatterShifts.map(cs => {
+      const inc = allIncome.filter(r => {
+        if (!r.date || r.chatterName !== cs.chatterName) return false;
+        const d = r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10);
+        if (d !== ls.date) return false;
+        const h = r.hour ? parseInt(r.hour.split(":")[0], 10) : -1;
+        return h >= slotStartH && h < slotEndH;
+      });
+      return {
+        name: cs.chatterName, clockIn: cs.clockIn, clockOut: cs.clockOut,
+        hours: cs.hoursWorked || 0,
+        sales: inc.reduce((s, r) => s + (r.amountILS || 0), 0),
+        salesUSD: inc.reduce((s, r) => s + (r.amountUSD || 0), 0),
+        count: inc.length, records: inc,
+      };
+    });
+    return {
+      date: ls.date, slotId: ls.slotId, slotLabel: ls.slotLabel,
+      slotStart: ls.slotStart, slotEnd: ls.slotEnd,
+      leadClockIn: ls.clockIn, leadClockOut: ls.clockOut, leadHours: ls.hoursWorked || 0,
+      chatters,
+      totalILS: chatters.reduce((s, c) => s + c.sales, 0),
+      totalUSD: chatters.reduce((s, c) => s + c.salesUSD, 0),
+      salesCount: chatters.reduce((s, c) => s + c.count, 0),
+    };
+  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2079,24 +2118,40 @@ function DashPage() {
       </div>;
     })()}
 
-    {/* Team Lead Performance */}
+    {/* Team Lead Performance — managed shift sales */}
     {(() => {
       const tlNames = [...new Set([...(sheetUsers || []).filter(u => u.role === "shift_manager").map(u => u.name)])].filter(Boolean);
       if (tlNames.length === 0) return null;
-      const activeI = view === "monthly" ? iM : iY;
+      const curPred = (dateStr) => {
+        if (!dateStr) return false;
+        const parts = dateStr.split("-");
+        if (parts.length < 3) return false;
+        const sy = +parts[0], sm = +parts[1] - 1;
+        return view === "monthly" ? (sy === year && sm === month) : sy === year;
+      };
       const prevM = month === 0 ? 11 : month - 1;
       const prevY = month === 0 ? year - 1 : year;
-      const prevInc = income.filter(r => { const d = r.date instanceof Date ? r.date : (r.date ? new Date(r.date) : null); return d && d.getFullYear() === prevY && d.getMonth() === prevM; });
-      // Build cumulative chart data
+      const prevPred = (dateStr) => {
+        if (!dateStr) return false;
+        const parts = dateStr.split("-");
+        if (parts.length < 3) return false;
+        return +parts[0] === prevY && +parts[1] - 1 === prevM;
+      };
+      const curManaged = {};
+      const prevManaged = {};
+      tlNames.forEach(n => {
+        curManaged[n] = computeManagedSales(n, shifts, income, curPred);
+        prevManaged[n] = computeManagedSales(n, shifts, income, prevPred);
+      });
       const buildCumulative = () => {
         if (view === "yearly") {
           const monthly = {};
-          tlNames.forEach(n => { monthly[n] = {}; });
-          activeI.forEach(r => {
-            if (!tlNames.includes(r.chatterName)) return;
-            const d = r.date instanceof Date ? r.date : new Date(r.date);
-            const mi = d.getMonth();
-            monthly[r.chatterName][mi] = (monthly[r.chatterName][mi] || 0) + (r.amountILS || 0);
+          tlNames.forEach(n => {
+            monthly[n] = {};
+            curManaged[n].forEach(sh => {
+              const mi = sh.date ? +sh.date.split("-")[1] - 1 : null;
+              if (mi !== null) monthly[n][mi] = (monthly[n][mi] || 0) + sh.totalILS;
+            });
           });
           const rows = []; const run = {}; tlNames.forEach(n => { run[n] = 0; });
           for (let mi = 0; mi < 12; mi++) {
@@ -2107,11 +2162,12 @@ function DashPage() {
           return rows;
         }
         const daily = {};
-        tlNames.forEach(n => { daily[n] = {}; });
-        activeI.forEach(r => {
-          if (!tlNames.includes(r.chatterName)) return;
-          const d = r.date instanceof Date ? r.date : new Date(r.date);
-          daily[r.chatterName][d.getDate()] = (daily[r.chatterName][d.getDate()] || 0) + (r.amountILS || 0);
+        tlNames.forEach(n => {
+          daily[n] = {};
+          curManaged[n].forEach(sh => {
+            const day = sh.date ? +sh.date.split("-")[2] : null;
+            if (day) daily[n][day] = (daily[n][day] || 0) + sh.totalILS;
+          });
         });
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const rows = []; const run = {}; tlNames.forEach(n => { run[n] = 0; });
@@ -2124,15 +2180,15 @@ function DashPage() {
       };
       const chartD = buildCumulative();
       return <div style={{ marginTop: 24 }}>
-        <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>👑 ראשי צוות — מכירות מצטברות</h3>
+        <h3 style={{ color: C.txt, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>👑 ראשי צוות — מכירות מצטברות במשמרות</h3>
         <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
           {tlNames.map(n => {
-            const cur = activeI.filter(r => r.chatterName === n).reduce((s, r) => s + (r.amountILS || 0), 0);
-            const curCount = activeI.filter(r => r.chatterName === n).length;
-            const prev = prevInc.filter(r => r.chatterName === n).reduce((s, r) => s + (r.amountILS || 0), 0);
+            const cur = curManaged[n].reduce((s, r) => s + r.totalILS, 0);
+            const curCount = curManaged[n].reduce((s, r) => s + r.salesCount, 0);
+            const prev = prevManaged[n].reduce((s, r) => s + r.totalILS, 0);
             const pct = prev > 0 ? ((cur - prev) / prev * 100) : 0;
             const up = pct >= 0;
-            return <Stat key={n} title={n} icon="👑" value={fmtC(cur)} sub={prev > 0 ? <span style={{ color: up ? C.grn : C.red }}>{up ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}% לעומת חודש קודם</span> : `${curCount} מכירות`} color={C.grn} />;
+            return <Stat key={n} title={n} icon="👑" value={fmtC(cur)} sub={prev > 0 ? <span style={{ color: up ? C.grn : C.red }}>{up ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}% לעומת חודש קודם</span> : `${curCount} מכירות · ${curManaged[n].length} משמרות`} color={C.grn} />;
           })}
         </div>
         {<Card>
@@ -5647,50 +5703,44 @@ function TeamLeadLogPage() {
   const [logView, setLogView] = useState("monthly");
   const [logMonth, setLogMonth] = useState(month);
   const [logYear, setLogYear] = useState(year);
-  const [subTab, setSubTab] = useState("sales");
+  const [expandedShift, setExpandedShift] = useState(null);
 
-  const filterByPeriod = (date) => {
-    if (!date) return false;
-    const d = date instanceof Date ? date : new Date(date);
-    if (isNaN(d)) return false;
-    if (logView === "monthly") return d.getFullYear() === logYear && d.getMonth() === logMonth;
-    return d.getFullYear() === logYear;
-  };
-
-  const myIncome = useMemo(() => income.filter(r => r.chatterName === name && filterByPeriod(r.date)).sort((a, b) => ((b.date || 0) - (a.date || 0))), [income, name, logView, logMonth, logYear]);
-  const myShiftsF = useMemo(() => shifts.filter(s => s.chatterName === name && s.status === "approved" && (() => {
-    if (!s.date) return false;
-    const p = s.date.split("-");
-    const sy = +p[0], sm = +p[1] - 1;
+  const datePred = useCallback((dateStr) => {
+    if (!dateStr) return false;
+    const parts = dateStr.split("-");
+    if (parts.length < 3) return false;
+    const sy = +parts[0], sm = +parts[1] - 1;
     return logView === "monthly" ? (sy === logYear && sm === logMonth) : sy === logYear;
-  })()).sort((a, b) => (b.date || "").localeCompare(a.date || "")), [shifts, name, logView, logMonth, logYear]);
+  }, [logView, logMonth, logYear]);
 
-  const totalSales = myIncome.reduce((s, r) => s + (r.amountILS || 0), 0);
-  const totalUSD = myIncome.reduce((s, r) => s + (r.amountUSD || 0), 0);
-  const totalHours = myShiftsF.reduce((s, r) => s + (r.hoursWorked || 0), 0);
+  const managed = useMemo(() =>
+    computeManagedSales(name, shifts, income, datePred).sort((a, b) => (b.date || "").localeCompare(a.date || "")),
+    [name, shifts, income, datePred]);
+
+  const totalSales = managed.reduce((s, r) => s + r.totalILS, 0);
+  const totalUSD = managed.reduce((s, r) => s + r.totalUSD, 0);
+  const totalSalesCount = managed.reduce((s, r) => s + r.salesCount, 0);
 
   const chartData = useMemo(() => {
     if (logView === "monthly") {
       const dayMap = {};
-      myIncome.forEach(r => {
-        const d = r.date instanceof Date ? r.date.getDate() : "";
-        if (!d) return;
-        dayMap[d] = (dayMap[d] || 0) + (r.amountILS || 0);
+      managed.forEach(r => {
+        const day = r.date ? +r.date.split("-")[2] : null;
+        if (day) dayMap[day] = (dayMap[day] || 0) + r.totalILS;
       });
       return Object.entries(dayMap).sort((a, b) => +a[0] - +b[0]).map(([d, v]) => ({ name: d, sales: v }));
     }
     const mMap = {};
-    myIncome.forEach(r => {
-      const d = r.date instanceof Date ? r.date : new Date(r.date);
-      const mi = d.getMonth();
-      mMap[mi] = (mMap[mi] || 0) + (r.amountILS || 0);
+    managed.forEach(r => {
+      const mi = r.date ? +r.date.split("-")[1] - 1 : null;
+      if (mi !== null) mMap[mi] = (mMap[mi] || 0) + r.totalILS;
     });
     return Object.entries(mMap).sort((a, b) => +a[0] - +b[0]).map(([mi, v]) => ({ name: MONTHS_SHORT[+mi], sales: v }));
-  }, [myIncome, logView]);
+  }, [managed, logView]);
 
   return <div style={{ direction: "rtl" }}>
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-      <h2 style={{ color: C.txt, fontSize: 18, fontWeight: 700, margin: 0 }}>📊 הנתונים שלי</h2>
+      <h2 style={{ color: C.txt, fontSize: 18, fontWeight: 700, margin: 0 }}>📊 מכירות במשמרות שלי</h2>
       <div style={{ display: "flex", gap: 4 }}>
         {[{ k: "monthly", l: "חודשי" }, { k: "yearly", l: "שנתי" }].map(o => <button key={o.k} onClick={() => setLogView(o.k)} style={{ padding: "4px 12px", borderRadius: 8, fontSize: 12, fontWeight: logView === o.k ? 700 : 400, background: logView === o.k ? C.pri : C.card, color: logView === o.k ? "#fff" : C.dim, border: `1px solid ${logView === o.k ? C.pri : C.bdr}`, cursor: "pointer" }}>{o.l}</button>)}
       </div>
@@ -5703,13 +5753,13 @@ function TeamLeadLogPage() {
     </div>
 
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-      <Stat icon="💰" title="סה״כ מכירות" value={fmtC(totalSales)} color={C.grn} sub={`${myIncome.length} עסקאות${totalUSD > 0 ? ` · ${fmtUSD(totalUSD)}` : ""}`} />
-      <Stat icon="📅" title="משמרות" value={String(myShiftsF.length)} color={C.pri} sub={`${totalHours} שעות`} />
-      {myIncome.length > 0 && <Stat icon="📈" title="ממוצע למכירה" value={fmtC(totalSales / myIncome.length)} color={C.ylw} />}
+      <Stat icon="💰" title="סה״כ מכירות במשמרות" value={fmtC(totalSales)} color={C.grn} sub={`${totalSalesCount} עסקאות${totalUSD > 0 ? ` · ${fmtUSD(totalUSD)}` : ""}`} />
+      <Stat icon="📅" title="משמרות" value={String(managed.length)} color={C.pri} sub={`${managed.reduce((s, r) => s + r.chatters.length, 0)} צ׳אטרים`} />
+      {totalSalesCount > 0 && <Stat icon="📈" title="ממוצע למשמרת" value={fmtC(totalSales / managed.length)} color={C.ylw} />}
     </div>
 
     {chartData.length > 0 && <Card style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: C.txt, marginBottom: 8 }}>מכירות לפי {logView === "monthly" ? "יום" : "חודש"}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.txt, marginBottom: 8 }}>מכירות במשמרות לפי {logView === "monthly" ? "יום" : "חודש"}</div>
       <ResponsiveContainer width="100%" height={200}>
         <LineChart data={chartData}>
           <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
@@ -5721,28 +5771,56 @@ function TeamLeadLogPage() {
       </ResponsiveContainer>
     </Card>}
 
-    <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-      {[{ k: "sales", l: "מכירות" }, { k: "shifts", l: "משמרות" }].map(t => <button key={t.k} onClick={() => setSubTab(t.k)} style={{ padding: "4px 12px", borderRadius: 8, fontSize: 12, fontWeight: subTab === t.k ? 700 : 400, background: subTab === t.k ? C.pri : C.card, color: subTab === t.k ? "#fff" : C.dim, border: `1px solid ${subTab === t.k ? C.pri : C.bdr}`, cursor: "pointer" }}>{t.l}</button>)}
-    </div>
-
-    {subTab === "sales" && (myIncome.length > 0 ? <DT columns={[
-      { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date instanceof Date ? r.date.toLocaleDateString("he-IL") : r.date}</span> },
-      { label: "שעה", key: "hour" },
-      { label: "לקוחה", render: r => <span style={{ color: C.pri }}>{r.modelName}</span> },
-      { label: "פלטפורמה", key: "platform" },
-      { label: "סכום ₪", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.amountILS)}</span> },
-      { label: "סכום $", render: r => <span style={{ color: C.pri }}>{r.amountUSD > 0 ? fmtUSD(r.amountUSD) : "—"}</span> },
-      { label: "סטטוס", render: r => <span style={{ color: r.cancelled ? C.ylw : C.grn }}>{r.cancelled ? "בוטל" : "✅"}</span> }
-    ]} rows={myIncome} footer={["סה״כ", "", "", "", fmtC(totalSales), fmtUSD(totalUSD), ""]} /> : <Card><div style={{ color: C.mut, fontSize: 13, textAlign: "center", padding: 20 }}>אין מכירות</div></Card>)}
-
-    {subTab === "shifts" && (myShiftsF.length > 0 ? <DT columns={[
-      { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date}</span> },
-      { label: "משמרת", render: r => <span style={{ color: C.pri }}>{r.slotLabel}</span> },
-      { label: "כניסה", render: r => <span style={{ color: C.grn }}>{r.clockIn ? new Date(r.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</span> },
-      { label: "יציאה", render: r => <span style={{ color: C.red }}>{r.clockOut ? new Date(r.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</span> },
-      { label: "שעות", render: r => <span style={{ color: C.txt }}>{r.hoursWorked || "—"}</span> },
-      { label: "לקוחות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{(r.clients || []).map(c => typeof c === "string" ? c : c.name).join(", ") || "—"}</span> }
-    ]} rows={myShiftsF} footer={["סה״כ", "", "", "", String(totalHours), ""]} /> : <Card><div style={{ color: C.mut, fontSize: 13, textAlign: "center", padding: 20 }}>אין משמרות</div></Card>)}
+    {managed.length > 0 ? <div style={{ overflowX: "auto", borderRadius: 12, border: `1px solid ${C.bdr}` }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, direction: "rtl" }}>
+        <thead><tr>
+          {["תאריך", "משמרת", "צ׳אטרים", "מכירות", "סה״כ ₪", ""].map((h, i) => <th key={i} style={{ padding: "6px 8px", background: C.card, color: C.dim, borderBottom: `1px solid ${C.bdr}`, textAlign: "right", fontWeight: 600, fontSize: 11 }}>{h}</th>)}
+        </tr></thead>
+        <tbody>{managed.map((r, ri) => {
+          const shKey = `${r.date}-${r.slotId}`;
+          const isOpen = expandedShift === shKey;
+          return <Fragment key={ri}>
+            <tr style={{ borderBottom: `1px solid ${C.bdr}`, cursor: "pointer" }} onClick={() => setExpandedShift(isOpen ? null : shKey)}>
+              <td style={{ padding: "6px 8px", color: C.txt }}>{r.date}</td>
+              <td style={{ padding: "6px 8px", color: C.pri }}>{r.slotLabel || `${r.slotStart}-${r.slotEnd}`}</td>
+              <td style={{ padding: "6px 8px", color: C.dim }}>{r.chatters.length}</td>
+              <td style={{ padding: "6px 8px", color: C.dim }}>{r.salesCount}</td>
+              <td style={{ padding: "6px 8px", color: C.grn, fontWeight: 600 }}>{fmtC(r.totalILS)}</td>
+              <td style={{ padding: "6px 8px", color: C.pri, fontSize: 11 }}>{isOpen ? "▲" : "▼"}</td>
+            </tr>
+            {isOpen && <tr><td colSpan={6} style={{ padding: "8px 12px", background: `${C.pri}08` }}>
+              {r.chatters.length > 0 ? <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                <thead><tr style={{ borderBottom: `1px solid ${C.bdr}` }}>
+                  {["צ׳אטר", "כניסה", "יציאה", "שעות", "מכירות", "סכום ₪"].map((h, i) => <th key={i} style={{ textAlign: "right", padding: "4px 6px", color: C.dim }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{r.chatters.map(ch => <tr key={ch.name} style={{ borderBottom: `1px solid ${C.bdr}22` }}>
+                  <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 600 }}>{ch.name}</td>
+                  <td style={{ padding: "4px 6px", color: C.grn }}>{ch.clockIn ? new Date(ch.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                  <td style={{ padding: "4px 6px", color: C.red }}>{ch.clockOut ? new Date(ch.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                  <td style={{ padding: "4px 6px", color: C.txt }}>{ch.hours || "—"}</td>
+                  <td style={{ padding: "4px 6px", color: C.dim }}>{ch.count}</td>
+                  <td style={{ padding: "4px 6px", color: C.grn, fontWeight: 600 }}>{fmtC(ch.sales)}</td>
+                </tr>)}</tbody>
+                <tfoot><tr style={{ borderTop: `2px solid ${C.bdr}` }}>
+                  <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 700 }}>סה״כ</td>
+                  <td colSpan={3}></td>
+                  <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 700 }}>{r.salesCount}</td>
+                  <td style={{ padding: "4px 6px", color: C.grn, fontWeight: 700 }}>{fmtC(r.totalILS)}</td>
+                </tr></tfoot>
+              </table> : <div style={{ color: C.mut, fontSize: 11 }}>לא היו צ׳אטרים במשמרת</div>}
+            </td></tr>}
+          </Fragment>;
+        })}</tbody>
+        <tfoot><tr style={{ background: C.card }}>
+          <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>סה״כ</td>
+          <td></td>
+          <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>{managed.reduce((s, r) => s + r.chatters.length, 0)}</td>
+          <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>{totalSalesCount}</td>
+          <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>{fmtC(totalSales)}</td>
+          <td></td>
+        </tr></tfoot>
+      </table>
+    </div> : <Card><div style={{ color: C.mut, fontSize: 13, textAlign: "center", padding: 20 }}>אין משמרות</div></Card>}
   </div>;
 }
 
@@ -7929,100 +8007,66 @@ function TeamLeadOverviewPage() {
   const [tlMonth, setTlMonth] = useState(month);
   const [tlYear, setTlYear] = useState(year);
   const [expanded, setExpanded] = useState(null);
-  const [subTab, setSubTab] = useState("sales");
+  const [expandedShift, setExpandedShift] = useState(null);
 
   const teamLeads = useMemo(() => (sheetUsers || []).filter(u => u.role === "shift_manager").map(u => u.name), [sheetUsers]);
   const allNames = useMemo(() => [...new Set([...teamLeads, ...teamLeadLogs.map(l => l.teamLeadName)])].filter(Boolean), [teamLeads, teamLeadLogs]);
 
-  const filterByPeriod = (date) => {
-    if (!date) return false;
-    const d = date instanceof Date ? date : new Date(date);
-    if (isNaN(d)) return false;
-    if (tlView === "monthly") return d.getFullYear() === tlYear && d.getMonth() === tlMonth;
-    return d.getFullYear() === tlYear;
-  };
+  const datePred = useCallback((dateStr) => {
+    if (!dateStr) return false;
+    const parts = dateStr.split("-");
+    if (parts.length < 3) return false;
+    const sy = +parts[0], sm = +parts[1] - 1;
+    return tlView === "monthly" ? (sy === tlYear && sm === tlMonth) : sy === tlYear;
+  }, [tlView, tlMonth, tlYear]);
 
-  const incByLead = useMemo(() => {
+  const managedByLead = useMemo(() => {
     const map = {};
-    allNames.forEach(n => { map[n] = []; });
-    income.forEach(r => {
-      if (r.chatterName && allNames.includes(r.chatterName) && filterByPeriod(r.date)) {
-        map[r.chatterName].push(r);
-      }
-    });
+    allNames.forEach(n => { map[n] = computeManagedSales(n, shifts, income, datePred); });
     return map;
-  }, [income, allNames, tlView, tlMonth, tlYear]);
-
-  const shiftsByLead = useMemo(() => {
-    const map = {};
-    allNames.forEach(n => { map[n] = []; });
-    shifts.forEach(s => {
-      if (s.chatterName && allNames.includes(s.chatterName) && s.status === "approved") {
-        const d = s.date;
-        if (!d) return;
-        const parts = d.split("-");
-        const sy = +parts[0], sm = +parts[1] - 1;
-        if (tlView === "monthly" ? (sy === tlYear && sm === tlMonth) : sy === tlYear) {
-          map[s.chatterName].push(s);
-        }
-      }
-    });
-    return map;
-  }, [shifts, allNames, tlView, tlMonth, tlYear]);
+  }, [shifts, income, allNames, datePred]);
 
   const compareData = useMemo(() => {
     if (tlView === "monthly") {
-      // Build day-by-day sales per lead, then accumulate
       const daysInMonth = new Date(tlYear, tlMonth + 1, 0).getDate();
       const dailySales = {};
       allNames.forEach(n => {
         dailySales[n] = {};
-        (incByLead[n] || []).forEach(r => {
-          const d = r.date instanceof Date ? r.date.getDate() : (r.date ? new Date(r.date).getDate() : null);
-          if (!d) return;
-          dailySales[n][d] = (dailySales[n][d] || 0) + (r.amountILS || 0);
+        (managedByLead[n] || []).forEach(sh => {
+          const day = sh.date ? +sh.date.split("-")[2] : null;
+          if (day) dailySales[n][day] = (dailySales[n][day] || 0) + sh.totalILS;
         });
       });
-      const rows = [];
-      const running = {};
+      const rows = [], running = {};
       allNames.forEach(n => { running[n] = 0; });
       for (let d = 1; d <= daysInMonth; d++) {
         const row = { name: String(d) };
-        allNames.forEach(n => {
-          running[n] += dailySales[n][d] || 0;
-          row[n] = running[n];
-        });
+        allNames.forEach(n => { running[n] += dailySales[n][d] || 0; row[n] = running[n]; });
         rows.push(row);
       }
       return rows;
     }
-    // Yearly: month-by-month cumulative
     const monthlySales = {};
     allNames.forEach(n => {
       monthlySales[n] = {};
-      (incByLead[n] || []).forEach(r => {
-        const d = r.date instanceof Date ? r.date : new Date(r.date);
-        const mi = d.getMonth();
-        monthlySales[n][mi] = (monthlySales[n][mi] || 0) + (r.amountILS || 0);
+      (managedByLead[n] || []).forEach(sh => {
+        const mi = sh.date ? +sh.date.split("-")[1] - 1 : null;
+        if (mi !== null) monthlySales[n][mi] = (monthlySales[n][mi] || 0) + sh.totalILS;
       });
     });
-    const rows = [];
-    const running = {};
+    const rows = [], running = {};
     allNames.forEach(n => { running[n] = 0; });
     for (let mi = 0; mi < 12; mi++) {
       const row = { name: MONTHS_SHORT[mi] };
-      allNames.forEach(n => {
-        running[n] += monthlySales[n][mi] || 0;
-        row[n] = running[n];
-      });
+      allNames.forEach(n => { running[n] += monthlySales[n][mi] || 0; row[n] = running[n]; });
       rows.push(row);
     }
     return rows;
-  }, [incByLead, allNames, tlView, tlMonth, tlYear]);
+  }, [managedByLead, allNames, tlView, tlMonth, tlYear]);
 
   return <div style={{ direction: "rtl" }}>
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, margin: 0 }}>👑 ראשי צוות</h2>
+      <h2 style={{ color: C.txt, fontSize: 20, fontWeight: 700, margin: 0 }}>👑 ראשי צוות — מכירות במשמרות</h2>
       <div style={{ display: "flex", gap: 4 }}>
         {[{ k: "monthly", l: "חודשי" }, { k: "yearly", l: "שנתי" }].map(o => <button key={o.k} onClick={() => setTlView(o.k)} style={{ padding: "4px 12px", borderRadius: 8, fontSize: 12, fontWeight: tlView === o.k ? 700 : 400, background: tlView === o.k ? C.pri : C.card, color: tlView === o.k ? "#fff" : C.dim, border: `1px solid ${tlView === o.k ? C.pri : C.bdr}`, cursor: "pointer" }}>{o.l}</button>)}
       </div>
@@ -8035,7 +8079,7 @@ function TeamLeadOverviewPage() {
     </div>
 
     {compareData.length > 0 && allNames.length > 0 && <Card style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: C.txt, marginBottom: 10 }}>מכירות מצטברות — מי עוקף את מי?</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: C.txt, marginBottom: 10 }}>מכירות מצטברות במשמרות — מי עוקף את מי?</div>
       <ResponsiveContainer width="100%" height={300}>
         <LineChart data={compareData}>
           <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
@@ -8050,55 +8094,85 @@ function TeamLeadOverviewPage() {
 
     <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr" : "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
       {allNames.map(n => {
-        const inc = incByLead[n] || [];
-        const sh = shiftsByLead[n] || [];
-        const totalSales = inc.reduce((s, r) => s + (r.amountILS || 0), 0);
-        const totalUSD = inc.reduce((s, r) => s + (r.amountUSD || 0), 0);
-        const totalHours = sh.reduce((s, r) => s + (r.hoursWorked || 0), 0);
-        return <Stat key={n} title={n} icon="👑" value={fmtC(totalSales)} sub={`${inc.length} מכירות · ${sh.length} משמרות · ${totalHours} שעות${totalUSD > 0 ? ` · ${fmtUSD(totalUSD)}` : ""}`} color={C.grn} />;
+        const managed = managedByLead[n] || [];
+        const totalSales = managed.reduce((s, r) => s + r.totalILS, 0);
+        const totalUSD = managed.reduce((s, r) => s + r.totalUSD, 0);
+        const totalSalesCount = managed.reduce((s, r) => s + r.salesCount, 0);
+        return <Stat key={n} title={n} icon="👑" value={fmtC(totalSales)} sub={`${totalSalesCount} מכירות · ${managed.length} משמרות${totalUSD > 0 ? ` · ${fmtUSD(totalUSD)}` : ""}`} color={C.grn} />;
       })}
     </div>
 
     {allNames.map(n => {
-      const inc = (incByLead[n] || []).sort((a, b) => ((b.date || 0) - (a.date || 0)));
-      const sh = (shiftsByLead[n] || []).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+      const managed = (managedByLead[n] || []).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
       const logs = (teamLeadLogs || []).filter(l => l.teamLeadName === n).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
       const isOpen = expanded === n;
-      const totalSales = inc.reduce((s, r) => s + (r.amountILS || 0), 0);
+      const totalSales = managed.reduce((s, r) => s + r.totalILS, 0);
+      const totalSalesCount = managed.reduce((s, r) => s + r.salesCount, 0);
       return <Card key={n} style={{ marginBottom: 12 }}>
-        <div onClick={() => setExpanded(isOpen ? null : n)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.txt }}>👑 {n} — {fmtC(totalSales)} ({inc.length} מכירות, {sh.length} משמרות)</div>
+        <div onClick={() => { setExpanded(isOpen ? null : n); setExpandedShift(null); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.txt }}>👑 {n} — {fmtC(totalSales)} ({totalSalesCount} מכירות, {managed.length} משמרות)</div>
           <span style={{ color: C.dim, fontSize: 16 }}>{isOpen ? "▲" : "▼"}</span>
         </div>
         {isOpen && <div style={{ marginTop: 12 }}>
-          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            {[{ k: "sales", l: "מכירות" }, { k: "shifts", l: "משמרות" }, ...(logs.length > 0 ? [{ k: "logs", l: "סיכומי משמרות" }] : [])].map(t => <button key={t.k} onClick={e => { e.stopPropagation(); setSubTab(t.k); }} style={{ padding: "4px 12px", borderRadius: 8, fontSize: 12, fontWeight: subTab === t.k ? 700 : 400, background: subTab === t.k ? C.pri : C.card, color: subTab === t.k ? "#fff" : C.dim, border: `1px solid ${subTab === t.k ? C.pri : C.bdr}`, cursor: "pointer" }}>{t.l}</button>)}
-          </div>
-          {subTab === "sales" && (inc.length > 0 ? <DT columns={[
-            { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date instanceof Date ? r.date.toLocaleDateString("he-IL") : r.date}</span> },
-            { label: "שעה", key: "hour" },
-            { label: "לקוחה", render: r => <span style={{ color: C.pri }}>{r.modelName}</span> },
-            { label: "פלטפורמה", key: "platform" },
-            { label: "סכום ₪", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.amountILS)}</span> },
-            { label: "סכום $", render: r => <span style={{ color: C.pri }}>{r.amountUSD > 0 ? fmtUSD(r.amountUSD) : "—"}</span> },
-            { label: "סטטוס", render: r => <span style={{ color: r.cancelled ? C.ylw : C.grn }}>{r.cancelled ? "בוטל" : "✅"}</span> }
-          ]} rows={inc} footer={["סה״כ", "", "", "", fmtC(totalSales), fmtUSD(inc.reduce((s, r) => s + (r.amountUSD || 0), 0)), ""]} /> : <div style={{ color: C.mut, fontSize: 12 }}>אין מכירות</div>)}
-          {subTab === "shifts" && (sh.length > 0 ? <DT columns={[
-            { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date}</span> },
-            { label: "משמרת", render: r => <span style={{ color: C.pri }}>{r.slotLabel}</span> },
-            { label: "כניסה", render: r => <span style={{ color: C.grn }}>{r.clockIn ? new Date(r.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</span> },
-            { label: "יציאה", render: r => <span style={{ color: C.red }}>{r.clockOut ? new Date(r.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</span> },
-            { label: "שעות", render: r => <span style={{ color: C.txt }}>{r.hoursWorked || "—"}</span> },
-            { label: "לקוחות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{(r.clients || []).map(c => typeof c === "string" ? c : c.name).join(", ") || "—"}</span> }
-          ]} rows={sh} footer={["סה״כ", "", "", "", String(sh.reduce((s, r) => s + (r.hoursWorked || 0), 0)), ""]} /> : <div style={{ color: C.mut, fontSize: 12 }}>אין משמרות</div>)}
-          {subTab === "logs" && logs.length > 0 && <DT columns={[
-            { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date}</span> },
-            { label: "משמרת", render: r => <span style={{ color: C.pri }}>{r.slotLabel}</span> },
-            { label: "שעות", render: r => <span style={{ color: C.txt }}>{r.hoursWorked}</span> },
-            { label: "מכירות ₪", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.totalSalesILS)}</span> },
-            { label: "חוסרים", render: r => <span style={{ color: r.absentees?.length ? C.red : C.dim, fontSize: 11 }}>{(r.absentees || []).join(", ") || "—"}</span> },
-            { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> }
-          ]} rows={logs} />}
+          {managed.length > 0 ? <div style={{ overflowX: "auto", borderRadius: 12, border: `1px solid ${C.bdr}` }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, direction: "rtl" }}>
+              <thead><tr>
+                {["תאריך", "משמרת", "צ׳אטרים", "מכירות", "סה״כ ₪", ""].map((h, i) => <th key={i} style={{ padding: "6px 8px", background: C.card, color: C.dim, borderBottom: `1px solid ${C.bdr}`, textAlign: "right", fontWeight: 600, fontSize: 11 }}>{h}</th>)}
+              </tr></thead>
+              <tbody>{managed.map((r, ri) => {
+                const shKey = `${n}-${r.date}-${r.slotId}`;
+                const isShOpen = expandedShift === shKey;
+                return <Fragment key={ri}>
+                  <tr style={{ borderBottom: `1px solid ${C.bdr}`, cursor: "pointer" }} onClick={() => setExpandedShift(isShOpen ? null : shKey)}>
+                    <td style={{ padding: "6px 8px", color: C.txt }}>{r.date}</td>
+                    <td style={{ padding: "6px 8px", color: C.pri }}>{r.slotLabel || `${r.slotStart}-${r.slotEnd}`}</td>
+                    <td style={{ padding: "6px 8px", color: C.dim }}>{r.chatters.length}</td>
+                    <td style={{ padding: "6px 8px", color: C.dim }}>{r.salesCount}</td>
+                    <td style={{ padding: "6px 8px", color: C.grn, fontWeight: 600 }}>{fmtC(r.totalILS)}</td>
+                    <td style={{ padding: "6px 8px", color: C.pri, fontSize: 11 }}>{isShOpen ? "▲" : "▼"}</td>
+                  </tr>
+                  {isShOpen && <tr><td colSpan={6} style={{ padding: "8px 12px", background: `${C.pri}08` }}>
+                    {r.chatters.length > 0 ? <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                      <thead><tr style={{ borderBottom: `1px solid ${C.bdr}` }}>
+                        {["צ׳אטר", "כניסה", "יציאה", "שעות", "מכירות", "סכום ₪"].map((h, i) => <th key={i} style={{ textAlign: "right", padding: "4px 6px", color: C.dim }}>{h}</th>)}
+                      </tr></thead>
+                      <tbody>{r.chatters.map(ch => <tr key={ch.name} style={{ borderBottom: `1px solid ${C.bdr}22` }}>
+                        <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 600 }}>{ch.name}</td>
+                        <td style={{ padding: "4px 6px", color: C.grn }}>{ch.clockIn ? new Date(ch.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                        <td style={{ padding: "4px 6px", color: C.red }}>{ch.clockOut ? new Date(ch.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                        <td style={{ padding: "4px 6px", color: C.txt }}>{ch.hours || "—"}</td>
+                        <td style={{ padding: "4px 6px", color: C.dim }}>{ch.count}</td>
+                        <td style={{ padding: "4px 6px", color: C.grn, fontWeight: 600 }}>{fmtC(ch.sales)}</td>
+                      </tr>)}</tbody>
+                      <tfoot><tr style={{ borderTop: `2px solid ${C.bdr}` }}>
+                        <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 700 }}>סה״כ</td>
+                        <td colSpan={3}></td>
+                        <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 700 }}>{r.salesCount}</td>
+                        <td style={{ padding: "4px 6px", color: C.grn, fontWeight: 700 }}>{fmtC(r.totalILS)}</td>
+                      </tr></tfoot>
+                    </table> : <div style={{ color: C.mut, fontSize: 11 }}>לא היו צ׳אטרים במשמרת</div>}
+                  </td></tr>}
+                </Fragment>;
+              })}</tbody>
+              <tfoot><tr style={{ background: C.card }}>
+                <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>סה״כ</td>
+                <td></td>
+                <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>{managed.reduce((s, r) => s + r.chatters.length, 0)}</td>
+                <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>{totalSalesCount}</td>
+                <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>{fmtC(totalSales)}</td>
+                <td></td>
+              </tr></tfoot>
+            </table>
+          </div> : <div style={{ color: C.mut, fontSize: 12 }}>אין משמרות</div>}
+          {logs.length > 0 && <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.dim, marginBottom: 6 }}>סיכומי משמרות (הערות)</div>
+            <DT columns={[
+              { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date}</span> },
+              { label: "משמרת", render: r => <span style={{ color: C.pri }}>{r.slotLabel}</span> },
+              { label: "חוסרים", render: r => <span style={{ color: r.absentees?.length ? C.red : C.dim, fontSize: 11 }}>{(r.absentees || []).join(", ") || "—"}</span> },
+              { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> }
+            ]} rows={logs} />
+          </div>}
         </div>}
       </Card>;
     })}
