@@ -887,7 +887,14 @@ function computeManagedSales(leadName, allShifts, allIncome, datePredicate) {
   const leadShifts = allShifts.filter(s =>
     s.chatterName === leadName && s.status === "approved" && datePredicate(s.date)
   );
-  return leadShifts.map(ls => {
+  const seen = new Set();
+  const unique = leadShifts.filter(s => {
+    const key = `${s.date}|${s.slotId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return unique.map(ls => {
     const chatterShifts = allShifts.filter(s =>
       s.date === ls.date && s.slotId === ls.slotId &&
       s.status === "approved" && s.chatterName !== leadName
