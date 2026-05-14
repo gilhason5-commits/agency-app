@@ -1118,6 +1118,32 @@ function Prov({ children }) {
     }).catch(() => {});
   }, []);
 
+  // Auto clock-out: every 60s, check for active shifts past their slotEnd
+  useEffect(() => {
+    const check = () => {
+      const now = new Date();
+      shifts.forEach(s => {
+        if (!s.clockIn || s.clockOut || s.status !== "approved") return;
+        if (!s.slotEnd || !s.date) return;
+        const [eh, em] = s.slotEnd.split(":").map(Number);
+        const [sy, sm, sd] = s.date.split("-").map(Number);
+        const slotStartH = s.slotStart ? parseInt(s.slotStart.split(":")[0], 10) : 0;
+        const endDate = new Date(sy, sm - 1, sd, eh, em || 0);
+        if (eh <= slotStartH && slotStartH > 0) endDate.setDate(endDate.getDate() + 1);
+        if (now >= endDate) {
+          const clockOut = endDate.toISOString();
+          const diffMs = endDate - new Date(s.clockIn);
+          const hoursWorked = Math.round(diffMs / 36000) / 100;
+          updateShift(s.id, { clockOut, hoursWorked, autoClockOut: true }).catch(() => {});
+          setShifts(prev => prev.map(sh => sh.id === s.id ? { ...sh, clockOut, hoursWorked, autoClockOut: true } : sh));
+        }
+      });
+    };
+    check();
+    const iv = setInterval(check, 60000);
+    return () => clearInterval(iv);
+  }, [shifts]);
+
   const [fixedExps, setFixedExps] = useState([]);
   const [employees, setEmployees] = useState([]);
   const addFixedExp = useCallback(async (record) => {
@@ -5406,7 +5432,7 @@ function ChatterPortal({ hideHeader } = {}) {
             </div>
             {s.clockIn && <div style={{ marginRight: 28, marginTop: 4, fontSize: 11, color: C.dim }}>
               כניסה: {new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}
-              {s.clockOut && <> · יציאה: {new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} · {s.hoursWorked} שעות</>}
+              {s.clockOut && <> · יציאה: {new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} · {s.hoursWorked} שעות{s.autoClockOut && <span style={{ color: C.ylw }}> (אוטומטי)</span>}</>}
             </div>}
             <div style={{ marginTop: 8 }}>
               {canClockIn && <Btn size="sm" variant="success" onClick={() => handleClockIn(s)} disabled={clockingId === s.id}>{clockingId === s.id ? "⏳" : "🟢 עליתי למשמרת"}</Btn>}
@@ -7234,7 +7260,7 @@ function ShiftsPage() {
                 {s.clockIn && <div style={{ fontSize: 11, color: C.dim, marginRight: 26 }}>
                   כניסה: {new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}
                   {s.lateMinutes > 0 && <span style={{ color: C.ylw, marginRight: 6 }}>⚠️ איחור {s.lateMinutes} דק׳</span>}
-                  {isDone && <> · יציאה: {new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} · {s.hoursWorked} שעות</>}
+                  {isDone && <> · יציאה: {new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} · {s.hoursWorked} שעות{s.autoClockOut && <span style={{ color: C.ylw }}> (אוטומטי)</span>}</>}
                 </div>}
                 {!s.clockIn && <div style={{ fontSize: 11, color: C.red, marginRight: 26 }}>לא דיווח/ה כניסה</div>}
                 {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginRight: 26, marginTop: 2 }}>לקוחות: {s.clients.map(c=>typeof c==="string"?c:c.name).join(", ")}</div>}
