@@ -887,24 +887,42 @@ function computeManagedSales(leadName, allShifts, allIncome, datePredicate) {
   const leadShifts = allShifts.filter(s =>
     s.chatterName === leadName && s.status === "approved" && datePredicate(s.date)
   );
-  return leadShifts.map(ls => {
+  const seen = new Set();
+  const unique = leadShifts.filter(s => {
+    const key = `${s.date}|${s.slotId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return unique.map(ls => {
     const chatterShifts = allShifts.filter(s =>
       s.date === ls.date && s.slotId === ls.slotId &&
       s.status === "approved" && s.chatterName !== leadName
     );
+    const chatterSeen = new Set();
+    const uniqueChatters = chatterShifts.filter(s => {
+      if (chatterSeen.has(s.chatterName)) return false;
+      chatterSeen.add(s.chatterName);
+      return true;
+    });
     const slotStartH = ls.slotStart ? parseInt(ls.slotStart.split(":")[0], 10) : 0;
     const slotEndH = ls.slotEnd ? parseInt(ls.slotEnd.split(":")[0], 10) : 24;
-    const chatters = chatterShifts.map(cs => {
+    const chatters = uniqueChatters.map(cs => {
       const inc = allIncome.filter(r => {
         if (!r.date || r.chatterName !== cs.chatterName) return false;
-        const d = r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10);
+        const d = r.date instanceof Date
+          ? `${r.date.getFullYear()}-${String(r.date.getMonth()+1).padStart(2,"0")}-${String(r.date.getDate()).padStart(2,"0")}`
+          : String(r.date).slice(0, 10);
         if (d !== ls.date) return false;
         const h = r.hour ? parseInt(r.hour.split(":")[0], 10) : -1;
         return h >= slotStartH && h < slotEndH;
       });
+      const allClientsForChatter = chatterShifts.filter(s => s.chatterName === cs.chatterName).flatMap(s => (s.clients || []).map(c => typeof c === "string" ? c : c.name));
+      const clientsUniq = [...new Set(allClientsForChatter)];
       return {
         name: cs.chatterName, clockIn: cs.clockIn, clockOut: cs.clockOut,
-        hours: cs.hoursWorked || 0,
+        hours: cs.hoursWorked || 0, present: !!cs.clockIn,
+        clients: clientsUniq,
         sales: inc.reduce((s, r) => s + (r.amountILS || 0), 0),
         salesUSD: inc.reduce((s, r) => s + (r.amountUSD || 0), 0),
         count: inc.length, records: inc,
@@ -915,6 +933,7 @@ function computeManagedSales(leadName, allShifts, allIncome, datePredicate) {
       slotStart: ls.slotStart, slotEnd: ls.slotEnd,
       leadClockIn: ls.clockIn, leadClockOut: ls.clockOut, leadHours: ls.hoursWorked || 0,
       chatters,
+      absentees: chatters.filter(c => !c.present),
       totalILS: chatters.reduce((s, c) => s + c.sales, 0),
       totalUSD: chatters.reduce((s, c) => s + c.salesUSD, 0),
       salesCount: chatters.reduce((s, c) => s + c.count, 0),
@@ -5754,8 +5773,9 @@ function TeamLeadLogPage() {
 
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
       <Stat icon="💰" title="סה״כ מכירות במשמרות" value={fmtC(totalSales)} color={C.grn} sub={`${totalSalesCount} עסקאות${totalUSD > 0 ? ` · ${fmtUSD(totalUSD)}` : ""}`} />
-      <Stat icon="📅" title="משמרות" value={String(managed.length)} color={C.pri} sub={`${managed.reduce((s, r) => s + r.chatters.length, 0)} צ׳אטרים`} />
-      {totalSalesCount > 0 && <Stat icon="📈" title="ממוצע למשמרת" value={fmtC(totalSales / managed.length)} color={C.ylw} />}
+      <Stat icon="📅" title="משמרות" value={String(managed.length)} color={C.pri} sub={`${managed.reduce((s, r) => s + r.chatters.filter(c => c.present).length, 0)} נוכחים`} />
+      {managed.reduce((s, r) => s + r.absentees.length, 0) > 0 && <Stat icon="⚠️" title="חוסרים" value={String(managed.reduce((s, r) => s + r.absentees.length, 0))} color={C.red} sub="צ׳אטרים שלא הגיעו" />}
+      {totalSalesCount > 0 && managed.length > 0 && <Stat icon="📈" title="ממוצע למשמרת" value={fmtC(totalSales / managed.length)} color={C.ylw} />}
     </div>
 
     {chartData.length > 0 && <Card style={{ marginBottom: 16 }}>
@@ -5774,47 +5794,69 @@ function TeamLeadLogPage() {
     {managed.length > 0 ? <div style={{ overflowX: "auto", borderRadius: 12, border: `1px solid ${C.bdr}` }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, direction: "rtl" }}>
         <thead><tr>
-          {["תאריך", "משמרת", "צ׳אטרים", "מכירות", "סה״כ ₪", ""].map((h, i) => <th key={i} style={{ padding: "6px 8px", background: C.card, color: C.dim, borderBottom: `1px solid ${C.bdr}`, textAlign: "right", fontWeight: 600, fontSize: 11 }}>{h}</th>)}
+          {["תאריך", "משמרת", "נוכחים", "חוסרים", "מכירות", "סה״כ ₪", ""].map((h, i) => <th key={i} style={{ padding: "6px 8px", background: C.card, color: C.dim, borderBottom: `1px solid ${C.bdr}`, textAlign: "right", fontWeight: 600, fontSize: 11 }}>{h}</th>)}
         </tr></thead>
         <tbody>{managed.map((r, ri) => {
           const shKey = `${r.date}-${r.slotId}`;
           const isOpen = expandedShift === shKey;
+          const present = r.chatters.filter(c => c.present).length;
+          const absent = r.absentees.length;
           return <Fragment key={ri}>
             <tr style={{ borderBottom: `1px solid ${C.bdr}`, cursor: "pointer" }} onClick={() => setExpandedShift(isOpen ? null : shKey)}>
               <td style={{ padding: "6px 8px", color: C.txt }}>{r.date}</td>
               <td style={{ padding: "6px 8px", color: C.pri }}>{r.slotLabel || `${r.slotStart}-${r.slotEnd}`}</td>
-              <td style={{ padding: "6px 8px", color: C.dim }}>{r.chatters.length}</td>
+              <td style={{ padding: "6px 8px", color: C.grn, fontWeight: 600 }}>{present}</td>
+              <td style={{ padding: "6px 8px", color: absent > 0 ? C.red : C.dim, fontWeight: absent > 0 ? 600 : 400 }}>{absent}</td>
               <td style={{ padding: "6px 8px", color: C.dim }}>{r.salesCount}</td>
               <td style={{ padding: "6px 8px", color: C.grn, fontWeight: 600 }}>{fmtC(r.totalILS)}</td>
               <td style={{ padding: "6px 8px", color: C.pri, fontSize: 11 }}>{isOpen ? "▲" : "▼"}</td>
             </tr>
-            {isOpen && <tr><td colSpan={6} style={{ padding: "8px 12px", background: `${C.pri}08` }}>
-              {r.chatters.length > 0 ? <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                <thead><tr style={{ borderBottom: `1px solid ${C.bdr}` }}>
-                  {["צ׳אטר", "כניסה", "יציאה", "שעות", "מכירות", "סכום ₪"].map((h, i) => <th key={i} style={{ textAlign: "right", padding: "4px 6px", color: C.dim }}>{h}</th>)}
-                </tr></thead>
-                <tbody>{r.chatters.map(ch => <tr key={ch.name} style={{ borderBottom: `1px solid ${C.bdr}22` }}>
-                  <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 600 }}>{ch.name}</td>
-                  <td style={{ padding: "4px 6px", color: C.grn }}>{ch.clockIn ? new Date(ch.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                  <td style={{ padding: "4px 6px", color: C.red }}>{ch.clockOut ? new Date(ch.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                  <td style={{ padding: "4px 6px", color: C.txt }}>{ch.hours || "—"}</td>
-                  <td style={{ padding: "4px 6px", color: C.dim }}>{ch.count}</td>
-                  <td style={{ padding: "4px 6px", color: C.grn, fontWeight: 600 }}>{fmtC(ch.sales)}</td>
-                </tr>)}</tbody>
-                <tfoot><tr style={{ borderTop: `2px solid ${C.bdr}` }}>
-                  <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 700 }}>סה״כ</td>
-                  <td colSpan={3}></td>
-                  <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 700 }}>{r.salesCount}</td>
-                  <td style={{ padding: "4px 6px", color: C.grn, fontWeight: 700 }}>{fmtC(r.totalILS)}</td>
-                </tr></tfoot>
-              </table> : <div style={{ color: C.mut, fontSize: 11 }}>לא היו צ׳אטרים במשמרת</div>}
+            {isOpen && <tr><td colSpan={7} style={{ padding: "8px 12px", background: `${C.pri}08` }}>
+              {r.chatters.length > 0 ? <>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginBottom: 10 }}>
+                  <thead><tr style={{ borderBottom: `1px solid ${C.bdr}` }}>
+                    {["סטטוס", "צ׳אטר", "לקוחות", "כניסה", "יציאה", "שעות", "מכירות", "סכום ₪"].map((h, i) => <th key={i} style={{ textAlign: "right", padding: "4px 6px", color: C.dim }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>{r.chatters.map(ch => <tr key={ch.name} style={{ borderBottom: `1px solid ${C.bdr}22`, background: ch.present ? "transparent" : `${C.red}11` }}>
+                    <td style={{ padding: "4px 6px", textAlign: "center" }}><span style={{ color: ch.present ? C.grn : C.red, fontWeight: 700, fontSize: 13 }}>{ch.present ? "●" : "●"}</span></td>
+                    <td style={{ padding: "4px 6px", color: ch.present ? C.txt : C.red, fontWeight: 600 }}>{ch.name}{!ch.present && " (חוסר)"}</td>
+                    <td style={{ padding: "4px 6px", color: C.dim, fontSize: 10 }}>{ch.clients.length > 0 ? ch.clients.join(", ") : "—"}</td>
+                    <td style={{ padding: "4px 6px", color: C.grn }}>{ch.clockIn ? new Date(ch.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                    <td style={{ padding: "4px 6px", color: C.red }}>{ch.clockOut ? new Date(ch.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                    <td style={{ padding: "4px 6px", color: C.txt }}>{ch.hours || "—"}</td>
+                    <td style={{ padding: "4px 6px", color: C.dim }}>{ch.count}</td>
+                    <td style={{ padding: "4px 6px", color: C.grn, fontWeight: 600 }}>{fmtC(ch.sales)}</td>
+                  </tr>)}</tbody>
+                  <tfoot><tr style={{ borderTop: `2px solid ${C.bdr}` }}>
+                    <td></td>
+                    <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 700 }}>סה״כ</td>
+                    <td></td>
+                    <td colSpan={3}></td>
+                    <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 700 }}>{r.salesCount}</td>
+                    <td style={{ padding: "4px 6px", color: C.grn, fontWeight: 700 }}>{fmtC(r.totalILS)}</td>
+                  </tr></tfoot>
+                </table>
+                {r.chatters.filter(c => c.present && c.count > 0).length > 0 && <div style={{ marginTop: 4 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: C.dim, marginBottom: 4 }}>מכירות לפי צ׳אטר</div>
+                  <ResponsiveContainer width="100%" height={Math.max(120, r.chatters.filter(c => c.present).length * 32)}>
+                    <BarChart data={r.chatters.filter(c => c.present && c.count > 0)} layout="vertical" margin={{ right: 30 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
+                      <XAxis type="number" tick={{ fill: C.dim, fontSize: 10 }} />
+                      <YAxis type="category" dataKey="name" tick={{ fill: C.txt, fontSize: 10 }} width={70} />
+                      <Tooltip content={<TT />} />
+                      <Bar dataKey="sales" name="מכירות ₪" fill={C.grn} radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>}
+              </> : <div style={{ color: C.mut, fontSize: 11 }}>לא היו צ׳אטרים במשמרת</div>}
             </td></tr>}
           </Fragment>;
         })}</tbody>
         <tfoot><tr style={{ background: C.card }}>
           <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>סה״כ</td>
           <td></td>
-          <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>{managed.reduce((s, r) => s + r.chatters.length, 0)}</td>
+          <td style={{ padding: "6px 8px", fontWeight: 700, color: C.grn }}>{managed.reduce((s, r) => s + r.chatters.filter(c => c.present).length, 0)}</td>
+          <td style={{ padding: "6px 8px", fontWeight: 700, color: C.red }}>{managed.reduce((s, r) => s + r.absentees.length, 0)}</td>
           <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>{totalSalesCount}</td>
           <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>{fmtC(totalSales)}</td>
           <td></td>
@@ -8098,7 +8140,8 @@ function TeamLeadOverviewPage() {
         const totalSales = managed.reduce((s, r) => s + r.totalILS, 0);
         const totalUSD = managed.reduce((s, r) => s + r.totalUSD, 0);
         const totalSalesCount = managed.reduce((s, r) => s + r.salesCount, 0);
-        return <Stat key={n} title={n} icon="👑" value={fmtC(totalSales)} sub={`${totalSalesCount} מכירות · ${managed.length} משמרות${totalUSD > 0 ? ` · ${fmtUSD(totalUSD)}` : ""}`} color={C.grn} />;
+        const totalAbsent = managed.reduce((s, r) => s + r.absentees.length, 0);
+        return <Stat key={n} title={n} icon="👑" value={fmtC(totalSales)} sub={`${totalSalesCount} מכירות · ${managed.length} משמרות${totalAbsent > 0 ? ` · ${totalAbsent} חוסרים` : ""}${totalUSD > 0 ? ` · ${fmtUSD(totalUSD)}` : ""}`} color={C.grn} />;
       })}
     </div>
 
@@ -8117,47 +8160,69 @@ function TeamLeadOverviewPage() {
           {managed.length > 0 ? <div style={{ overflowX: "auto", borderRadius: 12, border: `1px solid ${C.bdr}` }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, direction: "rtl" }}>
               <thead><tr>
-                {["תאריך", "משמרת", "צ׳אטרים", "מכירות", "סה״כ ₪", ""].map((h, i) => <th key={i} style={{ padding: "6px 8px", background: C.card, color: C.dim, borderBottom: `1px solid ${C.bdr}`, textAlign: "right", fontWeight: 600, fontSize: 11 }}>{h}</th>)}
+                {["תאריך", "משמרת", "נוכחים", "חוסרים", "מכירות", "סה״כ ₪", ""].map((h, i) => <th key={i} style={{ padding: "6px 8px", background: C.card, color: C.dim, borderBottom: `1px solid ${C.bdr}`, textAlign: "right", fontWeight: 600, fontSize: 11 }}>{h}</th>)}
               </tr></thead>
               <tbody>{managed.map((r, ri) => {
                 const shKey = `${n}-${r.date}-${r.slotId}`;
                 const isShOpen = expandedShift === shKey;
+                const present = r.chatters.filter(c => c.present).length;
+                const absent = r.absentees.length;
                 return <Fragment key={ri}>
                   <tr style={{ borderBottom: `1px solid ${C.bdr}`, cursor: "pointer" }} onClick={() => setExpandedShift(isShOpen ? null : shKey)}>
                     <td style={{ padding: "6px 8px", color: C.txt }}>{r.date}</td>
                     <td style={{ padding: "6px 8px", color: C.pri }}>{r.slotLabel || `${r.slotStart}-${r.slotEnd}`}</td>
-                    <td style={{ padding: "6px 8px", color: C.dim }}>{r.chatters.length}</td>
+                    <td style={{ padding: "6px 8px", color: C.grn, fontWeight: 600 }}>{present}</td>
+                    <td style={{ padding: "6px 8px", color: absent > 0 ? C.red : C.dim, fontWeight: absent > 0 ? 600 : 400 }}>{absent}</td>
                     <td style={{ padding: "6px 8px", color: C.dim }}>{r.salesCount}</td>
                     <td style={{ padding: "6px 8px", color: C.grn, fontWeight: 600 }}>{fmtC(r.totalILS)}</td>
                     <td style={{ padding: "6px 8px", color: C.pri, fontSize: 11 }}>{isShOpen ? "▲" : "▼"}</td>
                   </tr>
-                  {isShOpen && <tr><td colSpan={6} style={{ padding: "8px 12px", background: `${C.pri}08` }}>
-                    {r.chatters.length > 0 ? <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                      <thead><tr style={{ borderBottom: `1px solid ${C.bdr}` }}>
-                        {["צ׳אטר", "כניסה", "יציאה", "שעות", "מכירות", "סכום ₪"].map((h, i) => <th key={i} style={{ textAlign: "right", padding: "4px 6px", color: C.dim }}>{h}</th>)}
-                      </tr></thead>
-                      <tbody>{r.chatters.map(ch => <tr key={ch.name} style={{ borderBottom: `1px solid ${C.bdr}22` }}>
-                        <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 600 }}>{ch.name}</td>
-                        <td style={{ padding: "4px 6px", color: C.grn }}>{ch.clockIn ? new Date(ch.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                        <td style={{ padding: "4px 6px", color: C.red }}>{ch.clockOut ? new Date(ch.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
-                        <td style={{ padding: "4px 6px", color: C.txt }}>{ch.hours || "—"}</td>
-                        <td style={{ padding: "4px 6px", color: C.dim }}>{ch.count}</td>
-                        <td style={{ padding: "4px 6px", color: C.grn, fontWeight: 600 }}>{fmtC(ch.sales)}</td>
-                      </tr>)}</tbody>
-                      <tfoot><tr style={{ borderTop: `2px solid ${C.bdr}` }}>
-                        <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 700 }}>סה״כ</td>
-                        <td colSpan={3}></td>
-                        <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 700 }}>{r.salesCount}</td>
-                        <td style={{ padding: "4px 6px", color: C.grn, fontWeight: 700 }}>{fmtC(r.totalILS)}</td>
-                      </tr></tfoot>
-                    </table> : <div style={{ color: C.mut, fontSize: 11 }}>לא היו צ׳אטרים במשמרת</div>}
+                  {isShOpen && <tr><td colSpan={7} style={{ padding: "8px 12px", background: `${C.pri}08` }}>
+                    {r.chatters.length > 0 ? <>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginBottom: 10 }}>
+                        <thead><tr style={{ borderBottom: `1px solid ${C.bdr}` }}>
+                          {["סטטוס", "צ׳אטר", "לקוחות", "כניסה", "יציאה", "שעות", "מכירות", "סכום ₪"].map((h, i) => <th key={i} style={{ textAlign: "right", padding: "4px 6px", color: C.dim }}>{h}</th>)}
+                        </tr></thead>
+                        <tbody>{r.chatters.map(ch => <tr key={ch.name} style={{ borderBottom: `1px solid ${C.bdr}22`, background: ch.present ? "transparent" : `${C.red}11` }}>
+                          <td style={{ padding: "4px 6px", textAlign: "center" }}><span style={{ color: ch.present ? C.grn : C.red, fontWeight: 700, fontSize: 13 }}>{ch.present ? "●" : "●"}</span></td>
+                          <td style={{ padding: "4px 6px", color: ch.present ? C.txt : C.red, fontWeight: 600 }}>{ch.name}{!ch.present && " (חוסר)"}</td>
+                          <td style={{ padding: "4px 6px", color: C.dim, fontSize: 10 }}>{ch.clients.length > 0 ? ch.clients.join(", ") : "—"}</td>
+                          <td style={{ padding: "4px 6px", color: C.grn }}>{ch.clockIn ? new Date(ch.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                          <td style={{ padding: "4px 6px", color: C.red }}>{ch.clockOut ? new Date(ch.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                          <td style={{ padding: "4px 6px", color: C.txt }}>{ch.hours || "—"}</td>
+                          <td style={{ padding: "4px 6px", color: C.dim }}>{ch.count}</td>
+                          <td style={{ padding: "4px 6px", color: C.grn, fontWeight: 600 }}>{fmtC(ch.sales)}</td>
+                        </tr>)}</tbody>
+                        <tfoot><tr style={{ borderTop: `2px solid ${C.bdr}` }}>
+                          <td></td>
+                          <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 700 }}>סה״כ</td>
+                          <td></td>
+                          <td colSpan={3}></td>
+                          <td style={{ padding: "4px 6px", color: C.txt, fontWeight: 700 }}>{r.salesCount}</td>
+                          <td style={{ padding: "4px 6px", color: C.grn, fontWeight: 700 }}>{fmtC(r.totalILS)}</td>
+                        </tr></tfoot>
+                      </table>
+                      {r.chatters.filter(c => c.present && c.count > 0).length > 0 && <div style={{ marginTop: 4 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: C.dim, marginBottom: 4 }}>מכירות לפי צ׳אטר</div>
+                        <ResponsiveContainer width="100%" height={Math.max(120, r.chatters.filter(c => c.present).length * 32)}>
+                          <BarChart data={r.chatters.filter(c => c.present && c.count > 0)} layout="vertical" margin={{ right: 30 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
+                            <XAxis type="number" tick={{ fill: C.dim, fontSize: 10 }} />
+                            <YAxis type="category" dataKey="name" tick={{ fill: C.txt, fontSize: 10 }} width={70} />
+                            <Tooltip content={<TT />} />
+                            <Bar dataKey="sales" name="מכירות ₪" fill={C.grn} radius={[0, 4, 4, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>}
+                    </> : <div style={{ color: C.mut, fontSize: 11 }}>לא היו צ׳אטרים במשמרת</div>}
                   </td></tr>}
                 </Fragment>;
               })}</tbody>
               <tfoot><tr style={{ background: C.card }}>
                 <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>סה״כ</td>
                 <td></td>
-                <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>{managed.reduce((s, r) => s + r.chatters.length, 0)}</td>
+                <td style={{ padding: "6px 8px", fontWeight: 700, color: C.grn }}>{managed.reduce((s, r) => s + r.chatters.filter(c => c.present).length, 0)}</td>
+                <td style={{ padding: "6px 8px", fontWeight: 700, color: C.red }}>{managed.reduce((s, r) => s + r.absentees.length, 0)}</td>
                 <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>{totalSalesCount}</td>
                 <td style={{ padding: "6px 8px", fontWeight: 700, color: C.priL }}>{fmtC(totalSales)}</td>
                 <td></td>
