@@ -7902,16 +7902,19 @@ function BuyersPage() {
 // TEAM LEAD OVERVIEW (ADMIN)
 // ═══════════════════════════════════════════════════════
 function TeamLeadOverviewPage() {
-  const { teamLeadLogs, sheetUsers, year, month, view, income, shifts } = useApp();
+  const { teamLeadLogs, sheetUsers, year, month, view, income, shifts, shiftSlots } = useApp();
   const w = useWin();
   const [tlView, setTlView] = useState("monthly");
   const [tlMonth, setTlMonth] = useState(month);
   const [tlYear, setTlYear] = useState(year);
   const [expanded, setExpanded] = useState(null);
   const [subTab, setSubTab] = useState("sales");
+  const AGENCY_LABEL = "סוכנות";
 
   const teamLeads = useMemo(() => (sheetUsers || []).filter(u => u.role === "shift_manager").map(u => u.name), [sheetUsers]);
-  const allNames = useMemo(() => [...new Set([...teamLeads, ...teamLeadLogs.map(l => l.teamLeadName)])].filter(Boolean), [teamLeads, teamLeadLogs]);
+  const tlNames = useMemo(() => [...new Set([...teamLeads, ...teamLeadLogs.map(l => l.teamLeadName)])].filter(Boolean), [teamLeads, teamLeadLogs]);
+  const allNames = useMemo(() => [...tlNames, AGENCY_LABEL], [tlNames]);
+  const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
 
   const filterByPeriod = (date) => {
     if (!date) return false;
@@ -7921,22 +7924,50 @@ function TeamLeadOverviewPage() {
     return d.getFullYear() === tlYear;
   };
 
+  const smShiftMap = useMemo(() => {
+    const map = {};
+    shifts.forEach(s => {
+      if (s.status === "approved" && s.chatterName && teamLeads.includes(s.chatterName)) {
+        const key = `${s.date}_${s.slotId}`;
+        if (!map[key]) map[key] = s.chatterName;
+      }
+    });
+    return map;
+  }, [shifts, teamLeads]);
+
   const incByLead = useMemo(() => {
     const map = {};
     allNames.forEach(n => { map[n] = []; });
     income.forEach(r => {
-      if (r.chatterName && allNames.includes(r.chatterName) && filterByPeriod(r.date)) {
-        map[r.chatterName].push(r);
+      if (!filterByPeriod(r.date)) return;
+      const h = r.hour ? parseInt(r.hour.split(":")[0], 10) : -1;
+      const dateStr = r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date || "").slice(0, 10);
+      let assigned = false;
+      if (h >= 0) {
+        for (const slot of sortedSlots) {
+          const startH = slot.start ? parseInt(slot.start.split(":")[0], 10) : 0;
+          const endH = slot.end ? parseInt(slot.end.split(":")[0], 10) : 24;
+          if (h >= startH && h < endH) {
+            const key = `${dateStr}_${slot.id}`;
+            const smName = smShiftMap[key];
+            if (smName && map[smName]) {
+              map[smName].push(r);
+              assigned = true;
+            }
+            break;
+          }
+        }
       }
+      if (!assigned) map[AGENCY_LABEL].push(r);
     });
     return map;
-  }, [income, allNames, tlView, tlMonth, tlYear]);
+  }, [income, allNames, sortedSlots, smShiftMap, tlView, tlMonth, tlYear]);
 
   const shiftsByLead = useMemo(() => {
     const map = {};
     allNames.forEach(n => { map[n] = []; });
     shifts.forEach(s => {
-      if (s.chatterName && allNames.includes(s.chatterName) && s.status === "approved") {
+      if (s.chatterName && teamLeads.includes(s.chatterName) && s.status === "approved") {
         const d = s.date;
         if (!d) return;
         const parts = d.split("-");
@@ -7947,32 +7978,47 @@ function TeamLeadOverviewPage() {
       }
     });
     return map;
-  }, [shifts, allNames, tlView, tlMonth, tlYear]);
+  }, [shifts, teamLeads, allNames, tlView, tlMonth, tlYear]);
 
   const compareData = useMemo(() => {
     if (tlView === "monthly") {
+      const daysInMonth = new Date(tlYear, tlMonth + 1, 0).getDate();
       const dayMap = {};
+      for (let d = 1; d <= daysInMonth; d++) dayMap[d] = { name: String(d) };
       allNames.forEach(n => {
         (incByLead[n] || []).forEach(r => {
           const d = r.date instanceof Date ? r.date.getDate() : "";
-          if (!d) return;
-          if (!dayMap[d]) dayMap[d] = { name: String(d) };
+          if (!d || !dayMap[d]) return;
           dayMap[d][n] = (dayMap[d][n] || 0) + (r.amountILS || 0);
         });
       });
-      return Object.values(dayMap).sort((a, b) => +a.name - +b.name);
+      const days = Object.values(dayMap).sort((a, b) => +a.name - +b.name);
+      const running = {};
+      allNames.forEach(n => { running[n] = 0; });
+      return days.map(day => {
+        const row = { name: day.name };
+        allNames.forEach(n => { running[n] += (day[n] || 0); row[n] = running[n]; });
+        return row;
+      });
     }
     const monthMap = {};
+    for (let i = 0; i < 12; i++) monthMap[i] = { name: MONTHS_SHORT[i] };
     allNames.forEach(n => {
       (incByLead[n] || []).forEach(r => {
         const d = r.date instanceof Date ? r.date : new Date(r.date);
         const mi = d.getMonth();
-        if (!monthMap[mi]) monthMap[mi] = { name: MONTHS_SHORT[mi] };
-        monthMap[mi][n] = (monthMap[mi][n] || 0) + (r.amountILS || 0);
+        if (monthMap[mi]) monthMap[mi][n] = (monthMap[mi][n] || 0) + (r.amountILS || 0);
       });
     });
-    return Object.entries(monthMap).sort((a, b) => +a[0] - +b[0]).map(([, v]) => v);
-  }, [incByLead, allNames, tlView]);
+    const months = Object.entries(monthMap).sort((a, b) => +a[0] - +b[0]).map(([, v]) => v);
+    const running = {};
+    allNames.forEach(n => { running[n] = 0; });
+    return months.map(m => {
+      const row = { name: m.name };
+      allNames.forEach(n => { running[n] += (m[n] || 0); row[n] = running[n]; });
+      return row;
+    });
+  }, [incByLead, allNames, tlView, tlMonth, tlYear]);
 
   return <div style={{ direction: "rtl" }}>
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
@@ -7989,12 +8035,12 @@ function TeamLeadOverviewPage() {
     </div>
 
     {compareData.length > 0 && allNames.length > 0 && <Card style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: C.txt, marginBottom: 10 }}>השוואת מכירות</div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: C.txt, marginBottom: 10 }}>מכירות מצטברות במשמרות — מי עוקף את מי?</div>
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={compareData}>
           <CartesianGrid strokeDasharray="3 3" stroke={C.bdr} />
           <XAxis dataKey="name" tick={{ fill: C.dim, fontSize: 10 }} />
-          <YAxis tick={{ fill: C.dim, fontSize: 10 }} />
+          <YAxis tick={{ fill: C.dim, fontSize: 10 }} tickFormatter={v => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} />
           <Tooltip content={<TT />} />
           <Legend />
           {allNames.map((n, i) => <Line key={n} type="monotone" dataKey={n} name={n} stroke={ENTITY_COLORS[i % ENTITY_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} />)}
@@ -8008,8 +8054,9 @@ function TeamLeadOverviewPage() {
         const sh = shiftsByLead[n] || [];
         const totalSales = inc.reduce((s, r) => s + (r.amountILS || 0), 0);
         const totalUSD = inc.reduce((s, r) => s + (r.amountUSD || 0), 0);
-        const totalHours = sh.reduce((s, r) => s + (r.hoursWorked || 0), 0);
-        return <Stat key={n} title={n} icon="👑" value={fmtC(totalSales)} sub={`${inc.length} מכירות · ${sh.length} משמרות · ${totalHours} שעות${totalUSD > 0 ? ` · ${fmtUSD(totalUSD)}` : ""}`} color={C.grn} />;
+        const absences = (teamLeadLogs || []).filter(l => l.teamLeadName === n && filterByPeriod(l.date)).reduce((s, l) => s + (l.absentees?.length || 0), 0);
+        const isAgency = n === AGENCY_LABEL;
+        return <Stat key={n} title={n} icon={isAgency ? "🏢" : "👑"} value={fmtC(totalSales)} sub={<>{totalUSD > 0 && <div>{fmtUSD(totalUSD)}</div>}<div>{inc.length} מכירות · {sh.length} משמרות{absences > 0 ? ` · ${absences} חוסרים` : ""}</div></>} color={isAgency ? C.ylw : C.grn} />;
       })}
     </div>
 
@@ -8019,25 +8066,33 @@ function TeamLeadOverviewPage() {
       const logs = (teamLeadLogs || []).filter(l => l.teamLeadName === n).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
       const isOpen = expanded === n;
       const totalSales = inc.reduce((s, r) => s + (r.amountILS || 0), 0);
+      const isAgency = n === AGENCY_LABEL;
+      const icon = isAgency ? "🏢" : "👑";
+      const tabs = [{ k: "sales", l: "מכירות" }, ...(!isAgency ? [{ k: "shifts", l: "משמרות" }] : []), ...(logs.length > 0 ? [{ k: "logs", l: "סיכומי משמרות" }] : [])];
+      const salesCols = [
+        { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date instanceof Date ? r.date.toLocaleDateString("he-IL") : r.date}</span> },
+        { label: "שעה", key: "hour" },
+        ...(isAgency ? [{ label: "צ'אטר", render: r => <span style={{ color: C.txt }}>{r.chatterName}</span> }] : []),
+        { label: "לקוחה", render: r => <span style={{ color: C.pri }}>{r.modelName}</span> },
+        { label: "פלטפורמה", key: "platform" },
+        { label: "סכום ₪", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.amountILS)}</span> },
+        { label: "סכום $", render: r => <span style={{ color: C.pri }}>{r.amountUSD > 0 ? fmtUSD(r.amountUSD) : "—"}</span> },
+        { label: "סטטוס", render: r => <span style={{ color: r.cancelled ? C.ylw : C.grn }}>{r.cancelled ? "בוטל" : "✅"}</span> }
+      ];
+      const salesFooter = isAgency
+        ? ["סה״כ", "", "", "", "", fmtC(totalSales), fmtUSD(inc.reduce((s, r) => s + (r.amountUSD || 0), 0)), ""]
+        : ["סה״כ", "", "", "", fmtC(totalSales), fmtUSD(inc.reduce((s, r) => s + (r.amountUSD || 0), 0)), ""];
       return <Card key={n} style={{ marginBottom: 12 }}>
         <div onClick={() => setExpanded(isOpen ? null : n)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.txt }}>👑 {n} — {fmtC(totalSales)} ({inc.length} מכירות, {sh.length} משמרות)</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.txt }}>{icon} {n} — {fmtC(totalSales)} ({inc.length} מכירות{!isAgency ? `, ${sh.length} משמרות` : ""})</div>
           <span style={{ color: C.dim, fontSize: 16 }}>{isOpen ? "▲" : "▼"}</span>
         </div>
         {isOpen && <div style={{ marginTop: 12 }}>
           <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            {[{ k: "sales", l: "מכירות" }, { k: "shifts", l: "משמרות" }, ...(logs.length > 0 ? [{ k: "logs", l: "סיכומי משמרות" }] : [])].map(t => <button key={t.k} onClick={e => { e.stopPropagation(); setSubTab(t.k); }} style={{ padding: "4px 12px", borderRadius: 8, fontSize: 12, fontWeight: subTab === t.k ? 700 : 400, background: subTab === t.k ? C.pri : C.card, color: subTab === t.k ? "#fff" : C.dim, border: `1px solid ${subTab === t.k ? C.pri : C.bdr}`, cursor: "pointer" }}>{t.l}</button>)}
+            {tabs.map(t => <button key={t.k} onClick={e => { e.stopPropagation(); setSubTab(t.k); }} style={{ padding: "4px 12px", borderRadius: 8, fontSize: 12, fontWeight: subTab === t.k ? 700 : 400, background: subTab === t.k ? C.pri : C.card, color: subTab === t.k ? "#fff" : C.dim, border: `1px solid ${subTab === t.k ? C.pri : C.bdr}`, cursor: "pointer" }}>{t.l}</button>)}
           </div>
-          {subTab === "sales" && (inc.length > 0 ? <DT columns={[
-            { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date instanceof Date ? r.date.toLocaleDateString("he-IL") : r.date}</span> },
-            { label: "שעה", key: "hour" },
-            { label: "לקוחה", render: r => <span style={{ color: C.pri }}>{r.modelName}</span> },
-            { label: "פלטפורמה", key: "platform" },
-            { label: "סכום ₪", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.amountILS)}</span> },
-            { label: "סכום $", render: r => <span style={{ color: C.pri }}>{r.amountUSD > 0 ? fmtUSD(r.amountUSD) : "—"}</span> },
-            { label: "סטטוס", render: r => <span style={{ color: r.cancelled ? C.ylw : C.grn }}>{r.cancelled ? "בוטל" : "✅"}</span> }
-          ]} rows={inc} footer={["סה״כ", "", "", "", fmtC(totalSales), fmtUSD(inc.reduce((s, r) => s + (r.amountUSD || 0), 0)), ""]} /> : <div style={{ color: C.mut, fontSize: 12 }}>אין מכירות</div>)}
-          {subTab === "shifts" && (sh.length > 0 ? <DT columns={[
+          {subTab === "sales" && (inc.length > 0 ? <DT columns={salesCols} rows={inc} footer={salesFooter} /> : <div style={{ color: C.mut, fontSize: 12 }}>אין מכירות</div>)}
+          {subTab === "shifts" && !isAgency && (sh.length > 0 ? <DT columns={[
             { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date}</span> },
             { label: "משמרת", render: r => <span style={{ color: C.pri }}>{r.slotLabel}</span> },
             { label: "כניסה", render: r => <span style={{ color: C.grn }}>{r.clockIn ? new Date(r.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}</span> },
