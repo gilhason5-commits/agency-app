@@ -18,7 +18,7 @@ window.addEventListener('unhandledrejection', (e) => showErr('Unhandled Promise 
 try {
     const marker = document.createElement('div');
     marker.style.cssText = 'position:fixed;bottom:0;left:0;background:#22c55e;color:#000;padding:2px 8px;font-size:10px;z-index:99999;font-family:monospace';
-    marker.textContent = 'BUILD v2026-05-14-fix1';
+    marker.textContent = 'BUILD v2026-05-14-fix2-es2015';
     document.body.appendChild(marker);
     setTimeout(() => marker.remove(), 8000);
 } catch {}
