@@ -1403,8 +1403,7 @@ function TopBar() {
   const { year, setYear, connected, demo, loading, load, loadStep, logout, shifts, updateShiftCtx } = useApp();
   const w = useWin();
   const onShiftNow = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    return (shifts || []).filter(s => s.date === today && s.status === "approved" && s.clockIn && !s.clockOut);
+    return (shifts || []).filter(s => s.status === "approved" && s.clockIn && !s.clockOut);
   }, [shifts]);
   const clockOutChatter = (s) => {
     const now = new Date();
@@ -1896,7 +1895,7 @@ function DashPage() {
         <Stat icon="👑" title="זכאות לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
         <Stat icon="💬" title="שכר צ'אטרים" value={fmtC(totalChatterSalary)} color={C.ylw} />
         <Stat icon="📥" title="צפי הכנסה שלי" value={fmtC(agencyIncome)} color={agencyIncome >= 0 ? C.grn : C.red} sub="אחרי זכאות לקוחות" />
-        {(() => { const today = new Date().toISOString().slice(0,10); const onNow = shifts.filter(s => s.date === today && s.clockIn && !s.clockOut && s.status === "approved"); return onNow.length > 0 ? <Stat icon="🟢" title="כרגע במשמרת" value={onNow.length} color={C.grn} sub={onNow.map(s => s.chatterName).join(", ")} /> : null; })()}
+        {(() => { const onNow = shifts.filter(s => s.clockIn && !s.clockOut && s.status === "approved"); return onNow.length > 0 ? <Stat icon="🟢" title="כרגע במשמרת" value={onNow.length} color={C.grn} sub={onNow.map(s => s.chatterName).join(", ")} /> : null; })()}
       </div>
 
       {/* Row 2: Expenses → gross profit */}
@@ -3507,10 +3506,10 @@ function ChattersOverviewPage({ onSelectChatter }) {
   const onShiftMap = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     const map = {};
-    shifts.filter(s => s.date === today && s.status === "approved").forEach(s => {
+    shifts.filter(s => s.status === "approved").forEach(s => {
       if (s.clockIn && !s.clockOut) map[s.chatterName] = "online";
-      else if (s.clockIn && s.clockOut) { if (!map[s.chatterName]) map[s.chatterName] = "done"; }
-      else { if (!map[s.chatterName]) map[s.chatterName] = "expected"; }
+      else if (s.date === today && s.clockIn && s.clockOut) { if (!map[s.chatterName]) map[s.chatterName] = "done"; }
+      else if (s.date === today) { if (!map[s.chatterName]) map[s.chatterName] = "expected"; }
     });
     return map;
   }, [shifts]);
@@ -4934,7 +4933,7 @@ function ChatterPortal({ hideHeader } = {}) {
   // Clock-in/out state
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayShifts = useMemo(() => myShifts.filter(s => s.date === todayStr), [myShifts, todayStr]);
-  const activeShift = todayShifts.find(s => s.clockIn && !s.clockOut);
+  const activeShift = myShifts.find(s => s.clockIn && !s.clockOut) || todayShifts.find(s => s.clockIn && !s.clockOut);
   const [clockingId, setClockingId] = useState(null);
   const [showClockOutModal, setShowClockOutModal] = useState(null);
   const [hoursInput, setHoursInput] = useState("");
@@ -7206,7 +7205,7 @@ function ShiftsPage() {
     {(() => {
       const todayS = new Date().toISOString().slice(0, 10);
       const todayApproved = visibleShifts.filter(s => s.date === todayS && s.status === "approved");
-      const onShift = todayApproved.filter(s => s.clockIn && !s.clockOut);
+      const onShift = (shifts || []).filter(s => s.status === "approved" && s.clockIn && !s.clockOut);
       const lateCount = todayApproved.filter(s => s.lateMinutes > 0).length;
       const doneCount = todayApproved.filter(s => s.clockIn && s.clockOut).length;
       const noShow = todayApproved.filter(s => !s.clockIn);
