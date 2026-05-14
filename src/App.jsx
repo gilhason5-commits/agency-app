@@ -5745,7 +5745,7 @@ const SM_NAV = [
 ];
 
 function TeamLeadLogPage() {
-  const { user, income, shifts, year, month } = useApp();
+  const { user, income, shifts, year, month, teamLeadLogs } = useApp();
   const w = useWin();
   const name = user?.name || "";
   const [logView, setLogView] = useState("monthly");
@@ -5830,6 +5830,7 @@ function TeamLeadLogPage() {
           const isOpen = expandedShift === shKey;
           const present = r.chatters.filter(c => c.present).length;
           const absent = r.absentees.length;
+          const log = (teamLeadLogs || []).find(l => l.teamLeadName === name && l.date === r.date && l.slotId === r.slotId);
           return <Fragment key={ri}>
             <tr style={{ borderBottom: `1px solid ${C.bdr}`, cursor: "pointer" }} onClick={() => setExpandedShift(isOpen ? null : shKey)}>
               <td style={{ padding: "6px 8px", color: C.txt }}>{r.date}</td>
@@ -5878,6 +5879,12 @@ function TeamLeadLogPage() {
                   </ResponsiveContainer>
                 </div>}
               </> : <div style={{ color: C.mut, fontSize: 11 }}>לא היו צ׳אטרים במשמרת</div>}
+              {log && <div style={{ marginTop: 10, padding: "8px 10px", background: `${C.ylw}10`, border: `1px solid ${C.ylw}33`, borderRadius: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.ylw, marginBottom: 4 }}>📝 הדוח שלי</div>
+                {log.totalSalesILS > 0 && <div style={{ fontSize: 11, color: C.dim, marginBottom: 2 }}>סכום שדווח: <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(log.totalSalesILS)}</span>{log.totalSalesILS !== r.totalILS && <span style={{ color: C.ylw }}> (מחושב: {fmtC(r.totalILS)})</span>}</div>}
+                {(log.absentees || []).length > 0 && <div style={{ fontSize: 11, color: C.dim, marginBottom: 2 }}>חוסרים שדווחו: <span style={{ color: C.red }}>{log.absentees.join(", ")}</span></div>}
+                {log.notes && <div style={{ fontSize: 11, color: C.dim }}>הערות: <span style={{ color: C.txt }}>{log.notes}</span></div>}
+              </div>}
             </td></tr>}
           </Fragment>;
         })}</tbody>
@@ -8196,6 +8203,7 @@ function TeamLeadOverviewPage() {
                 const isShOpen = expandedShift === shKey;
                 const present = r.chatters.filter(c => c.present).length;
                 const absent = r.absentees.length;
+                const log = logs.find(l => l.date === r.date && l.slotId === r.slotId);
                 return <Fragment key={ri}>
                   <tr style={{ borderBottom: `1px solid ${C.bdr}`, cursor: "pointer" }} onClick={() => setExpandedShift(isShOpen ? null : shKey)}>
                     <td style={{ padding: "6px 8px", color: C.txt }}>{r.date}</td>
@@ -8244,6 +8252,12 @@ function TeamLeadOverviewPage() {
                         </ResponsiveContainer>
                       </div>}
                     </> : <div style={{ color: C.mut, fontSize: 11 }}>לא היו צ׳אטרים במשמרת</div>}
+                    {log && <div style={{ marginTop: 10, padding: "8px 10px", background: `${C.ylw}10`, border: `1px solid ${C.ylw}33`, borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.ylw, marginBottom: 4 }}>📝 דוח ראש צוות</div>
+                      {log.totalSalesILS > 0 && <div style={{ fontSize: 11, color: C.dim, marginBottom: 2 }}>סכום שדווח: <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(log.totalSalesILS)}</span>{log.totalSalesILS !== r.totalILS && <span style={{ color: C.ylw }}> (מחושב: {fmtC(r.totalILS)})</span>}</div>}
+                      {(log.absentees || []).length > 0 && <div style={{ fontSize: 11, color: C.dim, marginBottom: 2 }}>חוסרים שדווחו: <span style={{ color: C.red }}>{log.absentees.join(", ")}</span></div>}
+                      {log.notes && <div style={{ fontSize: 11, color: C.dim }}>הערות: <span style={{ color: C.txt }}>{log.notes}</span></div>}
+                    </div>}
                   </td></tr>}
                 </Fragment>;
               })}</tbody>
@@ -8258,15 +8272,6 @@ function TeamLeadOverviewPage() {
               </tr></tfoot>
             </table>
           </div> : <div style={{ color: C.mut, fontSize: 12 }}>אין משמרות</div>}
-          {logs.length > 0 && <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.dim, marginBottom: 6 }}>סיכומי משמרות (הערות)</div>
-            <DT columns={[
-              { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date}</span> },
-              { label: "משמרת", render: r => <span style={{ color: C.pri }}>{r.slotLabel}</span> },
-              { label: "חוסרים", render: r => <span style={{ color: r.absentees?.length ? C.red : C.dim, fontSize: 11 }}>{(r.absentees || []).join(", ") || "—"}</span> },
-              { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> }
-            ]} rows={logs} />
-          </div>}
         </div>}
       </Card>;
     })}
