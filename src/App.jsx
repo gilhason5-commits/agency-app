@@ -1118,6 +1118,32 @@ function Prov({ children }) {
     }).catch(() => {});
   }, []);
 
+  // Auto clock-out: every 60s, check for active shifts past their slotEnd
+  useEffect(() => {
+    const check = () => {
+      const now = new Date();
+      shifts.forEach(s => {
+        if (!s.clockIn || s.clockOut || s.status !== "approved") return;
+        if (!s.slotEnd || !s.date) return;
+        const [eh, em] = s.slotEnd.split(":").map(Number);
+        const [sy, sm, sd] = s.date.split("-").map(Number);
+        const slotStartH = s.slotStart ? parseInt(s.slotStart.split(":")[0], 10) : 0;
+        const endDate = new Date(sy, sm - 1, sd, eh, em || 0);
+        if (eh <= slotStartH && slotStartH > 0) endDate.setDate(endDate.getDate() + 1);
+        if (now >= endDate) {
+          const clockOut = endDate.toISOString();
+          const diffMs = endDate - new Date(s.clockIn);
+          const hoursWorked = Math.round(diffMs / 36000) / 100;
+          updateShift(s.id, { clockOut, hoursWorked, autoClockOut: true }).catch(() => {});
+          setShifts(prev => prev.map(sh => sh.id === s.id ? { ...sh, clockOut, hoursWorked, autoClockOut: true } : sh));
+        }
+      });
+    };
+    check();
+    const iv = setInterval(check, 60000);
+    return () => clearInterval(iv);
+  }, [shifts]);
+
   const [fixedExps, setFixedExps] = useState([]);
   const [employees, setEmployees] = useState([]);
   const addFixedExp = useCallback(async (record) => {
@@ -1403,8 +1429,7 @@ function TopBar() {
   const { year, setYear, connected, demo, loading, load, loadStep, logout, shifts, updateShiftCtx } = useApp();
   const w = useWin();
   const onShiftNow = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    return (shifts || []).filter(s => s.date === today && s.status === "approved" && s.clockIn && !s.clockOut);
+    return (shifts || []).filter(s => s.status === "approved" && s.clockIn && !s.clockOut);
   }, [shifts]);
   const clockOutChatter = (s) => {
     const now = new Date();
@@ -1896,7 +1921,7 @@ function DashPage() {
         <Stat icon="👑" title="זכאות לקוחות" value={fmtC(totalClientSalary)} color={C.ylw} />
         <Stat icon="💬" title="שכר צ'אטרים" value={fmtC(totalChatterSalary)} color={C.ylw} />
         <Stat icon="📥" title="צפי הכנסה שלי" value={fmtC(agencyIncome)} color={agencyIncome >= 0 ? C.grn : C.red} sub="אחרי זכאות לקוחות" />
-        {(() => { const today = new Date().toISOString().slice(0,10); const onNow = shifts.filter(s => s.date === today && s.clockIn && !s.clockOut && s.status === "approved"); return onNow.length > 0 ? <Stat icon="🟢" title="כרגע במשמרת" value={onNow.length} color={C.grn} sub={onNow.map(s => s.chatterName).join(", ")} /> : null; })()}
+        {(() => { const onNow = shifts.filter(s => s.clockIn && !s.clockOut && s.status === "approved"); return onNow.length > 0 ? <Stat icon="🟢" title="כרגע במשמרת" value={onNow.length} color={C.grn} sub={onNow.map(s => s.chatterName).join(", ")} /> : null; })()}
       </div>
 
       {/* Row 2: Expenses → gross profit */}
@@ -3507,10 +3532,10 @@ function ChattersOverviewPage({ onSelectChatter }) {
   const onShiftMap = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     const map = {};
-    shifts.filter(s => s.date === today && s.status === "approved").forEach(s => {
+    shifts.filter(s => s.status === "approved").forEach(s => {
       if (s.clockIn && !s.clockOut) map[s.chatterName] = "online";
-      else if (s.clockIn && s.clockOut) { if (!map[s.chatterName]) map[s.chatterName] = "done"; }
-      else { if (!map[s.chatterName]) map[s.chatterName] = "expected"; }
+      else if (s.date === today && s.clockIn && s.clockOut) { if (!map[s.chatterName]) map[s.chatterName] = "done"; }
+      else if (s.date === today) { if (!map[s.chatterName]) map[s.chatterName] = "expected"; }
     });
     return map;
   }, [shifts]);
@@ -4934,7 +4959,7 @@ function ChatterPortal({ hideHeader } = {}) {
   // Clock-in/out state
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayShifts = useMemo(() => myShifts.filter(s => s.date === todayStr), [myShifts, todayStr]);
-  const activeShift = todayShifts.find(s => s.clockIn && !s.clockOut);
+  const activeShift = myShifts.find(s => s.clockIn && !s.clockOut) || todayShifts.find(s => s.clockIn && !s.clockOut);
   const [clockingId, setClockingId] = useState(null);
   const [showClockOutModal, setShowClockOutModal] = useState(null);
   const [hoursInput, setHoursInput] = useState("");
@@ -5407,7 +5432,7 @@ function ChatterPortal({ hideHeader } = {}) {
             </div>
             {s.clockIn && <div style={{ marginRight: 28, marginTop: 4, fontSize: 11, color: C.dim }}>
               כניסה: {new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}
-              {s.clockOut && <> · יציאה: {new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} · {s.hoursWorked} שעות</>}
+              {s.clockOut && <> · יציאה: {new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} · {s.hoursWorked} שעות{s.autoClockOut && <span style={{ color: C.ylw }}> (אוטומטי)</span>}</>}
             </div>}
             <div style={{ marginTop: 8 }}>
               {canClockIn && <Btn size="sm" variant="success" onClick={() => handleClockIn(s)} disabled={clockingId === s.id}>{clockingId === s.id ? "⏳" : "🟢 עליתי למשמרת"}</Btn>}
@@ -5720,7 +5745,7 @@ const SM_NAV = [
 ];
 
 function TeamLeadLogPage() {
-  const { user, income, shifts, year, month } = useApp();
+  const { user, income, shifts, year, month, teamLeadLogs } = useApp();
   const w = useWin();
   const name = user?.name || "";
   const [logView, setLogView] = useState("monthly");
@@ -5805,6 +5830,7 @@ function TeamLeadLogPage() {
           const isOpen = expandedShift === shKey;
           const present = r.chatters.filter(c => c.present).length;
           const absent = r.absentees.length;
+          const log = (teamLeadLogs || []).find(l => l.teamLeadName === name && l.date === r.date && l.slotId === r.slotId);
           return <Fragment key={ri}>
             <tr style={{ borderBottom: `1px solid ${C.bdr}`, cursor: "pointer" }} onClick={() => setExpandedShift(isOpen ? null : shKey)}>
               <td style={{ padding: "6px 8px", color: C.txt }}>{r.date}</td>
@@ -5853,6 +5879,12 @@ function TeamLeadLogPage() {
                   </ResponsiveContainer>
                 </div>}
               </> : <div style={{ color: C.mut, fontSize: 11 }}>לא היו צ׳אטרים במשמרת</div>}
+              {log && <div style={{ marginTop: 10, padding: "8px 10px", background: `${C.ylw}10`, border: `1px solid ${C.ylw}33`, borderRadius: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.ylw, marginBottom: 4 }}>📝 הדוח שלי</div>
+                {log.totalSalesILS > 0 && <div style={{ fontSize: 11, color: C.dim, marginBottom: 2 }}>סכום שדווח: <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(log.totalSalesILS)}</span>{log.totalSalesILS !== r.totalILS && <span style={{ color: C.ylw }}> (מחושב: {fmtC(r.totalILS)})</span>}</div>}
+                {(log.absentees || []).length > 0 && <div style={{ fontSize: 11, color: C.dim, marginBottom: 2 }}>חוסרים שדווחו: <span style={{ color: C.red }}>{log.absentees.join(", ")}</span></div>}
+                {log.notes && <div style={{ fontSize: 11, color: C.dim }}>הערות: <span style={{ color: C.txt }}>{log.notes}</span></div>}
+              </div>}
             </td></tr>}
           </Fragment>;
         })}</tbody>
@@ -7206,7 +7238,7 @@ function ShiftsPage() {
     {(() => {
       const todayS = new Date().toISOString().slice(0, 10);
       const todayApproved = visibleShifts.filter(s => s.date === todayS && s.status === "approved");
-      const onShift = todayApproved.filter(s => s.clockIn && !s.clockOut);
+      const onShift = (shifts || []).filter(s => s.status === "approved" && s.clockIn && !s.clockOut);
       const lateCount = todayApproved.filter(s => s.lateMinutes > 0).length;
       const doneCount = todayApproved.filter(s => s.clockIn && s.clockOut).length;
       const noShow = todayApproved.filter(s => !s.clockIn);
@@ -7235,7 +7267,7 @@ function ShiftsPage() {
                 {s.clockIn && <div style={{ fontSize: 11, color: C.dim, marginRight: 26 }}>
                   כניסה: {new Date(s.clockIn).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}
                   {s.lateMinutes > 0 && <span style={{ color: C.ylw, marginRight: 6 }}>⚠️ איחור {s.lateMinutes} דק׳</span>}
-                  {isDone && <> · יציאה: {new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} · {s.hoursWorked} שעות</>}
+                  {isDone && <> · יציאה: {new Date(s.clockOut).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })} · {s.hoursWorked} שעות{s.autoClockOut && <span style={{ color: C.ylw }}> (אוטומטי)</span>}</>}
                 </div>}
                 {!s.clockIn && <div style={{ fontSize: 11, color: C.red, marginRight: 26 }}>לא דיווח/ה כניסה</div>}
                 {s.clients?.length > 0 && <div style={{ fontSize: 10, color: C.cyan, marginRight: 26, marginTop: 2 }}>לקוחות: {s.clients.map(c=>typeof c==="string"?c:c.name).join(", ")}</div>}
@@ -8171,6 +8203,7 @@ function TeamLeadOverviewPage() {
                 const isShOpen = expandedShift === shKey;
                 const present = r.chatters.filter(c => c.present).length;
                 const absent = r.absentees.length;
+                const log = logs.find(l => l.date === r.date && l.slotId === r.slotId);
                 return <Fragment key={ri}>
                   <tr style={{ borderBottom: `1px solid ${C.bdr}`, cursor: "pointer" }} onClick={() => setExpandedShift(isShOpen ? null : shKey)}>
                     <td style={{ padding: "6px 8px", color: C.txt }}>{r.date}</td>
@@ -8219,6 +8252,12 @@ function TeamLeadOverviewPage() {
                         </ResponsiveContainer>
                       </div>}
                     </> : <div style={{ color: C.mut, fontSize: 11 }}>לא היו צ׳אטרים במשמרת</div>}
+                    {log && <div style={{ marginTop: 10, padding: "8px 10px", background: `${C.ylw}10`, border: `1px solid ${C.ylw}33`, borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.ylw, marginBottom: 4 }}>📝 דוח ראש צוות</div>
+                      {log.totalSalesILS > 0 && <div style={{ fontSize: 11, color: C.dim, marginBottom: 2 }}>סכום שדווח: <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(log.totalSalesILS)}</span>{log.totalSalesILS !== r.totalILS && <span style={{ color: C.ylw }}> (מחושב: {fmtC(r.totalILS)})</span>}</div>}
+                      {(log.absentees || []).length > 0 && <div style={{ fontSize: 11, color: C.dim, marginBottom: 2 }}>חוסרים שדווחו: <span style={{ color: C.red }}>{log.absentees.join(", ")}</span></div>}
+                      {log.notes && <div style={{ fontSize: 11, color: C.dim }}>הערות: <span style={{ color: C.txt }}>{log.notes}</span></div>}
+                    </div>}
                   </td></tr>}
                 </Fragment>;
               })}</tbody>
@@ -8233,15 +8272,6 @@ function TeamLeadOverviewPage() {
               </tr></tfoot>
             </table>
           </div> : <div style={{ color: C.mut, fontSize: 12 }}>אין משמרות</div>}
-          {logs.length > 0 && <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.dim, marginBottom: 6 }}>סיכומי משמרות (הערות)</div>
-            <DT columns={[
-              { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date}</span> },
-              { label: "משמרת", render: r => <span style={{ color: C.pri }}>{r.slotLabel}</span> },
-              { label: "חוסרים", render: r => <span style={{ color: r.absentees?.length ? C.red : C.dim, fontSize: 11 }}>{(r.absentees || []).join(", ") || "—"}</span> },
-              { label: "הערות", render: r => <span style={{ color: C.dim, fontSize: 11 }}>{r.notes || "—"}</span> }
-            ]} rows={logs} />
-          </div>}
         </div>}
       </Card>;
     })}
