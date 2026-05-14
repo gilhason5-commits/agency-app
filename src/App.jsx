@@ -1119,30 +1119,45 @@ function Prov({ children }) {
   }, []);
 
   // Auto clock-out: every 60s, check for active shifts past their slotEnd
+  const shiftsRef = useRef(shifts);
+  shiftsRef.current = shifts;
+  const autoClockOutDone = useRef(new Set());
   useEffect(() => {
-    const check = () => {
+    const iv = setInterval(() => {
       const now = new Date();
-      shifts.forEach(s => {
+      const cur = shiftsRef.current;
+      const toClose = [];
+      cur.forEach(s => {
         if (!s.clockIn || s.clockOut || s.status !== "approved") return;
-        if (!s.slotEnd || !s.date) return;
-        const [eh, em] = s.slotEnd.split(":").map(Number);
-        const [sy, sm, sd] = s.date.split("-").map(Number);
-        const slotStartH = s.slotStart ? parseInt(s.slotStart.split(":")[0], 10) : 0;
-        const endDate = new Date(sy, sm - 1, sd, eh, em || 0);
-        if (eh <= slotStartH && slotStartH > 0) endDate.setDate(endDate.getDate() + 1);
-        if (now >= endDate) {
-          const clockOut = endDate.toISOString();
-          const diffMs = endDate - new Date(s.clockIn);
-          const hoursWorked = Math.round(diffMs / 36000) / 100;
-          updateShift(s.id, { clockOut, hoursWorked, autoClockOut: true }).catch(() => {});
-          setShifts(prev => prev.map(sh => sh.id === s.id ? { ...sh, clockOut, hoursWorked, autoClockOut: true } : sh));
-        }
+        if (!s.slotEnd || !s.date || typeof s.date !== "string") return;
+        if (autoClockOutDone.current.has(s.id)) return;
+        try {
+          const [eh, em] = s.slotEnd.split(":").map(Number);
+          const [sy, sm, sd] = s.date.split("-").map(Number);
+          if (!sy || !sm || !sd) return;
+          const slotStartH = s.slotStart ? parseInt(s.slotStart.split(":")[0], 10) : 0;
+          const endDate = new Date(sy, sm - 1, sd, eh, em || 0);
+          if (eh <= slotStartH && slotStartH > 0) endDate.setDate(endDate.getDate() + 1);
+          if (now >= endDate) {
+            const clockOut = endDate.toISOString();
+            const diffMs = endDate - new Date(s.clockIn);
+            const hoursWorked = Math.round(diffMs / 36000) / 100;
+            toClose.push({ id: s.id, clockOut, hoursWorked });
+            autoClockOutDone.current.add(s.id);
+          }
+        } catch {}
       });
-    };
-    check();
-    const iv = setInterval(check, 60000);
+      if (toClose.length > 0) {
+        toClose.forEach(c => updateShift(c.id, { clockOut: c.clockOut, hoursWorked: c.hoursWorked, autoClockOut: true }).catch(() => {}));
+        setShifts(prev => {
+          let next = prev;
+          toClose.forEach(c => { next = next.map(sh => sh.id === c.id ? { ...sh, clockOut: c.clockOut, hoursWorked: c.hoursWorked, autoClockOut: true } : sh); });
+          return next;
+        });
+      }
+    }, 60000);
     return () => clearInterval(iv);
-  }, [shifts]);
+  }, []);
 
   const [fixedExps, setFixedExps] = useState([]);
   const [employees, setEmployees] = useState([]);
