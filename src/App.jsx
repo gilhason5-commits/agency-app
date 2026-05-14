@@ -906,7 +906,8 @@ function computeManagedSales(leadName, allShifts, allIncome, datePredicate) {
       return true;
     });
     const slotStartH = ls.slotStart ? parseInt(ls.slotStart.split(":")[0], 10) : 0;
-    const slotEndH = ls.slotEnd ? parseInt(ls.slotEnd.split(":")[0], 10) : 24;
+    let slotEndH = ls.slotEnd ? parseInt(ls.slotEnd.split(":")[0], 10) : 24;
+    if (slotEndH === 0) slotEndH = 24;
     const chatters = uniqueChatters.map(cs => {
       const inc = allIncome.filter(r => {
         if (!r.date || r.chatterName !== cs.chatterName) return false;
@@ -915,7 +916,7 @@ function computeManagedSales(leadName, allShifts, allIncome, datePredicate) {
           : String(r.date).slice(0, 10);
         if (d !== ls.date) return false;
         const h = r.hour ? parseInt(r.hour.split(":")[0], 10) : -1;
-        return h >= slotStartH && h < slotEndH;
+        return slotEndH > slotStartH ? (h >= slotStartH && h < slotEndH) : (h >= slotStartH || h < slotEndH);
       });
       const allClientsForChatter = chatterShifts.filter(s => s.chatterName === cs.chatterName).flatMap(s => (s.clients || []).map(c => typeof c === "string" ? c : c.name));
       const clientsUniq = [...new Set(allClientsForChatter)];
@@ -4965,14 +4966,17 @@ function ChatterPortal({ hideHeader } = {}) {
     if (user?.role === "shift_manager") {
       const dayIncome = income.filter(r => {
         if (!r.date) return false;
-        const d = r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10);
+        const d = r.date instanceof Date
+          ? `${r.date.getFullYear()}-${String(r.date.getMonth()+1).padStart(2,"0")}-${String(r.date.getDate()).padStart(2,"0")}`
+          : String(r.date).slice(0, 10);
         return d === shift.date;
       });
       const slotStartH = shift.slotStart ? parseInt(shift.slotStart.split(":")[0], 10) : 0;
-      const slotEndH = shift.slotEnd ? parseInt(shift.slotEnd.split(":")[0], 10) : 24;
+      let slotEndH = shift.slotEnd ? parseInt(shift.slotEnd.split(":")[0], 10) : 24;
+      if (slotEndH === 0) slotEndH = 24;
       const shiftIncome = dayIncome.filter(r => {
         const h = r.hour ? parseInt(r.hour.split(":")[0], 10) : -1;
-        return h >= slotStartH && h < slotEndH;
+        return slotEndH > slotStartH ? (h >= slotStartH && h < slotEndH) : (h >= slotStartH || h < slotEndH);
       });
       const totalSalesILS = shiftIncome.reduce((s, r) => s + (r.amountILS || 0), 0);
       const totalSalesUSD = shiftIncome.reduce((s, r) => s + (r.amountUSD || 0), 0);
