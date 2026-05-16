@@ -5,6 +5,12 @@ export default defineConfig({
     plugins: [react()],
     build: {
         target: 'es2015',
+        minify: 'terser',
+        rollupOptions: {
+            output: {
+                generatedCode: 'es5'
+            }
+        }
     },
     server: {
         port: 3000,
