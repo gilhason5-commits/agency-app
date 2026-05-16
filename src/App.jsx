@@ -1120,6 +1120,37 @@ function Prov({ children }) {
     }).catch(() => {});
   }, []);
 
+  const [fixedExps, setFixedExps] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const addFixedExp = useCallback(async (record) => {
+    const saved = await addFixedExpense(record);
+    setFixedExps(prev => [...prev, saved]);
+    return saved;
+  }, []);
+  const removeFixedExp = useCallback(async (id) => {
+    await removeFixedExpense(id);
+    setFixedExps(prev => prev.filter(e => e.id !== id));
+  }, []);
+  const updateFixedExp = useCallback(async (id, updates) => {
+    await updateFixedExpense(id, updates);
+    setFixedExps(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+  }, []);
+  const addEmployeeCtx = useCallback(async (record) => {
+    const saved = await addEmployee(record);
+    setEmployees(prev => [...prev, saved]);
+    return saved;
+  }, []);
+  const removeEmployeeCtx = useCallback(async (id) => {
+    await removeEmployee(id);
+    setEmployees(prev => prev.filter(e => e.id !== id));
+  }, []);
+
+  const [shiftSlots, setShiftSlots] = useState([]);
+  const [shifts, setShifts] = useState([]);
+  const [agSettings, setAgSettings] = useState({});
+  const [assets, setAssets] = useState([]);
+  const [teamLeadLogs, setTeamLeadLogs] = useState([]);
+
   // Auto clock-out: every 60s, check for active shifts past their slotEnd
   const shiftsRef = useRef(shifts);
   shiftsRef.current = shifts;
@@ -1160,37 +1191,6 @@ function Prov({ children }) {
     }, 60000);
     return () => clearInterval(iv);
   }, []);
-
-  const [fixedExps, setFixedExps] = useState([]);
-  const [employees, setEmployees] = useState([]);
-  const addFixedExp = useCallback(async (record) => {
-    const saved = await addFixedExpense(record);
-    setFixedExps(prev => [...prev, saved]);
-    return saved;
-  }, []);
-  const removeFixedExp = useCallback(async (id) => {
-    await removeFixedExpense(id);
-    setFixedExps(prev => prev.filter(e => e.id !== id));
-  }, []);
-  const updateFixedExp = useCallback(async (id, updates) => {
-    await updateFixedExpense(id, updates);
-    setFixedExps(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
-  }, []);
-  const addEmployeeCtx = useCallback(async (record) => {
-    const saved = await addEmployee(record);
-    setEmployees(prev => [...prev, saved]);
-    return saved;
-  }, []);
-  const removeEmployeeCtx = useCallback(async (id) => {
-    await removeEmployee(id);
-    setEmployees(prev => prev.filter(e => e.id !== id));
-  }, []);
-
-  const [shiftSlots, setShiftSlots] = useState([]);
-  const [shifts, setShifts] = useState([]);
-  const [agSettings, setAgSettings] = useState({});
-  const [assets, setAssets] = useState([]);
-  const [teamLeadLogs, setTeamLeadLogs] = useState([]);
 
   const [customCats, setCustomCats] = useState([...EXPENSE_CATEGORIES]);
   const _syncCatsToFB = (cats) => { saveAgencySettings({ customCats: cats }).catch(() => {}); };
