@@ -977,6 +977,40 @@ function Prov({ children }) {
     fetchTeamLeadLogs().then(setTeamLeadLogs).catch(() => {});
   }, []);
 
+  // Auto clock-out: close any approved+clocked-in shift once its slot end time has passed.
+  // Applies to chatters and shift managers alike. Hours are computed from clock-in to slot end.
+  const shiftsRef = useRef(shifts);
+  useEffect(() => { shiftsRef.current = shifts; }, [shifts]);
+  const autoOutProcessing = useRef(new Set());
+  useEffect(() => {
+    const runAutoClockOut = () => {
+      const now = new Date();
+      (shiftsRef.current || []).forEach(s => {
+        if (s.status !== "approved" || !s.clockIn || s.clockOut) return;
+        if (!s.date || !s.slotEnd) return;
+        if (autoOutProcessing.current.has(s.id)) return;
+        const [eh, em] = s.slotEnd.split(":").map(Number);
+        const startH = s.slotStart ? parseInt(s.slotStart.split(":")[0], 10) : 0;
+        const endDate = new Date(`${s.date}T00:00:00`);
+        if (isNaN(endDate)) return;
+        endDate.setHours(eh || 0, em || 0, 0, 0);
+        if ((eh || 0) <= startH) endDate.setDate(endDate.getDate() + 1); // overnight slot
+        if (now < endDate) return;
+        const clockInTime = new Date(s.clockIn);
+        if (isNaN(clockInTime)) return;
+        const hoursWorked = Math.max(0, Math.round((endDate - clockInTime) / 3600000 * 10) / 10);
+        autoOutProcessing.current.add(s.id);
+        updateShift(s.id, { clockOut: endDate.toISOString(), hoursWorked, autoClockOut: true })
+          .then(() => setShifts(prev => prev.map(x => x.id === s.id ? { ...x, clockOut: endDate.toISOString(), hoursWorked, autoClockOut: true } : x)))
+          .catch(() => {})
+          .finally(() => autoOutProcessing.current.delete(s.id));
+      });
+    };
+    runAutoClockOut();
+    const iv = setInterval(runAutoClockOut, 60000);
+    return () => clearInterval(iv);
+  }, []);
+
   const loadDemo = useCallback(() => {
     setDemo(true);
     const ch = ["נועם", "שירה", "דנה", "אלון", "מיכל"], cl = ["יעל", "רוני", "נועה", "תמר", "ליאת"], pl = ["OnlyFans", "Fansly", "Instagram", "TikTok"], lo = ["משרד", "חוץ"];
