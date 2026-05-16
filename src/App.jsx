@@ -8101,7 +8101,7 @@ function TeamLeadOverviewPage() {
   const [tlYear, setTlYear] = useState(year);
   const [expanded, setExpanded] = useState(null);
   const [expandedShift, setExpandedShift] = useState(null);
-  const AGENCY_LABEL = "סוכנות";
+  const AGENCY_LABEL = "משמרות בלי ראש משמרת";
 
   const teamLeads = useMemo(() => (sheetUsers || []).filter(u => u.role === "shift_manager").map(u => u.name), [sheetUsers]);
   const tlNames = useMemo(() => [...new Set([...teamLeads, ...teamLeadLogs.map(l => l.teamLeadName)])].filter(Boolean), [teamLeads, teamLeadLogs]);
