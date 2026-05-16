@@ -8094,16 +8094,19 @@ function BuyersPage() {
 // TEAM LEAD OVERVIEW (ADMIN)
 // ═══════════════════════════════════════════════════════
 function TeamLeadOverviewPage() {
-  const { teamLeadLogs, sheetUsers, year, month, view, income, shifts } = useApp();
+  const { teamLeadLogs, sheetUsers, year, month, view, income, shifts, shiftSlots } = useApp();
   const w = useWin();
   const [tlView, setTlView] = useState("monthly");
   const [tlMonth, setTlMonth] = useState(month);
   const [tlYear, setTlYear] = useState(year);
   const [expanded, setExpanded] = useState(null);
   const [expandedShift, setExpandedShift] = useState(null);
+  const AGENCY_LABEL = "משמרות בלי ראש משמרת";
 
   const teamLeads = useMemo(() => (sheetUsers || []).filter(u => u.role === "shift_manager").map(u => u.name), [sheetUsers]);
-  const allNames = useMemo(() => [...new Set([...teamLeads, ...teamLeadLogs.map(l => l.teamLeadName)])].filter(Boolean), [teamLeads, teamLeadLogs]);
+  const tlNames = useMemo(() => [...new Set([...teamLeads, ...teamLeadLogs.map(l => l.teamLeadName)])].filter(Boolean), [teamLeads, teamLeadLogs]);
+  const allNames = useMemo(() => [...tlNames, AGENCY_LABEL], [tlNames]);
+  const sortedSlots = useMemo(() => [...shiftSlots].sort((a, b) => (a.order ?? 99) - (b.order ?? 99)), [shiftSlots]);
 
   const datePred = useCallback((dateStr) => {
     if (!dateStr) return false;
@@ -8115,9 +8118,27 @@ function TeamLeadOverviewPage() {
 
   const managedByLead = useMemo(() => {
     const map = {};
-    allNames.forEach(n => { map[n] = computeManagedSales(n, shifts, income, datePred); });
+    tlNames.forEach(n => { map[n] = computeManagedSales(n, shifts, income, datePred); });
     return map;
-  }, [shifts, income, allNames, datePred]);
+  }, [shifts, income, tlNames, datePred]);
+
+  const agencyIncome = useMemo(() => {
+    const managedIds = new Set();
+    Object.values(managedByLead).forEach(shiftArr => {
+      shiftArr.forEach(sh => {
+        sh.chatters.forEach(c => {
+          c.records.forEach(r => { if (r.id) managedIds.add(r.id); });
+        });
+      });
+    });
+    return income.filter(r => {
+      if (managedIds.has(r.id)) return false;
+      const dateStr = r.date instanceof Date
+        ? `${r.date.getFullYear()}-${String(r.date.getMonth()+1).padStart(2,"0")}-${String(r.date.getDate()).padStart(2,"0")}`
+        : String(r.date || "").slice(0, 10);
+      return datePred(dateStr);
+    });
+  }, [income, managedByLead, datePred]);
 
   const compareData = useMemo(() => {
     if (tlView === "monthly") {
@@ -8125,10 +8146,17 @@ function TeamLeadOverviewPage() {
       const dailySales = {};
       allNames.forEach(n => {
         dailySales[n] = {};
-        (managedByLead[n] || []).forEach(sh => {
-          const day = sh.date ? +sh.date.split("-")[2] : null;
-          if (day) dailySales[n][day] = (dailySales[n][day] || 0) + sh.totalILS;
-        });
+        if (n === AGENCY_LABEL) {
+          agencyIncome.forEach(r => {
+            const d = r.date instanceof Date ? r.date.getDate() : (r.date ? +r.date.split("-")[2] : null);
+            if (d) dailySales[n][d] = (dailySales[n][d] || 0) + (r.amountILS || 0);
+          });
+        } else {
+          (managedByLead[n] || []).forEach(sh => {
+            const day = sh.date ? +sh.date.split("-")[2] : null;
+            if (day) dailySales[n][day] = (dailySales[n][day] || 0) + sh.totalILS;
+          });
+        }
       });
       const rows = [], running = {};
       allNames.forEach(n => { running[n] = 0; });
@@ -8142,10 +8170,18 @@ function TeamLeadOverviewPage() {
     const monthlySales = {};
     allNames.forEach(n => {
       monthlySales[n] = {};
-      (managedByLead[n] || []).forEach(sh => {
-        const mi = sh.date ? +sh.date.split("-")[1] - 1 : null;
-        if (mi !== null) monthlySales[n][mi] = (monthlySales[n][mi] || 0) + sh.totalILS;
-      });
+      if (n === AGENCY_LABEL) {
+        agencyIncome.forEach(r => {
+          const d = r.date instanceof Date ? r.date : new Date(r.date);
+          const mi = d.getMonth();
+          monthlySales[n][mi] = (monthlySales[n][mi] || 0) + (r.amountILS || 0);
+        });
+      } else {
+        (managedByLead[n] || []).forEach(sh => {
+          const mi = sh.date ? +sh.date.split("-")[1] - 1 : null;
+          if (mi !== null) monthlySales[n][mi] = (monthlySales[n][mi] || 0) + sh.totalILS;
+        });
+      }
     });
     const rows = [], running = {};
     allNames.forEach(n => { running[n] = 0; });
@@ -8155,7 +8191,7 @@ function TeamLeadOverviewPage() {
       rows.push(row);
     }
     return rows;
-  }, [managedByLead, allNames, tlView, tlMonth, tlYear]);
+  }, [managedByLead, agencyIncome, allNames, tlView, tlMonth, tlYear]);
 
   return <div style={{ direction: "rtl" }}>
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
@@ -8187,6 +8223,12 @@ function TeamLeadOverviewPage() {
 
     <div style={{ display: "grid", gridTemplateColumns: w < 768 ? "1fr" : "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
       {allNames.map(n => {
+        const isAgency = n === AGENCY_LABEL;
+        if (isAgency) {
+          const totalSales = agencyIncome.reduce((s, r) => s + (r.amountILS || 0), 0);
+          const totalUSD = agencyIncome.reduce((s, r) => s + (r.amountUSD || 0), 0);
+          return <Stat key={n} title={n} icon="🏢" value={fmtC(totalSales)} sub={`${agencyIncome.length} מכירות${totalUSD > 0 ? ` · ${fmtUSD(totalUSD)}` : ""}`} color={C.ylw} />;
+        }
         const managed = managedByLead[n] || [];
         const totalSales = managed.reduce((s, r) => s + r.totalILS, 0);
         const totalUSD = managed.reduce((s, r) => s + r.totalUSD, 0);
@@ -8197,9 +8239,32 @@ function TeamLeadOverviewPage() {
     </div>
 
     {allNames.map(n => {
-      const managed = (managedByLead[n] || []).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+      const isAgency = n === AGENCY_LABEL;
       const logs = (teamLeadLogs || []).filter(l => l.teamLeadName === n).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
       const isOpen = expanded === n;
+
+      if (isAgency) {
+        const totalSales = agencyIncome.reduce((s, r) => s + (r.amountILS || 0), 0);
+        return <Card key={n} style={{ marginBottom: 12 }}>
+          <div onClick={() => setExpanded(isOpen ? null : n)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.txt }}>🏢 {n} — {fmtC(totalSales)} ({agencyIncome.length} מכירות)</div>
+            <span style={{ color: C.dim, fontSize: 16 }}>{isOpen ? "▲" : "▼"}</span>
+          </div>
+          {isOpen && <div style={{ marginTop: 12 }}>
+            {agencyIncome.length > 0 ? <DT columns={[
+              { label: "תאריך", render: r => <span style={{ color: C.txt }}>{r.date instanceof Date ? r.date.toLocaleDateString("he-IL") : r.date}</span> },
+              { label: "שעה", key: "hour" },
+              { label: "צ'אטר", render: r => <span style={{ color: C.txt }}>{r.chatterName}</span> },
+              { label: "לקוחה", render: r => <span style={{ color: C.pri }}>{r.modelName}</span> },
+              { label: "פלטפורמה", key: "platform" },
+              { label: "סכום ₪", render: r => <span style={{ color: C.grn, fontWeight: 600 }}>{fmtC(r.amountILS)}</span> },
+              { label: "סכום $", render: r => <span style={{ color: C.pri }}>{r.amountUSD > 0 ? fmtUSD(r.amountUSD) : "—"}</span> }
+            ]} rows={agencyIncome.sort((a, b) => ((b.date || 0) - (a.date || 0)))} footer={["סה״כ", "", "", "", "", fmtC(totalSales), fmtUSD(agencyIncome.reduce((s, r) => s + (r.amountUSD || 0), 0))]} /> : <div style={{ color: C.mut, fontSize: 12 }}>אין מכירות</div>}
+          </div>}
+        </Card>;
+      }
+
+      const managed = (managedByLead[n] || []).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
       const totalSales = managed.reduce((s, r) => s + r.totalILS, 0);
       const totalSalesCount = managed.reduce((s, r) => s + r.salesCount, 0);
       return <Card key={n} style={{ marginBottom: 12 }}>
