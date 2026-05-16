@@ -1465,6 +1465,10 @@ function TopBar() {
     </div>
     <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
       {onShiftNow.length > 0 && <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {w < 768 ? <span style={{ display: "flex", alignItems: "center", gap: 4, background: `${C.grn}18`, border: `1px solid ${C.grn}44`, borderRadius: 20, padding: "3px 10px" }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: C.grn, display: "inline-block" }} />
+          <span style={{ color: C.txt, fontSize: 11, fontWeight: 600 }}>{onShiftNow.length} במשמרת</span>
+        </span> : <>
         <span style={{ color: C.mut, fontSize: 11, whiteSpace: "nowrap" }}>צאטרים מחוברים:</span>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {onShiftNow.map(s => <span key={s.id} style={{ display: "flex", alignItems: "center", gap: 4, background: `${C.grn}18`, border: `1px solid ${C.grn}44`, borderRadius: 20, padding: "2px 6px 2px 8px" }}>
@@ -1473,6 +1477,7 @@ function TopBar() {
             <button onClick={() => clockOutChatter(s)} title="סמן יציאה" style={{ background: "none", border: "none", cursor: "pointer", color: C.mut, fontSize: 11, lineHeight: 1, padding: "0 2px", display: "flex", alignItems: "center" }}>✕</button>
           </span>)}
         </div>
+        </>}
       </div>}
       {w < 768 && <Btn variant="ghost" size="sm" onClick={logout} style={{ color: C.red, padding: 0 }}>🚪</Btn>}
     </div>
