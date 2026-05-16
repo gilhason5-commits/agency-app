@@ -24,6 +24,8 @@ import {
   fetchAssets, addAssetRecord, updateAssetRecord, removeAssetRecord,
   fetchTeamLeadLogs, addTeamLeadLog, updateTeamLeadLog
 } from "./firebase.js";
+import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import { db } from "./firebase.js";
 
 // ═══════════════════════════════════════════════════════
 // CONFIG
@@ -2816,9 +2818,6 @@ function EditIncomeModal({ record, onClose }) {
 // ═══════════════════════════════════════════════════════
 // RECORD INCOME ADMIN FORM (Bypasses approvals)
 // ═══════════════════════════════════════════════════════
-
-import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
-import { db } from "./firebase.js";
 
 function RecordIncomeAdmin({ onClose }) {
   const { setIncome, liveRate, income, sheetUsers } = useApp();
